@@ -394,10 +394,32 @@ weatherLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
 weatherLabel.TextScaled = true
 weatherLabel.Parent = weatherFrame
 
+-- Next Weather Countdown
+local nextWeatherFrame = Instance.new("Frame")
+nextWeatherFrame.Size = UDim2.new(0, 150 * scale, 0, 50 * scale)
+nextWeatherFrame.Position = UDim2.new(1, -160 * scale, 0, 120 * scale)
+nextWeatherFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 45)
+nextWeatherFrame.BorderSizePixel = 0
+nextWeatherFrame.Parent = screenGui
+
+local nextWeatherCorner = Instance.new("UICorner")
+nextWeatherCorner.CornerRadius = UDim.new(0, 8)
+nextWeatherCorner.Parent = nextWeatherFrame
+
+local nextWeatherLabel = Instance.new("TextLabel")
+nextWeatherLabel.Size = UDim2.new(1, 0, 1, 0)
+nextWeatherLabel.BackgroundTransparency = 1
+nextWeatherLabel.Text = "⏳ Next: 10:00"
+nextWeatherLabel.Font = Enum.Font.GothamBold
+nextWeatherLabel.TextSize = 20 * scale
+nextWeatherLabel.TextColor3 = Color3.fromRGB(255, 200, 0)
+nextWeatherLabel.TextScaled = true
+nextWeatherLabel.Parent = nextWeatherFrame
+
 -- Merchant Button (hidden by default)
 local merchantButton = Instance.new("TextButton")
 merchantButton.Size = UDim2.new(0, 150 * scale, 0, 50 * scale)
-merchantButton.Position = UDim2.new(1, -160 * scale, 0, 130 * scale)
+merchantButton.Position = UDim2.new(1, -160 * scale, 0, 180 * scale)
 merchantButton.Text = "🛍️ Merchant"
 merchantButton.Font = Enum.Font.GothamBold
 merchantButton.TextSize = 18 * scale
@@ -923,6 +945,92 @@ local giveMoneyButtonCorner = Instance.new("UICorner")
 giveMoneyButtonCorner.CornerRadius = UDim.new(0, 8)
 giveMoneyButtonCorner.Parent = giveMoneyButton
 
+-- New Admin Features
+
+-- Force New Weather Button
+local forceWeatherButton = Instance.new("TextButton")
+forceWeatherButton.Size = UDim2.new(1, 0, 0, 40 * scale)
+forceWeatherButton.Text = "Force Weather"
+forceWeatherButton.Font = Enum.Font.GothamBold
+forceWeatherButton.TextSize = 16 * scale
+forceWeatherButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+forceWeatherButton.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
+forceWeatherButton.BorderSizePixel = 0
+forceWeatherButton.Parent = adminContent
+
+local forceWeatherCorner = Instance.new("UICorner")
+forceWeatherCorner.CornerRadius = UDim.new(0, 8)
+forceWeatherCorner.Parent = forceWeatherButton
+
+-- Force End Weather Button
+local forceEndWeatherButton = Instance.new("TextButton")
+forceEndWeatherButton.Size = UDim2.new(1, 0, 0, 40 * scale)
+forceEndWeatherButton.Text = "Force End Weather"
+forceEndWeatherButton.Font = Enum.Font.GothamBold
+forceEndWeatherButton.TextSize = 16 * scale
+forceEndWeatherButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+forceEndWeatherButton.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
+forceEndWeatherButton.BorderSizePixel = 0
+forceEndWeatherButton.Parent = adminContent
+
+local forceEndWeatherCorner = Instance.new("UICorner")
+forceEndWeatherCorner.CornerRadius = UDim.new(0, 8)
+forceEndWeatherCorner.Parent = forceEndWeatherButton
+
+-- Restock Merchant Egg Dropdown and Button
+local MerchantEggNames = {"Brainrot Egg", "Frosted Egg", "Mega Brainrot Egg", "Moonlight Egg", "Subzero Egg"}
+local restockMerchantEggSelected, restockMerchantEggDropdown = CreateDropdown(adminContent, "Restock Merchant Egg:", MerchantEggNames, MerchantEggNames[1])
+
+local restockMerchantEggButton = Instance.new("TextButton")
+restockMerchantEggButton.Size = UDim2.new(1, 0, 0, 40 * scale)
+restockMerchantEggButton.Text = "Restock Merchant Egg Now"
+restockMerchantEggButton.Font = Enum.Font.GothamBold
+restockMerchantEggButton.TextSize = 16 * scale
+restockMerchantEggButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+restockMerchantEggButton.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
+restockMerchantEggButton.BorderSizePixel = 0
+restockMerchantEggButton.Parent = adminContent
+
+local restockMerchantEggCorner = Instance.new("UICorner")
+restockMerchantEggCorner.CornerRadius = UDim.new(0, 8)
+restockMerchantEggCorner.Parent = restockMerchantEggButton
+
+-- Restock Merchant Pet Dropdown and Button
+local MerchantPetNames = {"Cek Cek Satu Dua Tiga Pet", "Ice Queen Pet", "Werewolf Pet"}
+local restockMerchantPetSelected, restockMerchantPetDropdown = CreateDropdown(adminContent, "Restock Merchant Pet:", MerchantPetNames, MerchantPetNames[1])
+
+local restockMerchantPetButton = Instance.new("TextButton")
+restockMerchantPetButton.Size = UDim2.new(1, 0, 0, 40 * scale)
+restockMerchantPetButton.Text = "Restock Merchant Pet Now"
+restockMerchantPetButton.Font = Enum.Font.GothamBold
+restockMerchantPetButton.TextSize = 16 * scale
+restockMerchantPetButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+restockMerchantPetButton.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
+restockMerchantPetButton.BorderSizePixel = 0
+restockMerchantPetButton.Parent = adminContent
+
+local restockMerchantPetCorner = Instance.new("UICorner")
+restockMerchantPetCorner.CornerRadius = UDim.new(0, 8)
+restockMerchantPetCorner.Parent = restockMerchantPetButton
+
+-- Force Specific Weather Dropdown and Button
+local WeatherNames = {"Clear", "Night", "Frosted Zone", "Quirky"}
+local forceSpecificWeatherSelected, forceSpecificWeatherDropdown = CreateDropdown(adminContent, "Force Specific Weather:", WeatherNames, WeatherNames[1])
+
+local forceSpecificWeatherButton = Instance.new("TextButton")
+forceSpecificWeatherButton.Size = UDim2.new(1, 0, 0, 40 * scale)
+forceSpecificWeatherButton.Text = "Force Specific Weather Now"
+forceSpecificWeatherButton.Font = Enum.Font.GothamBold
+forceSpecificWeatherButton.TextSize = 16 * scale
+forceSpecificWeatherButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+forceSpecificWeatherButton.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
+forceSpecificWeatherButton.BorderSizePixel = 0
+forceSpecificWeatherButton.Parent = adminContent
+
+local forceSpecificWeatherCorner = Instance.new("UICorner")
+forceSpecificWeatherCorner.CornerRadius = UDim.new(0, 8)
+forceSpecificWeatherCorner.Parent = forceSpecificWeatherButton
+
 -- Update canvas size for admin
 adminContent.CanvasSize = UDim2.new(0, 0, 0, adminLayout.AbsoluteContentSize.Y + 20)
 
@@ -1064,6 +1172,12 @@ function UpdateMerchantRestockTimer()
     local minutes = math.floor(TimeUntilMerchantRestock / 60)
     local seconds = TimeUntilMerchantRestock % 60
     merchantRestockLabel.Text = string.format("🔄 Restock: %d:%02d", minutes, seconds)
+end
+
+function UpdateNextWeatherTimer()
+    local minutes = math.floor(TimeUntilWeatherChange / 60)
+    local seconds = TimeUntilWeatherChange % 60
+    nextWeatherLabel.Text = string.format("⏳ Next: %d:%02d", minutes, seconds)
 end
 
 function UpdateWeatherLabel()
@@ -1301,7 +1415,7 @@ function UpdateMerchant()
                         PlayerData.Money = PlayerData.Money - item.cost
                         MerchantStock[name].amount = MerchantStock[name].amount - 1
                         if item.type == "egg" then
-                            table.insert(PlayerData.Eggs, {Name = name, Rarity = item.rarity, Pets = item.pets})
+                            table.insert(PlayerData.Eggs, {Name = name, Rarity = item.rarity, pets = item.pets})
                         else
                             table.insert(PlayerData.Pets, {
                                 Name = name,
@@ -1422,7 +1536,7 @@ function UpdateInventory()
         hatchCorner.Parent = hatchButton
         
         hatchButton.MouseButton1Click:Connect(function()
-            local eggInfo = EggData[egg.Name] or egg -- For merchant eggs, egg has Pets
+            local eggInfo = EggData[egg.Name] or egg -- For merchant eggs, egg has pets
             local pets = eggInfo.Pets or egg.pets
             
             -- Roll for pet
@@ -1449,7 +1563,7 @@ function UpdateInventory()
                 if CurrentWeather ~= "Clear" then
                     local mutations = WeatherData[CurrentWeather].mutations
                     for _, mut in ipairs(mutations) do
-                        if math.random(1, mut.chance) == 1 then
+                        if math.random(1, 100) <= (100 / mut.chance) then -- Corrected chance calculation
                             worth = math.floor(worth * mut.multiplier)
                             mutationText = " with " .. mut.name .. " mutation!"
                             break
@@ -1610,6 +1724,94 @@ giveMoneyButton.MouseButton1Click:Connect(function()
     end
 end)
 
+forceWeatherButton.MouseButton1Click:Connect(function()
+    local newWeather = SelectWeather()
+    ApplyWeather(newWeather)
+    TimeUntilWeatherChange = Config.WeatherChangeInterval
+    UpdateWeatherLabel()
+    UpdateNextWeatherTimer()
+    ShowNotification("🌌 Forced new weather: " .. newWeather .. "!")
+end)
+
+forceEndWeatherButton.MouseButton1Click:Connect(function()
+    ApplyWeather("Clear")
+    WeatherDuration = 0
+    TimeUntilWeatherChange = Config.WeatherChangeInterval
+    UpdateWeatherLabel()
+    UpdateNextWeatherTimer()
+    ShowNotification("☀️ Weather ended!")
+end)
+
+restockMerchantEggButton.MouseButton1Click:Connect(function()
+    if CurrentWeather == "Clear" then
+        ShowNotification("❌ No active merchant!")
+        return
+    end
+    local selected = restockMerchantEggSelected.Text
+    local merchant = WeatherData[CurrentWeather].merchant
+    local itemData = nil
+    for _, item in ipairs(merchant.items) do
+        if item.name == selected and item.type == "egg" then
+            itemData = item
+            break
+        end
+    end
+    if not itemData then
+        ShowNotification("❌ Not available in current merchant!")
+        return
+    end
+    if not MerchantStock[selected] then
+        MerchantStock[selected] = {amount = 0, data = itemData}
+    end
+    MerchantStock[selected].amount = MerchantStock[selected].amount + math.random(1, 5)
+    if merchantFrame.Visible then
+        UpdateMerchant()
+    end
+    ShowNotification("🔄 Restocked " .. selected .. "!")
+end)
+
+restockMerchantPetButton.MouseButton1Click:Connect(function()
+    if CurrentWeather == "Clear" then
+        ShowNotification("❌ No active merchant!")
+        return
+    end
+    local selected = restockMerchantPetSelected.Text
+    local merchant = WeatherData[CurrentWeather].merchant
+    local itemData = nil
+    for _, item in ipairs(merchant.items) do
+        if item.name == selected and item.type == "pet" then
+            itemData = item
+            break
+        end
+    end
+    if not itemData then
+        ShowNotification("❌ Not available in current merchant!")
+        return
+    end
+    if not MerchantStock[selected] then
+        MerchantStock[selected] = {amount = 0, data = itemData}
+    end
+    MerchantStock[selected].amount = MerchantStock[selected].amount + math.random(1, 5)
+    if merchantFrame.Visible then
+        UpdateMerchant()
+    end
+    ShowNotification("🔄 Restocked " .. selected .. "!")
+end)
+
+forceSpecificWeatherButton.MouseButton1Click:Connect(function()
+    local selected = forceSpecificWeatherSelected.Text
+    ApplyWeather(selected)
+    if selected ~= "Clear" then
+        WeatherDuration = WeatherData[selected].duration
+    else
+        WeatherDuration = 0
+    end
+    TimeUntilWeatherChange = Config.WeatherChangeInterval
+    UpdateWeatherLabel()
+    UpdateNextWeatherTimer()
+    ShowNotification("🌌 Forced " .. selected .. "!")
+end)
+
 -- Button Connections
 shopButton.MouseButton1Click:Connect(function()
     shopFrame.Visible = not shopFrame.Visible
@@ -1734,12 +1936,15 @@ spawn(function()
                 UpdateWeatherLabel()
             end
         end
+        
+        UpdateNextWeatherTimer()
     end
 end)
 
 -- Initialize
 ApplyWeather("Clear")
 UpdateWeatherLabel()
+UpdateNextWeatherTimer()
 UpdateShop()
 ShowNotification("🎮 Pet System with Weather Loaded!")
 print("Pet System with Weather loaded successfully! Mobile Optimized: " .. tostring(isMobile))
