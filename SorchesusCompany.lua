@@ -1,6 +1,7 @@
 -- Sorchesus Company - Complete Client-Side GUI Script
--- Fixed Crucible updates and added new employees
+-- Fixed Crucible updates and added Yin, Yang, and ERROR anomalies
 -- Modified for mobile friendliness
+-- Updated with new anomalies, outer guard, mood decreases, and adjusted worker intervals
 
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
@@ -187,13 +188,15 @@ local AnomalyDatabase = {
             Name = "The Unbalancer",
             Health = 750,
             M1Damage = 75,
-            Abilities = {"Chaos Strike", "Terror Pulse", "Equilibrium Drain", "Rage Surge"}
-        }
+            Abilities = {"Shadow Strike", "Dark Vortex"}
+        },
+        LinkedAnomaly = "Yang"
     },
     ["Yang"] = {
         Description = "The Bright side of the Equilibrium. Its Passive Nature what makes it Loved.",
         DangerClass = "X",
         BaseMood = 100,
+        NoMoodMeter = true,
         WorkResults = {
             Knowledge = {Success = 1.0, Crucible = 125, MoodChange = 0},
             Social = {Success = 1.0, Crucible = 100, MoodChange = 0},
@@ -205,25 +208,28 @@ local AnomalyDatabase = {
             Name = "The Balancer",
             Health = 800,
             M1Damage = 50,
-            Abilities = {"Harmony Beam", "Calming Aura", "Restorative Light", "Yin Pursuit"}
-        }
+            Abilities = {"Light Heal", "Balance Restoration"}
+        },
+        LinkedAnomaly = "Yin",
+        BreachOnLinkedBreach = true
     },
-    ["[ERROR]"] = {
+    ["ERROR"] = {
         Description = "ERROR 404 FILE NOT FOUND.",
         DangerClass = "XIV",
         BaseMood = 10,
+        HideMoodValue = true,
         WorkResults = {
-            Knowledge = {Success = 0.2, Crucible = 3000, MoodChange = 10},
-            Social = {Success = 0.05, Crucible = 5700, MoodChange = 5},
-            Hunt = {Success = 0.3, Crucible = 3500, MoodChange = 20},
-            Passive = {Success = 0.05, Crucible = 4000, MoodChange = 5}
+            Knowledge = {Success = 0.2, Crucible = 3000, MoodChange = -30, MoodRequirement = 10, AttackOnFail = true, FailDamage = 100},
+            Social = {Success = 0.05, Crucible = 5700, MoodChange = -40, MoodRequirement = 5, AttackOnFail = true, FailDamage = 100},
+            Hunt = {Success = 0.3, Crucible = 3500, MoodChange = -25, MoodRequirement = 20, AttackOnFail = true, FailDamage = 100},
+            Passive = {Success = 0.05, Crucible = 4000, MoodChange = -35, MoodRequirement = 5, AttackOnFail = true, FailDamage = 100}
         },
-        BreachChance = 0.05,
+        BreachChance = 0.08,
         BreachForm = {
             Name = "[ERROR 404 : unexpected error when parsing code]",
             Health = 15000,
             M1Damage = 500,
-            Abilities = {"Data Corruption", "Glitch Warp", "System Overload", "Error Cascade"}
+            Abilities = {"System Corruption", "Data Wipe", "Reality Glitch", "Fatal Exception"}
         }
     },
     ["DISHEVELED MEAT MESS"] = {
@@ -232,17 +238,18 @@ local AnomalyDatabase = {
         BaseMood = 50,
         WorkResults = {
             Knowledge = {Success = 0.1, Crucible = 205, MoodChange = 5},
-            Social = {Success = 0.05, Crucible = 150, MoodChange = 10},
+            Social = {Success = 0.05, Crucible = 150, MoodChange = -10},
             Hunt = {Success = 0.4, Crucible = 350, MoodChange = 45},
-            Passive = {Success = 0.2, Crucible = 500, MoodChange = 5}
+            Passive = {Success = 0.2, Crucible = 500, MoodChange = -5}
         },
-        BreachChance = 0.05,
+        BreachChance = 0.06,
         BreachForm = {
             Name = "THE SCRAMBLER",
             Health = 14500,
             M1Damage = 450,
-            Abilities = {"Skin Steal", "Meat Assimilate", "Flesh Rend", "Regenerative Feast"}
-        }
+            Abilities = {"Flesh Assimilation", "Chaotic Reassembly"}
+        },
+        Special = "MeatMess"
     },
     ["Skeleton King"] = {
         Description = "The one who rules countless Skeleton, The one who's trapped here for decades after accidentally trusting the illusions. Would you join the force mortal and become my army?",
@@ -254,31 +261,33 @@ local AnomalyDatabase = {
             Hunt = {Success = 0.6, Crucible = 120, MoodChange = 30},
             Passive = {Success = 0.3, Crucible = 70, MoodChange = 5}
         },
-        BreachChance = 0.04,
+        BreachChance = 0.035,
         BreachForm = {
             Name = "The Skeleton Monarch",
             Health = 6500,
             M1Damage = 100,
-            Abilities = {"Summon Skeleton Army", "Bone Curse", "Necrotic Conversion", "Monarch's Decree"}
-        }
+            Abilities = {"Army Summon", "Bone Command"}
+        },
+        Special = "SkeletonKing"
     },
     ["Old Wilted Radio"] = {
         Description = "This is the recording we must never forget and ever.",
         DangerClass = "XII",
         BaseMood = 50,
         WorkResults = {
-            Knowledge = {Success = 0.5, Crucible = 50, MoodChange = 5},
+            Knowledge = {Success = 0.5, Crucible = 50, MoodChange = -5},
             Social = {Success = 0.4, Crucible = 65, MoodChange = 5},
             Hunt = {Success = 0.75, Crucible = 75, MoodChange = 35},
-            Passive = {Success = 0.2, Crucible = 35, MoodChange = 10}
+            Passive = {Success = 0.2, Crucible = 35, MoodChange = -10}
         },
-        BreachChance = 0.025,
+        BreachChance = 0.02,
         BreachForm = {
             Name = "GHz 7500",
             Health = 10,
             M1Damage = 80,
-            Abilities = {"Broadcast Interference", "Frequency Overload", "Echo Haunt", "Signal Jam"}
-        }
+            Abilities = {"Frequency Overload", "Signal Distortion"}
+        },
+        Special = "Radio"
     },
     ["Theres Eyes in the Wall"] = {
         Description = "STOP STARING AT ME CREEPILY",
@@ -288,15 +297,16 @@ local AnomalyDatabase = {
             Knowledge = {Success = 0.3, Crucible = 50, MoodChange = 10},
             Social = {Success = 0.4, Crucible = 45, MoodChange = 5},
             Hunt = {Success = 0.5, Crucible = 75, MoodChange = 20},
-            Passive = {Success = 0.1, Crucible = 35, MoodChange = 10}
+            Passive = {Success = 0.1, Crucible = 35, MoodChange = -10}
         },
-        BreachChance = 0.03,
+        BreachChance = 0.02,
         BreachForm = {
             Name = "Spread The Rumors",
             Health = 10,
             M1Damage = 50,
-            Abilities = {"Eye Spawn", "Stare Paralyze", "Rumor Spread", "Vision Overload"}
-        }
+            Abilities = {"Eye Proliferation", "Whisper Network"}
+        },
+        Special = "Eyes"
     },
     ["Jar of Blood"] = {
         Description = "This Jar contains all the Grudge in the world.",
@@ -309,12 +319,9 @@ local AnomalyDatabase = {
             Passive = {Success = 0.5, Crucible = 30, MoodChange = 5}
         },
         BreachChance = 0,
-        BreachForm = {
-            Name = "None it cant breach",
-            Health = 0,
-            M1Damage = 0,
-            Abilities = {}
-        }
+        BreachForm = nil,
+        NoBreach = true,
+        Special = "JarOfBlood"
     }
 }
 
@@ -340,7 +347,9 @@ end
 
 local function UpdateCrucible(amount)
     GameData.Crucible = GameData.Crucible + amount
-    -- Force update the label
+end
+
+local function RefreshCrucibleDisplay()
     if CrucibleLabel then
         CrucibleLabel.Text = "Crucible: " .. GameData.Crucible
     end
@@ -353,16 +362,27 @@ local function UpdateRoomDisplay(anomalyInstance)
     local moodLabel = roomFrame:FindFirstChild("MoodLabel")
     local moodBar = roomFrame:FindFirstChild("MoodBar")
     if moodLabel then
-        moodLabel.Text = "Mood: " .. anomalyInstance.CurrentMood .. "/100"
+        if anomalyInstance.Data.HideMoodValue then
+            moodLabel.Text = "Mood: [ERROR]"
+        elseif anomalyInstance.Data.NoMoodMeter then
+            moodLabel.Text = "Mood: ∞ (Always Peaceful)"
+        else
+            moodLabel.Text = "Mood: " .. anomalyInstance.CurrentMood .. "/100"
+        end
     end
     if moodBar then
-        local moodColor = anomalyInstance.CurrentMood > 50 and Color3.fromRGB(50, 150, 50) or 
-                         anomalyInstance.CurrentMood > 20 and Color3.fromRGB(200, 150, 50) or 
-                         Color3.fromRGB(200, 50, 50)
-        TweenService:Create(moodBar, TweenInfo.new(0.3), {
-            Size = UDim2.new(anomalyInstance.CurrentMood / 100, -10, 0, 8),
-            BackgroundColor3 = moodColor
-        }):Play()
+        if anomalyInstance.Data.NoMoodMeter then
+            moodBar.Size = UDim2.new(1, -10, 0, 8)
+            moodBar.BackgroundColor3 = Color3.fromRGB(100, 255, 100)
+        else
+            local moodColor = anomalyInstance.CurrentMood > 50 and Color3.fromRGB(50, 150, 50) or 
+                             anomalyInstance.CurrentMood > 20 and Color3.fromRGB(200, 150, 50) or 
+                             Color3.fromRGB(200, 50, 50)
+            TweenService:Create(moodBar, TweenInfo.new(0.3), {
+                Size = UDim2.new(anomalyInstance.CurrentMood / 100, -10, 0, 8),
+                BackgroundColor3 = moodColor
+            }):Play()
+        end
     end
 
     local workedByLabel = roomFrame:FindFirstChild("WorkedByLabel")
@@ -584,6 +604,7 @@ for i, emp in ipairs(employees) do
     buyBtn.MouseButton1Click:Connect(function()
         if GameData.Crucible >= emp.cost then
             UpdateCrucible(-emp.cost)
+            RefreshCrucibleDisplay()
             local nameFunc = emp.type == "Worker" and GetRandomWorkerName or GetRandomGuardName
             local name = nameFunc()
             local employee = {
@@ -649,7 +670,6 @@ local AssignTitle = CreateInstance("TextLabel", {
     TextColor3 = Color3.fromRGB(255, 255, 255)
 })
 
--- Close button for Worker & Guards GUI (top right corner)
 local CloseWGButton = CreateInstance("TextButton", {
     Name = "CloseWGButton",
     Parent = AssignGui,
@@ -768,34 +788,60 @@ local CloseOuterButton = CreateInstance("TextButton", {
 })
 CreateInstance("UICorner", {Parent = CloseOuterButton, CornerRadius = UDim.new(0, 6)})
 
-local OuterGuardSection = CreateInstance("ScrollingFrame", {
-    Name = "OuterGuardSection",
+local AvailableOuterGuardSection = CreateInstance("ScrollingFrame", {
+    Name = "AvailableOuterGuardSection",
     Parent = OuterGuardGui,
     BackgroundColor3 = Color3.fromRGB(30, 30, 30),
-    Size = UDim2.new(0.98, 0, 1, -100),
+    Size = UDim2.new(0.48, 0, 1, -100),
     Position = UDim2.new(0.01, 0, 0, 50),
     CanvasSize = UDim2.new(0, 0, 0, 0),
     ScrollBarThickness = 6
 })
 
-local outerGuardList = CreateInstance("UIListLayout", {
-    Parent = OuterGuardSection,
+local availableOuterList = CreateInstance("UIListLayout", {
+    Parent = AvailableOuterGuardSection,
     Padding = UDim.new(0, 10),
     SortOrder = Enum.SortOrder.LayoutOrder
 })
 
-local OuterGuardTitleLabel = CreateInstance("TextLabel", {
-    Parent = OuterGuardSection,
+local AvailableOuterTitle = CreateInstance("TextLabel", {
+    Parent = AvailableOuterGuardSection,
     BackgroundTransparency = 1,
     Size = UDim2.new(1, 0, 0, 30),
-    Text = "Available Guards for Outer",
+    Text = "Available Guards",
     Font = Enum.Font.GothamBold,
     TextSize = 16,
     TextColor3 = Color3.fromRGB(255, 255, 255)
 })
 
-local CloseOuterButtonBottom = CreateInstance("TextButton", {
-    Name = "CloseButtonBottom",
+local CurrentOuterGuardSection = CreateInstance("ScrollingFrame", {
+    Name = "CurrentOuterGuardSection",
+    Parent = OuterGuardGui,
+    BackgroundColor3 = Color3.fromRGB(30, 30, 30),
+    Size = UDim2.new(0.48, 0, 1, -100),
+    Position = UDim2.new(0.51, 0, 0, 50),
+    CanvasSize = UDim2.new(0, 0, 0, 0),
+    ScrollBarThickness = 6
+})
+
+local currentOuterList = CreateInstance("UIListLayout", {
+    Parent = CurrentOuterGuardSection,
+    Padding = UDim.new(0, 10),
+    SortOrder = Enum.SortOrder.LayoutOrder
+})
+
+local CurrentOuterTitle = CreateInstance("TextLabel", {
+    Parent = CurrentOuterGuardSection,
+    BackgroundTransparency = 1,
+    Size = UDim2.new(1, 0, 0, 30),
+    Text = "Current Outer Guards",
+    Font = Enum.Font.GothamBold,
+    TextSize = 16,
+    TextColor3 = Color3.fromRGB(255, 255, 255)
+})
+
+local CloseOuterBottom = CreateInstance("TextButton", {
+    Name = "CloseOuterBottom",
     Parent = OuterGuardGui,
     BackgroundColor3 = Color3.fromRGB(100, 100, 100),
     Size = UDim2.new(0, 100, 0, 35),
@@ -805,7 +851,7 @@ local CloseOuterButtonBottom = CreateInstance("TextButton", {
     TextSize = 14,
     TextColor3 = Color3.fromRGB(255, 255, 255)
 })
-CreateInstance("UICorner", {Parent = CloseOuterButtonBottom, CornerRadius = UDim.new(0, 6)})
+CreateInstance("UICorner", {Parent = CloseOuterBottom, CornerRadius = UDim.new(0, 6)})
 
 -- Cosmic Shard Core Display
 local CoreFrame = CreateInstance("Frame", {
@@ -1127,14 +1173,45 @@ CreateInstance("UICorner", {Parent = CloseDocButton, CornerRadius = UDim.new(0, 
 local function StartWorkerLoop(worker, anomalyInstance)
     spawn(function()
         while worker.AssignedTo == anomalyInstance and worker.HP > 0 and not anomalyInstance.IsBreached do
-            wait(30)
+            wait(5)
+            local oldMood = anomalyInstance.CurrentMood
             local success = math.random() < worker.SuccessChance
             local moodChange = success and 15 or -10
             anomalyInstance.CurrentMood = math.clamp(anomalyInstance.CurrentMood + moodChange, 0, 100)
             if success then
                 UpdateCrucible(20)
+                RefreshCrucibleDisplay()
             end
             UpdateRoomDisplay(anomalyInstance)
+            if moodChange < 0 then
+                if anomalyInstance.Data.Special == "JarOfBlood" then
+                    local damage = 0
+                    local newMood = anomalyInstance.CurrentMood
+                    if newMood <= 10 then damage = 69
+                    elseif newMood <= 30 then damage = 30
+                    elseif newMood <= 75 then damage = 10
+                    end
+                    worker.HP = math.max(0, worker.HP - damage)
+                    CreateNotification(anomalyInstance.Name .. " damaged " .. worker.Name .. " for " .. damage, Color3.fromRGB(200, 50, 50))
+                    if worker.HP <= 0 then
+                        CreateNotification(worker.Name .. " was killed!", Color3.fromRGB(200, 50, 50))
+                        anomalyInstance.AssignedWorker = nil
+                        worker.AssignedTo = nil
+                        UpdateRoomDisplay(anomalyInstance)
+                        break
+                    end
+                end
+            end
+            if anomalyInstance.Data.Special == "MeatMess" and anomalyInstance.CurrentMood < 30 and math.random() < 0.3 then
+                if anomalyInstance.AssignedWorker then
+                    anomalyInstance.AssignedWorker.HP = 0
+                    CreateNotification(anomalyInstance.Name .. " killed and ate " .. anomalyInstance.AssignedWorker.Name, Color3.fromRGB(200, 50, 50))
+                    anomalyInstance.BonusBreachHealth = (anomalyInstance.BonusBreachHealth or 0) + 10
+                    anomalyInstance.AssignedWorker = nil
+                    UpdateRoomDisplay(anomalyInstance)
+                    break
+                end
+            end
             if anomalyInstance.CurrentMood <= 0 then
                 TriggerBreach(anomalyInstance, anomalyInstance.RoomFrame)
                 break
@@ -1159,12 +1236,12 @@ local function PopulateAssignGui(anomalyInstance)
     AssignTitle.Text = "ASSIGN TO " .. anomalyInstance.Name:upper()
     
     for _, child in pairs(WorkerSection:GetChildren()) do
-        if child.Name ~= "UIGridLayout" and child.Name ~= "UIPadding" and child.Name ~= "TextLabel" and child.Name ~= "UIListLayout" then
+        if child.Name ~= "UIListLayout" and child.Name ~= "TextLabel" then
             child:Destroy()
         end
     end
     for _, child in pairs(GuardSection:GetChildren()) do
-        if child.Name ~= "UIGridLayout" and child.Name ~= "UIPadding" and child.Name ~= "TextLabel" and child.Name ~= "UIListLayout" then
+        if child.Name ~= "UIListLayout" and child.Name ~= "TextLabel" then
             child:Destroy()
         end
     end
@@ -1223,6 +1300,64 @@ local function PopulateAssignGui(anomalyInstance)
     GuardSection.CanvasSize = UDim2.new(0, 0, 0, guardList.AbsoluteContentSize.Y + 50)
 end
 
+local function PopulateOuterGui()
+    for _, child in pairs(AvailableOuterGuardSection:GetChildren()) do
+        if child.Name ~= "UIListLayout" and child.Name ~= "TextLabel" then
+            child:Destroy()
+        end
+    end
+    for _, child in pairs(CurrentOuterGuardSection:GetChildren()) do
+        if child.Name ~= "UIListLayout" and child.Name ~= "TextLabel" then
+            child:Destroy()
+        end
+    end
+
+    for _, guard in ipairs(GameData.OwnedGuards) do
+        if guard.HP > 0 and guard.AssignedTo == nil then
+            local btn = CreateInstance("TextButton", {
+                Parent = AvailableOuterGuardSection,
+                BackgroundColor3 = Color3.fromRGB(60, 60, 80),
+                Size = UDim2.new(1, -10, 0, 40),
+                Text = guard.Name .. " (" .. guard.Type .. ") HP: " .. guard.HP,
+                Font = Enum.Font.Gotham,
+                TextSize = 14,
+                TextColor3 = Color3.fromRGB(255, 255, 255)
+            })
+            CreateInstance("UICorner", {Parent = btn})
+            btn.MouseButton1Click:Connect(function()
+                table.insert(GameData.OuterGuards, guard)
+                guard.AssignedTo = "Outer"
+                PopulateOuterGui()
+            end)
+        end
+    end
+    AvailableOuterGuardSection.CanvasSize = UDim2.new(0, 0, 0, availableOuterList.AbsoluteContentSize.Y + 50)
+
+    for _, guard in ipairs(GameData.OuterGuards) do
+        local btn = CreateInstance("TextButton", {
+            Parent = CurrentOuterGuardSection,
+            BackgroundColor3 = Color3.fromRGB(60, 60, 80),
+            Size = UDim2.new(1, -10, 0, 40),
+            Text = guard.Name .. " (" .. guard.Type .. ") HP: " .. guard.HP .. " (Assigned)",
+            Font = Enum.Font.Gotham,
+            TextSize = 14,
+            TextColor3 = Color3.fromRGB(255, 255, 255)
+        })
+        CreateInstance("UICorner", {Parent = btn})
+        btn.MouseButton1Click:Connect(function()
+            guard.AssignedTo = nil
+            for i = #GameData.OuterGuards, 1, -1 do
+                if GameData.OuterGuards[i] == guard then
+                    table.remove(GameData.OuterGuards, i)
+                    break
+                end
+            end
+            PopulateOuterGui()
+        end)
+    end
+    CurrentOuterGuardSection.CanvasSize = UDim2.new(0, 0, 0, currentOuterList.AbsoluteContentSize.Y + 50)
+end
+
 local function CreateAnomalyRoom(anomalyName)
     local anomalyData = AnomalyDatabase[anomalyName]
     if not anomalyData then return end
@@ -1234,7 +1369,8 @@ local function CreateAnomalyRoom(anomalyName)
         AssignedWorker = nil,
         AssignedGuards = {},
         IsBreached = false,
-        RoomFrame = nil
+        RoomFrame = nil,
+        BonusBreachHealth = 0
     }
     
     table.insert(GameData.OwnedAnomalies, anomalyInstance)
@@ -1403,69 +1539,200 @@ function PerformWork(anomalyInstance, workType, roomFrame)
     local workResult = anomalyInstance.Data.WorkResults[workType]
     if not workResult then return end
     
+    if workResult.MoodRequirement and anomalyInstance.CurrentMood < workResult.MoodRequirement then
+        CreateNotification("Mood too low! Minimum required: " .. workResult.MoodRequirement, Color3.fromRGB(200, 50, 50))
+        return
+    end
+    
+    if anomalyInstance.Data.NoMoodMeter then
+        UpdateCrucible(workResult.Crucible)
+        RefreshCrucibleDisplay()
+        CreateNotification("Work Success! +" .. workResult.Crucible .. " Crucible", Color3.fromRGB(50, 200, 50))
+        return
+    end
+    
+    local oldMood = anomalyInstance.CurrentMood
     local success = math.random() < workResult.Success
     local moodChange = 0
-
+    
     if success then
         UpdateCrucible(workResult.Crucible)
+        RefreshCrucibleDisplay()
         moodChange = workResult.MoodChange
-        anomalyInstance.CurrentMood = math.clamp(anomalyInstance.CurrentMood + moodChange, 0, 100)
-
-        if anomalyInstance.CurrentMood <= 0 then
-            TriggerBreach(anomalyInstance, roomFrame)
-        else
+    else
+        if workResult.AttackOnFail and anomalyInstance.AssignedWorker then
+            local damage = workResult.FailDamage
+            anomalyInstance.AssignedWorker.HP = math.max(0, anomalyInstance.AssignedWorker.HP - damage)
+            CreateNotification(anomalyInstance.Name .. " attacked " .. anomalyInstance.AssignedWorker.Name .. " for " .. damage, Color3.fromRGB(200, 50, 50))
+            
+            if anomalyInstance.AssignedWorker.HP <= 0 then
+                CreateNotification(anomalyInstance.AssignedWorker.Name .. " was killed!", Color3.fromRGB(200, 50, 50))
+                anomalyInstance.AssignedWorker = nil
+                UpdateRoomDisplay(anomalyInstance)
+            end
+        end
+        moodChange = math.abs(workResult.MoodChange) * 2 * -1
+    end
+    
+    anomalyInstance.CurrentMood = math.clamp(anomalyInstance.CurrentMood + moodChange, 0, 100)
+    
+    if moodChange < 0 then
+        if anomalyInstance.Data.Special == "JarOfBlood" then
+            local damage = 0
+            local newMood = anomalyInstance.CurrentMood
+            if newMood <= 10 then damage = 3500
+            elseif newMood <= 30 then damage = 750
+            elseif newMood <= 75 then damage = 100
+            end
+            GameData.CosmicShardCoreHealth = math.max(0, GameData.CosmicShardCoreHealth - damage)
+            CreateNotification(anomalyInstance.Name .. " damaged the Cosmic Shard Core for " .. damage, Color3.fromRGB(200, 50, 50))
+            UpdateCoreDisplay()
+        end
+    end
+    
+    if anomalyInstance.Data.Special == "MeatMess" and anomalyInstance.CurrentMood < 30 and math.random() < 0.3 then
+        if anomalyInstance.AssignedWorker then
+            anomalyInstance.AssignedWorker.HP = 0
+            CreateNotification(anomalyInstance.Name .. " killed and ate " .. anomalyInstance.AssignedWorker.Name, Color3.fromRGB(200, 50, 50))
+            anomalyInstance.BonusBreachHealth = (anomalyInstance.BonusBreachHealth or 0) + 10
+            anomalyInstance.AssignedWorker = nil
+            UpdateRoomDisplay(anomalyInstance)
+        end
+    end
+    
+    if anomalyInstance.CurrentMood <= 0 then
+        TriggerBreach(anomalyInstance, roomFrame)
+    else
+        if success then
             if math.random() < anomalyInstance.Data.BreachChance then
                 TriggerBreach(anomalyInstance, roomFrame)
             end
-        end
-
-        local moodText = moodChange >= 0 and ("+" .. moodChange) or tostring(moodChange)
-        CreateNotification("Work Success! +" .. workResult.Crucible .. " Crucible (Mood: " .. moodText .. ")", Color3.fromRGB(50, 200, 50))
-    else
-        moodChange = math.abs(workResult.MoodChange) * 2 * -1
-        anomalyInstance.CurrentMood = math.clamp(anomalyInstance.CurrentMood + moodChange, 0, 100)
-
-        if anomalyInstance.CurrentMood <= 0 then
-            TriggerBreach(anomalyInstance, roomFrame)
         else
             if math.random() < (anomalyInstance.Data.BreachChance * 3) then
                 TriggerBreach(anomalyInstance, roomFrame)
             end
         end
-
-        CreateNotification("Work Failed! Mood decreased by " .. math.abs(moodChange), Color3.fromRGB(200, 50, 50))
     end
-
+    
+    local moodText = moodChange >= 0 and ("+" .. moodChange) or tostring(moodChange)
+    local notifText = success and ("Work Success! +" .. workResult.Crucible .. " Crucible (Mood: " .. moodText .. ")") or ("Work Failed! Mood decreased by " .. math.abs(moodChange))
+    CreateNotification(notifText, success and Color3.fromRGB(50, 200, 50) or Color3.fromRGB(200, 50, 50))
+    
     UpdateRoomDisplay(anomalyInstance)
 end
 
 function TriggerBreach(anomalyInstance, roomFrame)
-    if anomalyInstance.IsBreached then return end
-
+    if anomalyInstance.IsBreached or anomalyInstance.Data.NoBreach then return end
+    
+    if anomalyInstance.Data.NoMoodMeter and not anomalyInstance.Data.BreachOnLinkedBreach then
+        return
+    end
+    
     local breachData = anomalyInstance.Data.BreachForm
     anomalyInstance.IsBreached = true
-    anomalyInstance.BreachHP = breachData.Health
-
+    anomalyInstance.BreachHP = breachData.Health + (anomalyInstance.BonusBreachHealth or 0)
+    anomalyInstance.BreachTime = os.time()
+    
     table.insert(GameData.BreachedAnomalies, {
         Instance = anomalyInstance,
         BreachData = breachData,
         RoomFrame = roomFrame
     })
-
+    
     CreateNotification("BREACH! " .. breachData.Name .. " has escaped!", Color3.fromRGB(255, 0, 0))
-
+    
     UpdateRoomDisplay(anomalyInstance)
     UpdateBreachAlert()
-
+    
+    if anomalyInstance.Data.LinkedAnomaly then
+        for _, otherAnomaly in ipairs(GameData.OwnedAnomalies) do
+            if otherAnomaly.Name == anomalyInstance.Data.LinkedAnomaly and otherAnomaly.Data.BreachOnLinkedBreach then
+                CreateNotification(otherAnomaly.Name .. " is responding to the breach!", Color3.fromRGB(100, 200, 255))
+                TriggerBreach(otherAnomaly, otherAnomaly.RoomFrame)
+            end
+        end
+    end
+    
     StartBreachLoop(anomalyInstance)
 end
 
 function StartBreachLoop(anomalyInstance)
     spawn(function()
         local breachData = anomalyInstance.Data.BreachForm
+        local isYang = anomalyInstance.Name == "Yang"
+        local yinInstance = nil
+        local elapsed = 0
+        
+        local minionTotalHP = 0
+        local minionDamage = 0
+        local eyes = {}
+        
+        if anomalyInstance.Data.Special == "Radio" then
+            minionTotalHP = 500
+            minionDamage = 50
+        end
+        
+        if anomalyInstance.Data.Special == "Eyes" then
+            table.insert(eyes, {HP = 10})
+        end
+        
+        if isYang then
+            for _, anomaly in ipairs(GameData.OwnedAnomalies) do
+                if anomaly.Name == "Yin" and anomaly.IsBreached then
+                    yinInstance = anomaly
+                    break
+                end
+            end
+        end
+        
         while anomalyInstance.IsBreached do
             wait(2)
-
+            elapsed = elapsed + 2
+            
+            if anomalyInstance.Data.Special == "SkeletonKing" and elapsed % 30 == 0 then
+                local allEmployees = {}
+                for _, w in ipairs(GameData.OwnedWorkers) do
+                    if w.HP > 0 then table.insert(allEmployees, w) end
+                end
+                for _, g in ipairs(GameData.OwnedGuards) do
+                    if g.HP > 0 then table.insert(allEmployees, g) end
+                end
+                if #allEmployees > 0 then
+                    local target = allEmployees[math.random(#allEmployees)]
+                    target.HP = 0
+                    CreateNotification(target.Name .. " joined the skeleton army!", Color3.fromRGB(200, 50, 50))
+                    if target.AssignedTo then
+                        if target.AssignedTo.AssignedWorker == target then
+                            target.AssignedTo.AssignedWorker = nil
+                        end
+                        for i = #target.AssignedTo.AssignedGuards, 1, -1 do
+                            if target.AssignedTo.AssignedGuards[i] == target then
+                                table.remove(target.AssignedTo.AssignedGuards, i)
+                            end
+                        end
+                        UpdateRoomDisplay(target.AssignedTo)
+                    end
+                    if target.SuccessChance then
+                        for i = #GameData.OwnedWorkers, 1, -1 do
+                            if GameData.OwnedWorkers[i] == target then
+                                table.remove(GameData.OwnedWorkers, i)
+                            end
+                        end
+                    else
+                        for i = #GameData.OwnedGuards, 1, -1 do
+                            if GameData.OwnedGuards[i] == target then
+                                table.remove(GameData.OwnedGuards, i)
+                            end
+                        end
+                    end
+                end
+            end
+            
+            if anomalyInstance.Data.Special == "Eyes" and elapsed % 5 == 0 then
+                table.insert(eyes, {HP = 10})
+                CreateNotification("New eye appeared!", Color3.fromRGB(200, 50, 50))
+            end
+            
             local employees = {}
             if anomalyInstance.AssignedWorker and anomalyInstance.AssignedWorker.HP > 0 then
                 table.insert(employees, anomalyInstance.AssignedWorker)
@@ -1475,46 +1742,157 @@ function StartBreachLoop(anomalyInstance)
                     table.insert(employees, guard)
                 end
             end
-
-            if #employees > 0 then
-                local target = employees[math.random(#employees)]
-                local damage = breachData.M1Damage
-                target.HP = math.max(0, target.HP - damage)
-                CreateNotification(breachData.Name .. " attacked " .. target.Name .. " for " .. damage, Color3.fromRGB(200, 50, 50))
-
-                if target.HP <= 0 then
-                    CreateNotification(target.Name .. " was killed!", Color3.fromRGB(200, 50, 50))
-                    if target == anomalyInstance.AssignedWorker then
-                        anomalyInstance.AssignedWorker = nil
-                    else
-                        for i = #anomalyInstance.AssignedGuards, 1, -1 do
-                            if anomalyInstance.AssignedGuards[i] == target then
-                                table.remove(anomalyInstance.AssignedGuards, i)
+            
+            -- Special minion/eye damage
+            local extraDamage = 0
+            if anomalyInstance.Data.Special == "Radio" and minionTotalHP > 0 then
+                extraDamage = minionDamage
+            elseif anomalyInstance.Data.Special == "Eyes" and #eyes > 0 then
+                for _, e in ipairs(eyes) do
+                    extraDamage = extraDamage + 50
+                end
+            end
+            if extraDamage > 0 then
+                if #employees > 0 then
+                    local target = employees[math.random(#employees)]
+                    target.HP = math.max(0, target.HP - extraDamage)
+                    CreateNotification(anomalyInstance.Name .. " minions attacked " .. target.Name .. " for " .. extraDamage, Color3.fromRGB(200, 50, 50))
+                    if target.HP <= 0 then
+                        CreateNotification(target.Name .. " was killed!", Color3.fromRGB(200, 50, 50))
+                        if target == anomalyInstance.AssignedWorker then
+                            anomalyInstance.AssignedWorker = nil
+                        else
+                            for i = #anomalyInstance.AssignedGuards, 1, -1 do
+                                if anomalyInstance.AssignedGuards[i] == target then
+                                    table.remove(anomalyInstance.AssignedGuards, i)
+                                    break
+                                end
+                            end
+                        end
+                        target.AssignedTo = nil
+                        UpdateRoomDisplay(anomalyInstance)
+                    end
+                else
+                    GameData.CosmicShardCoreHealth = math.max(0, GameData.CosmicShardCoreHealth - extraDamage)
+                    UpdateCoreDisplay()
+                    if GameData.CosmicShardCoreHealth <= 0 then
+                        CompanyDestroyed()
+                        break
+                    end
+                end
+            end
+            
+            if isYang and yinInstance then
+                if yinInstance.IsBreached and yinInstance.BreachHP > 0 then
+                    local damage = breachData.M1Damage
+                    yinInstance.BreachHP = math.max(0, yinInstance.BreachHP - damage)
+                    CreateNotification("The Balancer attacked The Unbalancer for " .. damage, Color3.fromRGB(100, 200, 255))
+                    
+                    if yinInstance.BreachHP <= 0 then
+                        CreateNotification("The Unbalancer has been contained by The Balancer!", Color3.fromRGB(50, 200, 50))
+                        yinInstance.IsBreached = false
+                        yinInstance.CurrentMood = yinInstance.Data.BaseMood / 2
+                        yinInstance.BreachHP = nil
+                        for i, b in ipairs(GameData.BreachedAnomalies) do
+                            if b.Instance == yinInstance then
+                                table.remove(GameData.BreachedAnomalies, i)
                                 break
                             end
                         end
+                        UpdateRoomDisplay(yinInstance)
+                        
+                        anomalyInstance.IsBreached = false
+                        for i, b in ipairs(GameData.BreachedAnomalies) do
+                            if b.Instance == anomalyInstance then
+                                table.remove(GameData.BreachedAnomalies, i)
+                                break
+                            end
+                        end
+                        UpdateRoomDisplay(anomalyInstance)
+                        UpdateBreachAlert()
+                        UpdateCoreDisplay()
+                        break
                     end
-                    target.AssignedTo = nil
+                else
+                    anomalyInstance.IsBreached = false
+                    for i, b in ipairs(GameData.BreachedAnomalies) do
+                        if b.Instance == anomalyInstance then
+                            table.remove(GameData.BreachedAnomalies, i)
+                            break
+                        end
+                    end
                     UpdateRoomDisplay(anomalyInstance)
+                    UpdateBreachAlert()
+                    UpdateCoreDisplay()
+                    break
                 end
-
+            else
+                if #employees > 0 then
+                    local target = employees[math.random(#employees)]
+                    local damage = breachData.M1Damage
+                    target.HP = math.max(0, target.HP - damage)
+                    CreateNotification(breachData.Name .. " attacked " .. target.Name .. " for " .. damage, Color3.fromRGB(200, 50, 50))
+                    
+                    if target.HP <= 0 then
+                        CreateNotification(target.Name .. " was killed!", Color3.fromRGB(200, 50, 50))
+                        if target == anomalyInstance.AssignedWorker then
+                            anomalyInstance.AssignedWorker = nil
+                        else
+                            for i = #anomalyInstance.AssignedGuards, 1, -1 do
+                                if anomalyInstance.AssignedGuards[i] == target then
+                                    table.remove(anomalyInstance.AssignedGuards, i)
+                                    break
+                                end
+                            end
+                        end
+                        target.AssignedTo = nil
+                        UpdateRoomDisplay(anomalyInstance)
+                    end
+                else
+                    local damage = breachData.M1Damage
+                    GameData.CosmicShardCoreHealth = math.max(0, GameData.CosmicShardCoreHealth - damage)
+                    UpdateCoreDisplay()
+                    if GameData.CosmicShardCoreHealth <= 0 then
+                        CompanyDestroyed()
+                        break
+                    end
+                end
+                
+                local attackTargetHP = anomalyInstance.BreachHP
+                local attackMinions = false
+                
+                if anomalyInstance.Data.Special == "Radio" and minionTotalHP > 0 then
+                    attackTargetHP = minionTotalHP
+                    attackMinions = true
+                elseif anomalyInstance.Data.Special == "Eyes" and #eyes > 0 then
+                    attackTargetHP = eyes[1].HP
+                    attackMinions = true
+                end
+                
                 for _, guard in ipairs(anomalyInstance.AssignedGuards) do
                     if guard.HP > 0 then
                         local gdamage = guard.Damage
-                        anomalyInstance.BreachHP = math.max(0, anomalyInstance.BreachHP - gdamage)
+                        if attackMinions then
+                            if anomalyInstance.Data.Special == "Radio" then
+                                minionTotalHP = math.max(0, minionTotalHP - gdamage)
+                            elseif anomalyInstance.Data.Special == "Eyes" then
+                                eyes[1].HP = math.max(0, eyes[1].HP - gdamage)
+                                if eyes[1].HP <= 0 then
+                                    table.remove(eyes, 1)
+                                    CreateNotification("Eye destroyed!", Color3.fromRGB(50, 200, 50))
+                                end
+                            end
+                        else
+                            anomalyInstance.BreachHP = math.max(0, anomalyInstance.BreachHP - gdamage)
+                        end
                         CreateNotification(guard.Name .. " attacked " .. breachData.Name .. " for " .. gdamage, Color3.fromRGB(50, 200, 50))
                     end
                 end
-
-                -- Outer Guards attack
-                for _, outerGuard in ipairs(GameData.OuterGuards) do
-                    if outerGuard.HP > 0 then
-                        local gdamage = outerGuard.Damage
-                        anomalyInstance.BreachHP = math.max(0, anomalyInstance.BreachHP - gdamage)
-                        CreateNotification(outerGuard.Name .. " (Outer) attacked " .. breachData.Name .. " for " .. gdamage, Color3.fromRGB(50, 200, 50))
-                    end
+                
+                if anomalyInstance.Data.Special == "Eyes" and #eyes == 0 then
+                    anomalyInstance.BreachHP = 0
                 end
-
+                
                 if anomalyInstance.BreachHP <= 0 then
                     CreateNotification(breachData.Name .. " has been contained!", Color3.fromRGB(50, 200, 50))
                     anomalyInstance.IsBreached = false
@@ -1531,57 +1909,81 @@ function StartBreachLoop(anomalyInstance)
                     UpdateCoreDisplay()
                     break
                 end
-            else
-                local damage = breachData.M1Damage
-                GameData.CosmicShardCoreHealth = math.max(0, GameData.CosmicShardCoreHealth - damage)
-                UpdateCoreDisplay()
-                if GameData.CosmicShardCoreHealth <= 0 then
-                    CompanyDestroyed()
-                    break
-                end
             end
         end
     end)
 end
 
+-- Outer Guards Loop
+spawn(function()
+    while true do
+        wait(2)
+        if #GameData.BreachedAnomalies > 0 then
+            table.sort(GameData.BreachedAnomalies, function(a, b) return a.Instance.BreachTime < b.Instance.BreachTime end)
+            local target = GameData.BreachedAnomalies[1].Instance
+            for _, guard in ipairs(GameData.OuterGuards) do
+                if guard.HP > 0 then
+                    local damage = guard.Damage
+                    target.BreachHP = math.max(0, target.BreachHP - damage)
+                    CreateNotification(guard.Name .. " (Outer) attacked " .. target.Data.BreachForm.Name .. " for " .. damage, Color3.fromRGB(50, 200, 50))
+                    if target.BreachHP <= 0 then
+                        CreateNotification(target.Data.BreachForm.Name .. " contained!", Color3.fromRGB(50, 200, 50))
+                        target.IsBreached = false
+                        target.CurrentMood = target.Data.BaseMood / 2
+                        target.BreachHP = nil
+                        for i = #GameData.BreachedAnomalies, 1, -1 do
+                            if GameData.BreachedAnomalies[i].Instance == target then
+                                table.remove(GameData.BreachedAnomalies, i)
+                                break
+                            end
+                        end
+                        UpdateRoomDisplay(target)
+                        UpdateBreachAlert()
+                        UpdateCoreDisplay()
+                    end
+                end
+            end
+        end
+    end
+end)
+
+-- Global Mood Decrease Loop
+spawn(function()
+    while true do
+        wait(30)
+        for _, anomaly in ipairs(GameData.OwnedAnomalies) do
+            if not anomaly.IsBreached and not anomaly.Data.NoMoodMeter and not anomaly.Data.NoBreach then
+                local decrease = 0
+                local class = anomaly.Data.DangerClass
+                if class == "X" or class == "XI" then
+                    decrease = 5
+                elseif class == "XII" or class == "XIII" then
+                    decrease = 10
+                elseif class == "XIV" then
+                    decrease = 15
+                end
+                anomaly.CurrentMood = math.clamp(anomaly.CurrentMood - decrease, 0, 100)
+                UpdateRoomDisplay(anomaly)
+                if anomaly.CurrentMood <= 0 then
+                    TriggerBreach(anomaly, anomaly.RoomFrame)
+                end
+            end
+        end
+    end
+end)
+
 function UpdateCoreDisplay()
     local healthPercent = GameData.CosmicShardCoreHealth / GameData.MaxCoreHealth
     
-    if CoreHealthLabel then
-        CoreHealthLabel.Text = string.format("Health: %d / %d", GameData.CosmicShardCoreHealth, GameData.MaxCoreHealth)
-    end
+    CoreHealthLabel.Text = string.format("Health: %d / %d", GameData.CosmicShardCoreHealth, GameData.MaxCoreHealth)
     
-    if CoreHealthBar then
-        local barColor
-        if healthPercent > 0.6 then
-            barColor = Color3.fromRGB(100, 200, 255)
-        elseif healthPercent > 0.3 then
-            barColor = Color3.fromRGB(255, 200, 100)
-        else
-            barColor = Color3.fromRGB(255, 100, 100)
-        end
-        
-        TweenService:Create(CoreHealthBar, TweenInfo.new(0.5), {
-            Size = UDim2.new(healthPercent, 0, 1, 0),
-            BackgroundColor3 = barColor
-        }):Play()
-    end
+    TweenService:Create(CoreHealthBar, TweenInfo.new(0.5), {
+        Size = UDim2.new(healthPercent, 0, 1, 0),
+        BackgroundColor3 = healthPercent > 0.6 and Color3.fromRGB(100, 200, 255) or healthPercent > 0.3 and Color3.fromRGB(255, 200, 100) or Color3.fromRGB(255, 100, 100)
+    }):Play()
     
-    if CoreStatusLabel then
-        if healthPercent <= 0 then
-            CoreStatusLabel.Text = "STATUS: DESTROYED"
-            CoreStatusLabel.TextColor3 = Color3.fromRGB(255, 50, 50)
-        elseif healthPercent < 0.3 then
-            CoreStatusLabel.Text = "STATUS: CRITICAL"
-            CoreStatusLabel.TextColor3 = Color3.fromRGB(255, 100, 50)
-        elseif healthPercent < 0.6 then
-            CoreStatusLabel.Text = "STATUS: DAMAGED"
-            CoreStatusLabel.TextColor3 = Color3.fromRGB(255, 200, 100)
-        else
-            CoreStatusLabel.Text = "STATUS: PROTECTED"
-            CoreStatusLabel.TextColor3 = Color3.fromRGB(100, 255, 100)
-        end
-    end
+    CoreStatusLabel.Text = GameData.CosmicShardCoreHealth <= 0 and "STATUS: DESTROYED" or healthPercent < 0.3 and "STATUS: CRITICAL" or healthPercent < 0.6 and "STATUS: DAMAGED" or "STATUS: PROTECTED"
+    CoreStatusLabel.TextColor3 = GameData.CosmicShardCoreHealth <= 0 and Color3.fromRGB(255, 50, 50) or healthPercent < 0.3 and Color3.fromRGB(255, 100, 50) or healthPercent < 0.6 and Color3.fromRGB(255, 200, 100) or Color3.fromRGB(100, 255, 100)
     
     UpdateBreachAlert()
 end
@@ -1592,8 +1994,6 @@ function UpdateBreachAlert()
     end
     
     if #GameData.BreachedAnomalies > 0 then
-        local alertText = string.format("⚠ ACTIVE BREACHES: %d ⚠", #GameData.BreachedAnomalies)
-        
         local alertLabel = CreateInstance("TextLabel", {
             Name = "BreachAlert",
             Parent = BreachAlertContainer,
@@ -1601,7 +2001,7 @@ function UpdateBreachAlert()
             BorderSizePixel = 2,
             BorderColor3 = Color3.fromRGB(255, 50, 50),
             Size = UDim2.new(1, 0, 0, 50),
-            Text = alertText,
+            Text = string.format("⚠ ACTIVE BREACHES: %d ⚠", #GameData.BreachedAnomalies),
             Font = Enum.Font.GothamBold,
             TextSize = 14,
             TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -1610,10 +2010,10 @@ function UpdateBreachAlert()
         CreateInstance("UICorner", {Parent = alertLabel, CornerRadius = UDim.new(0, 8)})
         
         spawn(function()
-            while alertLabel and alertLabel.Parent do
+            while alertLabel.Parent do
                 alertLabel.BackgroundColor3 = Color3.fromRGB(150, 20, 20)
                 wait(0.5)
-                if alertLabel and alertLabel.Parent then
+                if alertLabel.Parent then
                     alertLabel.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
                     wait(0.5)
                 end
@@ -1629,7 +2029,6 @@ function CompanyDestroyed()
         BackgroundColor3 = Color3.fromRGB(0, 0, 0),
         BackgroundTransparency = 0.3,
         Size = UDim2.new(1, 0, 1, 0),
-        Position = UDim2.new(0, 0, 0, 0),
         ZIndex = 100
     })
     
@@ -1674,10 +2073,7 @@ function CompanyDestroyed()
         BackgroundTransparency = 1,
         Size = UDim2.new(1, -40, 0, 60),
         Position = UDim2.new(0, 20, 0, 270),
-        Text = string.format("Final Crucible: %d\nAnomalies Contained: %d\nBreaches: %d", 
-            GameData.Crucible, 
-            #GameData.OwnedAnomalies, 
-            #GameData.BreachedAnomalies),
+        Text = string.format("Final Crucible: %d\nAnomalies Contained: %d\nBreaches: %d", GameData.Crucible, #GameData.OwnedAnomalies, #GameData.BreachedAnomalies),
         Font = Enum.Font.Gotham,
         TextSize = 16,
         TextColor3 = Color3.fromRGB(200, 200, 200),
@@ -1708,14 +2104,19 @@ function ShowAnomalyInfo(anomalyInstance)
         TextColor3 = Color3.fromRGB(255, 200, 100)
     })
     
-    local infoText = string.format(
-        "Description: %s\n\nDanger Class: %s\n\nBreach Form: %s\nHealth: %d\nDamage: %d\n\nAbilities: %s",
-        anomalyInstance.Data.Description,
-        anomalyInstance.Data.DangerClass,
+    local breachInfo = anomalyInstance.Data.BreachForm and string.format(
+        "\n\nBreach Form: %s\nHealth: %d\nDamage: %d\n\nAbilities: %s",
         anomalyInstance.Data.BreachForm.Name,
         anomalyInstance.Data.BreachForm.Health,
         anomalyInstance.Data.BreachForm.M1Damage,
         #anomalyInstance.Data.BreachForm.Abilities > 0 and table.concat(anomalyInstance.Data.BreachForm.Abilities, ", ") or "None"
+    ) or "\n\nNo Breach Form"
+    
+    local infoText = string.format(
+        "Description: %s\n\nDanger Class: %s%s",
+        anomalyInstance.Data.Description,
+        anomalyInstance.Data.DangerClass,
+        breachInfo
     )
     
     CreateInstance("TextLabel", {
@@ -1856,7 +2257,7 @@ CloseShopButton.MouseButton1Click:Connect(function()
 end)
 
 OuterGuardButton.MouseButton1Click:Connect(function()
-    PopulateOuterGuardGui()
+    PopulateOuterGui()
     OuterGuardGui.Visible = true
 end)
 
@@ -1864,7 +2265,7 @@ CloseOuterButton.MouseButton1Click:Connect(function()
     OuterGuardGui.Visible = false
 end)
 
-CloseOuterButtonBottom.MouseButton1Click:Connect(function()
+CloseOuterBottom.MouseButton1Click:Connect(function()
     OuterGuardGui.Visible = false
 end)
 
@@ -1879,9 +2280,12 @@ end)
 BuyDocButton.MouseButton1Click:Connect(function()
     if GameData.Crucible >= 100 then
         UpdateCrucible(-100)
+        RefreshCrucibleDisplay()
+        
         GameData.CurrentDocuments = GenerateRandomDocuments()
         DocumentGui.Visible = true
         AnomalyInfo.Visible = false
+        
         CreateNotification("Documents purchased!", Color3.fromRGB(100, 200, 100))
     else
         CreateNotification("Not enough Crucible!", Color3.fromRGB(200, 50, 50))
@@ -1890,27 +2294,25 @@ end)
 
 for i = 1, 3 do
     local docBtn = DocContainer:FindFirstChild("Document" .. i)
-    if docBtn then
-        docBtn.MouseButton1Click:Connect(function()
-            local selectedAnomaly = GameData.CurrentDocuments[i]
-            if selectedAnomaly then
-                local anomalyData = AnomalyDatabase[selectedAnomaly]
-                
-                AnomalyInfo.Visible = true
-                AnomalyNameLabel.Text = "???"
-                DangerClassLabel.Text = "Danger Class: ???"
-                DescriptionLabel.Text = anomalyData.Description
-                
-                GameData.SelectedDocument = selectedAnomaly
-                
-                for j = 1, 3 do
-                    local btn = DocContainer:FindFirstChild("Document" .. j)
-                    btn.BorderColor3 = j == i and Color3.fromRGB(255, 200, 0) or Color3.fromRGB(100, 100, 120)
-                    btn.BorderSizePixel = j == i and 3 or 2
-                end
+    docBtn.MouseButton1Click:Connect(function()
+        local selectedAnomaly = GameData.CurrentDocuments[i]
+        if selectedAnomaly then
+            local anomalyData = AnomalyDatabase[selectedAnomaly]
+            
+            AnomalyInfo.Visible = true
+            AnomalyNameLabel.Text = "???"
+            DangerClassLabel.Text = "Danger Class: ???"
+            DescriptionLabel.Text = anomalyData.Description
+            
+            GameData.SelectedDocument = selectedAnomaly
+            
+            for j = 1, 3 do
+                local btn = DocContainer:FindFirstChild("Document" .. j)
+                btn.BorderColor3 = j == i and Color3.fromRGB(255, 200, 0) or Color3.fromRGB(100, 100, 120)
+                btn.BorderSizePixel = j == i and 3 or 2
             end
-        end)
-    end
+        end
+    end)
 end
 
 AcceptButton.MouseButton1Click:Connect(function()
