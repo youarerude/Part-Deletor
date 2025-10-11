@@ -5,6 +5,7 @@
 -- Fixed errors: nil.HP and sub on nil
 -- Added Execute button and Terminator Protocol button
 -- Changed Apocalypse Herald starter mood to 45
+-- Updated Terminator Protocol to spawn temporary agents that attack with priority and wipe anomalies
 
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
@@ -27,7 +28,9 @@ local GameData = {
     GuardNames = {"Peter", "Rick", "Kyle", "Jayden", "Nolan", "Steven", "Spencer"},
     OwnedWorkers = {},
     OwnedGuards = {},
-    OuterGuards = {}
+    OuterGuards = {},
+    TerminatorAgents = {},
+    TerminatorActive = false
 }
 
 -- Anomaly Database
@@ -356,6 +359,17 @@ local function RefreshCrucibleDisplay()
     if CrucibleLabel then
         CrucibleLabel.Text = "Crucible: " .. GameData.Crucible
     end
+end
+
+local function getDangerLevel(class)
+    local map = {
+        ["X"] = 10,
+        ["XI"] = 11,
+        ["XII"] = 12,
+        ["XIII"] = 13,
+        ["XIV"] = 14
+    }
+    return map[class] or 0
 end
 
 local function UpdateRoomDisplay(anomalyInstance)
@@ -1820,11 +1834,27 @@ function StartBreachLoop(anomalyInstance)
                         UpdateRoomDisplay(anomalyInstance)
                     end
                 else
-                    GameData.CosmicShardCoreHealth = math.max(0, GameData.CosmicShardCoreHealth - extraDamage)
-                    UpdateCoreDisplay()
-                    if GameData.CosmicShardCoreHealth <= 0 then
-                        CompanyDestroyed()
-                        break
+                    local damageTarget = GameData.CosmicShardCoreHealth
+                    if GameData.TerminatorActive and #GameData.TerminatorAgents > 0 then
+                        local agent = GameData.TerminatorAgents[math.random(#GameData.TerminatorAgents)]
+                        agent.HP = math.max(0, agent.HP - extraDamage)
+                        CreateNotification(anomalyInstance.Name .. " minions attacked " .. agent.Name .. " for " .. extraDamage, Color3.fromRGB(200, 50, 50))
+                        if agent.HP <= 0 then
+                            CreateNotification(agent.Name .. " is down!", Color3.fromRGB(200, 50, 50))
+                            for i = #GameData.TerminatorAgents, 1, -1 do
+                                if GameData.TerminatorAgents[i] == agent then
+                                    table.remove(GameData.TerminatorAgents, i)
+                                    break
+                                end
+                            end
+                        end
+                    else
+                        GameData.CosmicShardCoreHealth = math.max(0, GameData.CosmicShardCoreHealth - extraDamage)
+                        UpdateCoreDisplay()
+                        if GameData.CosmicShardCoreHealth <= 0 then
+                            CompanyDestroyed()
+                            break
+                        end
                     end
                 end
             end
@@ -1897,11 +1927,26 @@ function StartBreachLoop(anomalyInstance)
                     end
                 else
                     local damage = breachData.M1Damage
-                    GameData.CosmicShardCoreHealth = math.max(0, GameData.CosmicShardCoreHealth - damage)
-                    UpdateCoreDisplay()
-                    if GameData.CosmicShardCoreHealth <= 0 then
-                        CompanyDestroyed()
-                        break
+                    if GameData.TerminatorActive and #GameData.TerminatorAgents > 0 then
+                        local agent = GameData.TerminatorAgents[math.random(#GameData.TerminatorAgents)]
+                        agent.HP = math.max(0, agent.HP - damage)
+                        CreateNotification(breachData.Name .. " attacked " .. agent.Name .. " for " .. damage, Color3.fromRGB(200, 50, 50))
+                        if agent.HP <= 0 then
+                            CreateNotification(agent.Name .. " is down!", Color3.fromRGB(200, 50, 50))
+                            for i = #GameData.TerminatorAgents, 1, -1 do
+                                if GameData.TerminatorAgents[i] == agent then
+                                    table.remove(GameData.TerminatorAgents, i)
+                                    break
+                                end
+                            end
+                        end
+                    else
+                        GameData.CosmicShardCoreHealth = math.max(0, GameData.CosmicShardCoreHealth - damage)
+                        UpdateCoreDisplay()
+                        if GameData.CosmicShardCoreHealth <= 0 then
+                            CompanyDestroyed()
+                            break
+                        end
                     end
                 end
                 
@@ -1938,10 +1983,11 @@ function StartBreachLoop(anomalyInstance)
                 end
                 
                 if anomalyInstance.BreachHP <= 0 then
-                    if anomalyInstance.ToBeExecuted then
-                        CreateNotification(anomalyInstance.Name .. " has been executed!", Color3.fromRGB(255, 0, 0))
-                        for i, a in ipairs(GameData.OwnedAnomalies) do
-                            if a == anomalyInstance then
+                    local wipe = GameData.TerminatorActive or anomalyInstance.ToBeExecuted
+                    if wipe then
+                        CreateNotification(anomalyInstance.Name .. " has been wiped forever!", Color3.fromRGB(255, 0, 0))
+                        for i = #GameData.OwnedAnomalies, 1, -1 do
+                            if GameData.OwnedAnomalies[i] == anomalyInstance then
                                 table.remove(GameData.OwnedAnomalies, i)
                                 break
                             end
@@ -1996,6 +2042,53 @@ spawn(function()
                         UpdateRoomDisplay(target)
                         UpdateBreachAlert()
                         UpdateCoreDisplay()
+                    end
+                end
+            end
+        end
+    end
+end)
+
+-- Terminator Attack Loop
+spawn(function()
+    while true do
+        wait(2)
+        if GameData.TerminatorActive and #GameData.TerminatorAgents > 0 and #GameData.BreachedAnomalies > 0 then
+            local sorted = {}
+            for _, b in ipairs(GameData.BreachedAnomalies) do
+                table.insert(sorted, b)
+            end
+            table.sort(sorted, function(a, b)
+                return getDangerLevel(a.Instance.Data.DangerClass) > getDangerLevel(b.Instance.Data.DangerClass)
+            end)
+            local target = sorted[1].Instance
+            for _, agent in ipairs(GameData.TerminatorAgents) do
+                if agent.HP > 0 then
+                    local damage = agent.Damage
+                    target.BreachHP = math.max(0, target.BreachHP - damage)
+                    CreateNotification(agent.Name .. " attacked " .. target.Data.BreachForm.Name .. " for " .. damage, Color3.fromRGB(50, 200, 50))
+                    if target.BreachHP <= 0 then
+                        CreateNotification(target.Data.BreachForm.Name .. " wiped!", Color3.fromRGB(255, 0, 0))
+                        for i = #GameData.BreachedAnomalies, 1, -1 do
+                            if GameData.BreachedAnomalies[i].Instance == target then
+                                table.remove(GameData.BreachedAnomalies, i)
+                                break
+                            end
+                        end
+                        for i = #GameData.OwnedAnomalies, 1, -1 do
+                            if GameData.OwnedAnomalies[i] == target then
+                                table.remove(GameData.OwnedAnomalies, i)
+                                break
+                            end
+                        end
+                        target.RoomFrame:Destroy()
+                        UpdateBreachAlert()
+                        UpdateCoreDisplay()
+                        if #GameData.BreachedAnomalies == 0 then
+                            GameData.TerminatorActive = false
+                            GameData.TerminatorAgents = {}
+                            CreateNotification("Terminator agents returning.", Color3.fromRGB(100, 100, 255))
+                        end
                     end
                 end
             end
@@ -2351,29 +2444,20 @@ TerminatorButton.MouseButton1Click:Connect(function()
     RefreshCrucibleDisplay()
     
     local agents = {
-        {name = "Agent Aisyah", hp = 3500, damage = 500},
-        {name = "Agent Blake", hp = 4000, damage = 350},
-        {name = "Agent Tyler", hp = 3750, damage = 450},
-        {name = "Agent Toby", hp = 3000, damage = 750},
-        {name = "Agent Anastasia", hp = 4300, damage = 530},
-        {name = "Agent Elmer", hp = 6000, damage = 600},
-        {name = "Juggernaut Paul", hp = 9000, damage = 1000},
-        {name = "Juggernaut Dexter", hp = 10000, damage = 1500},
-        {name = "Commander Britney", hp = 17500, damage = 3000}
+        {Name = "Agent Aisyah", HP = 3500, Damage = 500},
+        {Name = "Agent Blake", HP = 4000, Damage = 350},
+        {Name = "Agent Tyler", HP = 3750, Damage = 450},
+        {Name = "Agent Toby", HP = 3000, Damage = 750},
+        {Name = "Agent Anastasia", HP = 4300, Damage = 530},
+        {Name = "Agent Elmer", HP = 6000, Damage = 600},
+        {Name = "Juggernaut Paul", HP = 9000, Damage = 1000},
+        {Name = "Juggernaut Dexter", HP = 10000, Damage = 1500},
+        {Name = "Commander Britney", HP = 17500, Damage = 3000}
     }
     
-    for _, ag in ipairs(agents) do
-        local guard = {
-            Name = ag.name,
-            Type = "Terminator Agent",
-            MaxHP = ag.hp,
-            HP = ag.hp,
-            Damage = ag.damage,
-            AssignedTo = nil
-        }
-        table.insert(GameData.OwnedGuards, guard)
-        CreateNotification("Spawned " .. ag.name, Color3.fromRGB(50, 200, 50))
-    end
+    GameData.TerminatorAgents = agents
+    GameData.TerminatorActive = true
+    CreateNotification("Terminator Protocol activated!", Color3.fromRGB(255, 0, 0))
 end)
 
 CloseWGButton.MouseButton1Click:Connect(function()
