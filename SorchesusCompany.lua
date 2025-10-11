@@ -3,6 +3,8 @@
 -- Modified for mobile friendliness
 -- Updated with new anomalies, outer guard, mood decreases, and adjusted worker intervals
 -- Fixed errors: nil.HP and sub on nil
+-- Added Execute button and Terminator Protocol button
+-- Changed Apocalypse Herald starter mood to 45
 
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
@@ -159,7 +161,7 @@ local AnomalyDatabase = {
     ["Apocalypse Herald"] = {
         Description = "The end is nigh, and it comes with a twisted smile.",
         DangerClass = "XIV",
-        BaseMood = 10,
+        BaseMood = 45,
         WorkResults = {
             Knowledge = {Success = 0.3, Crucible = 100, MoodChange = -20},
             Social = {Success = 0.1, Crucible = 50, MoodChange = -40},
@@ -410,7 +412,7 @@ local function UpdateRoomDisplay(anomalyInstance)
     end
 
     for _, child in pairs(roomFrame:GetChildren()) do
-        if child:IsA("TextButton") and child.Name ~= "InfoButton" then
+        if child:IsA("TextButton") and child.Name ~= "InfoButton" and child.Name ~= "ExecuteButton" then
             if anomalyInstance.IsBreached then
                 child.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
                 child.TextColor3 = Color3.fromRGB(100, 100, 100)
@@ -421,7 +423,7 @@ local function UpdateRoomDisplay(anomalyInstance)
                 child.Active = true
             end
         end
-        if child.Name == "AssignButton" then
+        if child.Name == "AssignButton" or child.Name == "ExecuteButton" then
             child.Active = not anomalyInstance.IsBreached
         end
     end
@@ -478,6 +480,19 @@ local OuterGuardButton = CreateInstance("TextButton", {
     Size = UDim2.new(0, 120, 1, 0),
     Position = UDim2.new(0, 460, 0, 0),
     Text = "Outer Guard",
+    Font = Enum.Font.GothamBold,
+    TextSize = 20,
+    TextColor3 = Color3.fromRGB(255, 255, 255),
+    TextXAlignment = Enum.TextXAlignment.Left
+})
+
+local TerminatorButton = CreateInstance("TextButton", {
+    Name = "TerminatorButton",
+    Parent = TopBar,
+    BackgroundTransparency = 1,
+    Size = UDim2.new(0, 150, 1, 0),
+    Position = UDim2.new(0, 580, 0, 0),
+    Text = "Terminator Protocol",
     Font = Enum.Font.GothamBold,
     TextSize = 20,
     TextColor3 = Color3.fromRGB(255, 255, 255),
@@ -953,7 +968,7 @@ local AnomalyContainer = CreateInstance("ScrollingFrame", {
 
 CreateInstance("UIGridLayout", {
     Parent = AnomalyContainer,
-    CellSize = UDim2.new(isMobile and 1 or 0.5, -10, 0, 320),
+    CellSize = UDim2.new(isMobile and 1 or 0.5, -10, 0, 360),
     CellPadding = UDim2.new(0, 10, 0, 10),
     SortOrder = Enum.SortOrder.LayoutOrder
 })
@@ -1210,7 +1225,6 @@ local function StartWorkerLoop(worker, anomalyInstance)
                     anomalyInstance.BonusBreachHealth = (anomalyInstance.BonusBreachHealth or 0) + 10
                     anomalyInstance.AssignedWorker = nil
                     UpdateRoomDisplay(anomalyInstance)
-                    break
                 end
             end
             if anomalyInstance.CurrentMood <= 0 then
@@ -1371,7 +1385,8 @@ local function CreateAnomalyRoom(anomalyName)
         AssignedGuards = {},
         IsBreached = false,
         RoomFrame = nil,
-        BonusBreachHealth = 0
+        BonusBreachHealth = 0,
+        ToBeExecuted = false
     }
     
     table.insert(GameData.OwnedAnomalies, anomalyInstance)
@@ -1515,6 +1530,27 @@ local function CreateAnomalyRoom(anomalyName)
     assignBtn.MouseButton1Click:Connect(function()
         PopulateAssignGui(anomalyInstance)
         AssignGui.Visible = true
+    end)
+    
+    local executeBtn = CreateInstance("TextButton", {
+        Name = "ExecuteButton",
+        Parent = roomFrame,
+        BackgroundColor3 = Color3.fromRGB(150, 50, 50),
+        BorderSizePixel = 0,
+        Size = UDim2.new(0.95, 0, 0, 35),
+        Position = UDim2.new(0.025, 0, 0, 320),
+        Text = "Execute",
+        Font = Enum.Font.GothamBold,
+        TextSize = 12,
+        TextColor3 = Color3.fromRGB(255, 255, 255)
+    })
+    CreateInstance("UICorner", {Parent = executeBtn, CornerRadius = UDim.new(0, 6)})
+    
+    executeBtn.MouseButton1Click:Connect(function()
+        if not anomalyInstance.IsBreached then
+            anomalyInstance.ToBeExecuted = true
+            TriggerBreach(anomalyInstance, roomFrame)
+        end
     end)
     
     anomalyInstance.RoomFrame = roomFrame
@@ -1898,14 +1934,25 @@ function StartBreachLoop(anomalyInstance)
                 if anomalyInstance.Data.Special == "Eyes" and #eyes == 0 then
                     anomalyInstance.BreachHP = 0
                 elseif anomalyInstance.Data.Special == "Radio" and #minions == 0 then
-                    -- Containment check will handle via breachHP <=0
+                    anomalyInstance.BreachHP = 0
                 end
                 
                 if anomalyInstance.BreachHP <= 0 then
-                    CreateNotification(breachData.Name .. " has been contained!", Color3.fromRGB(50, 200, 50))
-                    anomalyInstance.IsBreached = false
-                    anomalyInstance.CurrentMood = anomalyInstance.Data.BaseMood / 2
-                    anomalyInstance.BreachHP = nil
+                    if anomalyInstance.ToBeExecuted then
+                        CreateNotification(anomalyInstance.Name .. " has been executed!", Color3.fromRGB(255, 0, 0))
+                        for i, a in ipairs(GameData.OwnedAnomalies) do
+                            if a == anomalyInstance then
+                                table.remove(GameData.OwnedAnomalies, i)
+                                break
+                            end
+                        end
+                        anomalyInstance.RoomFrame:Destroy()
+                    else
+                        CreateNotification(breachData.Name .. " has been contained!", Color3.fromRGB(50, 200, 50))
+                        anomalyInstance.IsBreached = false
+                        anomalyInstance.CurrentMood = anomalyInstance.Data.BaseMood / 2
+                        anomalyInstance.BreachHP = nil
+                    end
                     for i, b in ipairs(GameData.BreachedAnomalies) do
                         if b.Instance == anomalyInstance then
                             table.remove(GameData.BreachedAnomalies, i)
@@ -2256,6 +2303,19 @@ local function EndWhiteTrain()
     end)
 end
 
+-- Terminator Protocol Function
+local function IsTerminatorAvailable()
+    if #GameData.BreachedAnomalies >= 5 then
+        return true
+    end
+    for _, breach in ipairs(GameData.BreachedAnomalies) do
+        if breach.Instance.Data.DangerClass == "XIV" then
+            return true
+        end
+    end
+    return false
+end
+
 -- Button Connections
 EmployeeButton.MouseButton1Click:Connect(function()
     EmployeeShop.Visible = true
@@ -2276,6 +2336,44 @@ end)
 
 CloseOuterBottom.MouseButton1Click:Connect(function()
     OuterGuardGui.Visible = false
+end)
+
+TerminatorButton.MouseButton1Click:Connect(function()
+    if not IsTerminatorAvailable() then
+        CreateNotification("Terminator Protocol not available!", Color3.fromRGB(200, 50, 50))
+        return
+    end
+    if GameData.Crucible < 35000 then
+        CreateNotification("Not enough Crucible!", Color3.fromRGB(200, 50, 50))
+        return
+    end
+    UpdateCrucible(-35000)
+    RefreshCrucibleDisplay()
+    
+    local agents = {
+        {name = "Agent Aisyah", hp = 3500, damage = 500},
+        {name = "Agent Blake", hp = 4000, damage = 350},
+        {name = "Agent Tyler", hp = 3750, damage = 450},
+        {name = "Agent Toby", hp = 3000, damage = 750},
+        {name = "Agent Anastasia", hp = 4300, damage = 530},
+        {name = "Agent Elmer", hp = 6000, damage = 600},
+        {name = "Juggernaut Paul", hp = 9000, damage = 1000},
+        {name = "Juggernaut Dexter", hp = 10000, damage = 1500},
+        {name = "Commander Britney", hp = 17500, damage = 3000}
+    }
+    
+    for _, ag in ipairs(agents) do
+        local guard = {
+            Name = ag.name,
+            Type = "Terminator Agent",
+            MaxHP = ag.hp,
+            HP = ag.hp,
+            Damage = ag.damage,
+            AssignedTo = nil
+        }
+        table.insert(GameData.OwnedGuards, guard)
+        CreateNotification("Spawned " .. ag.name, Color3.fromRGB(50, 200, 50))
+    end
 end)
 
 CloseWGButton.MouseButton1Click:Connect(function()
