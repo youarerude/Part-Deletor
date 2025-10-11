@@ -2,6 +2,7 @@
 -- Fixed Crucible updates and added Yin, Yang, and ERROR anomalies
 -- Modified for mobile friendliness
 -- Updated with new anomalies, outer guard, mood decreases, and adjusted worker intervals
+-- Fixed errors: nil.HP and sub on nil
 
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
@@ -1663,13 +1664,15 @@ function StartBreachLoop(anomalyInstance)
         local yinInstance = nil
         local elapsed = 0
         
-        local minionTotalHP = 0
+        local minions = {}
         local minionDamage = 0
         local eyes = {}
         
         if anomalyInstance.Data.Special == "Radio" then
-            minionTotalHP = 500
-            minionDamage = 50
+            for i = 1, 5 do
+                table.insert(minions, {HP = 100})
+            end
+            minionDamage = 10
         end
         
         if anomalyInstance.Data.Special == "Eyes" then
@@ -1702,16 +1705,26 @@ function StartBreachLoop(anomalyInstance)
                     target.HP = 0
                     CreateNotification(target.Name .. " joined the skeleton army!", Color3.fromRGB(200, 50, 50))
                     if target.AssignedTo then
-                        if target.AssignedTo.AssignedWorker == target then
-                            target.AssignedTo.AssignedWorker = nil
-                        end
-                        for i = #target.AssignedTo.AssignedGuards, 1, -1 do
-                            if target.AssignedTo.AssignedGuards[i] == target then
-                                table.remove(target.AssignedTo.AssignedGuards, i)
+                        if target.AssignedTo == "Outer" then
+                            for i = #GameData.OuterGuards, 1, -1 do
+                                if GameData.OuterGuards[i] == target then
+                                    table.remove(GameData.OuterGuards, i)
+                                    break
+                                end
                             end
+                        else
+                            if target.AssignedTo.AssignedWorker == target then
+                                target.AssignedTo.AssignedWorker = nil
+                            end
+                            for i = #target.AssignedTo.AssignedGuards, 1, -1 do
+                                if target.AssignedTo.AssignedGuards[i] == target then
+                                    table.remove(target.AssignedTo.AssignedGuards, i)
+                                end
+                            end
+                            UpdateRoomDisplay(target.AssignedTo)
                         end
-                        UpdateRoomDisplay(target.AssignedTo)
                     end
+                    target.AssignedTo = nil
                     if target.SuccessChance then
                         for i = #GameData.OwnedWorkers, 1, -1 do
                             if GameData.OwnedWorkers[i] == target then
@@ -1745,12 +1758,10 @@ function StartBreachLoop(anomalyInstance)
             
             -- Special minion/eye damage
             local extraDamage = 0
-            if anomalyInstance.Data.Special == "Radio" and minionTotalHP > 0 then
-                extraDamage = minionDamage
-            elseif anomalyInstance.Data.Special == "Eyes" and #eyes > 0 then
-                for _, e in ipairs(eyes) do
-                    extraDamage = extraDamage + 50
-                end
+            if anomalyInstance.Data.Special == "Radio" then
+                extraDamage = minionDamage * #minions
+            elseif anomalyInstance.Data.Special == "Eyes" then
+                extraDamage = 50 * #eyes
             end
             if extraDamage > 0 then
                 if #employees > 0 then
@@ -1858,31 +1869,26 @@ function StartBreachLoop(anomalyInstance)
                     end
                 end
                 
-                local attackTargetHP = anomalyInstance.BreachHP
-                local attackMinions = false
-                
-                if anomalyInstance.Data.Special == "Radio" and minionTotalHP > 0 then
-                    attackTargetHP = minionTotalHP
-                    attackMinions = true
-                elseif anomalyInstance.Data.Special == "Eyes" and #eyes > 0 then
-                    attackTargetHP = eyes[1].HP
-                    attackMinions = true
-                end
-                
                 for _, guard in ipairs(anomalyInstance.AssignedGuards) do
                     if guard.HP > 0 then
                         local gdamage = guard.Damage
-                        if attackMinions then
-                            if anomalyInstance.Data.Special == "Radio" then
-                                minionTotalHP = math.max(0, minionTotalHP - gdamage)
-                            elseif anomalyInstance.Data.Special == "Eyes" then
-                                eyes[1].HP = math.max(0, eyes[1].HP - gdamage)
-                                if eyes[1].HP <= 0 then
-                                    table.remove(eyes, 1)
-                                    CreateNotification("Eye destroyed!", Color3.fromRGB(50, 200, 50))
-                                end
+                        local attacked = false
+                        if anomalyInstance.Data.Special == "Radio" and #minions > 0 then
+                            minions[1].HP = math.max(0, minions[1].HP - gdamage)
+                            if minions[1].HP <= 0 then
+                                table.remove(minions, 1)
+                                CreateNotification("kHz 1750 Enemy defeated!", Color3.fromRGB(50, 200, 50))
                             end
-                        else
+                            attacked = true
+                        elseif anomalyInstance.Data.Special == "Eyes" and #eyes > 0 then
+                            eyes[1].HP = math.max(0, eyes[1].HP - gdamage)
+                            if eyes[1].HP <= 0 then
+                                table.remove(eyes, 1)
+                                CreateNotification("Eye destroyed!", Color3.fromRGB(50, 200, 50))
+                            end
+                            attacked = true
+                        end
+                        if not attacked then
                             anomalyInstance.BreachHP = math.max(0, anomalyInstance.BreachHP - gdamage)
                         end
                         CreateNotification(guard.Name .. " attacked " .. breachData.Name .. " for " .. gdamage, Color3.fromRGB(50, 200, 50))
@@ -1891,6 +1897,8 @@ function StartBreachLoop(anomalyInstance)
                 
                 if anomalyInstance.Data.Special == "Eyes" and #eyes == 0 then
                     anomalyInstance.BreachHP = 0
+                elseif anomalyInstance.Data.Special == "Radio" and #minions == 0 then
+                    -- Containment check will handle via breachHP <=0
                 end
                 
                 if anomalyInstance.BreachHP <= 0 then
@@ -1919,10 +1927,11 @@ spawn(function()
     while true do
         wait(2)
         if #GameData.BreachedAnomalies > 0 then
-            table.sort(GameData.BreachedAnomalies, function(a, b) return a.Instance.BreachTime < b.Instance.BreachTime end)
-            local target = GameData.BreachedAnomalies[1].Instance
             for _, guard in ipairs(GameData.OuterGuards) do
                 if guard.HP > 0 then
+                    if #GameData.BreachedAnomalies == 0 then break end
+                    table.sort(GameData.BreachedAnomalies, function(a, b) return a.Instance.BreachTime < b.Instance.BreachTime end)
+                    local target = GameData.BreachedAnomalies[1].Instance
                     local damage = guard.Damage
                     target.BreachHP = math.max(0, target.BreachHP - damage)
                     CreateNotification(guard.Name .. " (Outer) attacked " .. target.Data.BreachForm.Name .. " for " .. damage, Color3.fromRGB(50, 200, 50))
