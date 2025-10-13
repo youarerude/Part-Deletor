@@ -1418,4 +1418,279 @@ local function setupShop()
                 
                 updateShopDisplay()
                 updateInventoryDisplay()
-                print
+                print(player.Name .. " purchased " .. item.name)
+            elseif stock == 0 then
+                print("Out of stock!")
+            else
+                print("Not enough money!")
+            end
+        end)
+    end
+    
+    shopScrollFrame.CanvasSize = UDim2.new(0, 0, 0, shopScrollLayout.AbsoluteContentSize.Y + 10)
+end
+
+-- Button Connections
+shopButton.MouseButton1Click:Connect(function()
+    shopFrame.Visible = not shopFrame.Visible
+    inventoryFrame.Visible = false
+    gardenFrame.Visible = false
+    merchantFrame.Visible = false
+    adminFrame.Visible = false
+end)
+
+shopCloseButton.MouseButton1Click:Connect(function()
+    shopFrame.Visible = false
+end)
+
+inventoryButton.MouseButton1Click:Connect(function()
+    inventoryFrame.Visible = not inventoryFrame.Visible
+    shopFrame.Visible = false
+    gardenFrame.Visible = false
+    merchantFrame.Visible = false
+    adminFrame.Visible = false
+    updateInventoryDisplay()
+end)
+
+invCloseButton.MouseButton1Click:Connect(function()
+    inventoryFrame.Visible = false
+end)
+
+gardenButton.MouseButton1Click:Connect(function()
+    gardenFrame.Visible = not gardenFrame.Visible
+    shopFrame.Visible = false
+    inventoryFrame.Visible = false
+    merchantFrame.Visible = false
+    adminFrame.Visible = false
+    updateGardenDisplay()
+end)
+
+gardenCloseButton.MouseButton1Click:Connect(function()
+    gardenFrame.Visible = false
+end)
+
+merchantButton.MouseButton1Click:Connect(function()
+    merchantFrame.Visible = not merchantFrame.Visible
+    shopFrame.Visible = false
+    inventoryFrame.Visible = false
+    gardenFrame.Visible = false
+    adminFrame.Visible = false
+    if merchantFrame.Visible then
+        updateMerchantDisplay()
+    end
+end)
+
+merchantCloseButton.MouseButton1Click:Connect(function()
+    merchantFrame.Visible = false
+end)
+
+adminButton.MouseButton1Click:Connect(function()
+    adminFrame.Visible = not adminFrame.Visible
+    shopFrame.Visible = false
+    inventoryFrame.Visible = false
+    gardenFrame.Visible = false
+    merchantFrame.Visible = false
+end)
+
+adminCloseButton.MouseButton1Click:Connect(function()
+    adminFrame.Visible = false
+end)
+
+plantInfoClose.MouseButton1Click:Connect(function()
+    plantInfoFrame.Visible = false
+end)
+
+-- Restock System
+local restockTime = 180
+local currentTime = restockTime
+
+local function updateTimer()
+    local minutes = math.floor(currentTime / 60)
+    local seconds = currentTime % 60
+    timerLabel.Text = string.format("Next Restock: %d:%02d", minutes, seconds)
+end
+
+-- Garden Growth System
+spawn(function()
+    while true do
+        task.wait(1)
+        
+        for _, plantData in ipairs(playerGarden) do
+            if not plantData.isFullyGrown then
+                plantData.timeGrown = plantData.timeGrown + 1
+                
+                if plantData.timeGrown >= plantData.growTime then
+                    plantData.isFullyGrown = true
+                    
+                    table.insert(plantData.produces, {
+                        name = plantData.produceName,
+                        worth = plantData.produceWorth,
+                        kg = plantData.produceKG,
+                        growTime = plantData.growTime,
+                        timeGrown = 0,
+                        isReady = false,
+                        growthPercent = 0,
+                        mutations = {}
+                    })
+                end
+            else
+                for _, produce in ipairs(plantData.produces) do
+                    if not produce.isReady then
+                        produce.timeGrown = produce.timeGrown + 1
+                        produce.growthPercent = math.floor((produce.timeGrown / produce.growTime) * 100)
+                        
+                        if produce.timeGrown >= produce.growTime then
+                            produce.isReady = true
+                        end
+                    end
+                end
+                
+                -- Auto-generate new produce when plant is fully grown
+                local allReady = true
+                for _, produce in ipairs(plantData.produces) do
+                    if not produce.isReady then
+                        allReady = false
+                        break
+                    end
+                end
+                
+                if allReady and #plantData.produces < 5 then
+                    table.insert(plantData.produces, {
+                        name = plantData.produceName,
+                        worth = plantData.produceWorth,
+                        kg = plantData.produceKG,
+                        growTime = plantData.growTime,
+                        timeGrown = 0,
+                        isReady = false,
+                        growthPercent = 0,
+                        mutations = {}
+                    })
+                end
+            end
+        end
+        
+        if gardenFrame.Visible then
+            updateGardenDisplay()
+        end
+    end
+end)
+
+-- Restock Timer System
+spawn(function()
+    while true do
+        task.wait(1)
+        currentTime = currentTime - 1
+        
+        if currentTime <= 0 then
+            generateStock()
+            updateShopDisplay()
+            currentTime = restockTime
+            print("Shop restocked!")
+        end
+        
+        updateTimer()
+    end
+end)
+
+-- Weather System
+local activeWeathers = {}
+local nextWeatherRoll = os.time() + 7 * 60
+
+spawn(function()
+    while true do
+        task.wait(1)
+        
+        local now = os.time()
+        
+        -- Check ended weathers
+        for i = #activeWeathers, 1, -1 do
+            if now >= activeWeathers[i].endTime then
+                local w = activeWeathers[i].weather
+                for _, item in ipairs(w.merchantItems) do
+                    merchantStocks[item.name] = nil
+                end
+                table.remove(activeWeathers, i)
+                print("Weather " .. w.name .. " ended!")
+            end
+        end
+        
+        -- Roll for new weathers
+        if now >= nextWeatherRoll then
+            nextWeatherRoll = now + 7 * 60
+            for _, w in ipairs(weathers) do
+                if math.random(1, w.encounterChance) == 1 then
+                    table.insert(activeWeathers, {weather = w, endTime = now + w.duration})
+                    -- Generate merchant stock
+                    for _, item in ipairs(w.merchantItems) do
+                        local roll = math.random(1, item.stockChance)
+                        if roll == 1 then
+                            merchantStocks[item.name] = math.random(1, 10)
+                        else
+                            merchantStocks[item.name] = 0
+                        end
+                    end
+                    print("Weather " .. w.name .. " started!")
+                end
+            end
+        end
+        
+        -- Apply mutations
+        for _, aw in ipairs(activeWeathers) do
+            for _, mut in ipairs(aw.weather.mutations) do
+                for _, plant in ipairs(playerGarden) do
+                    if plant.isFullyGrown then
+                        for _, produce in ipairs(plant.produces) do
+                            if not produce.isReady then
+                                local hasMut = false
+                                for _, pm in ipairs(produce.mutations) do
+                                    if pm.name == mut.name then
+                                        hasMut = true
+                                        break
+                                    end
+                                end
+                                if not hasMut then
+                                    if math.random(1, mut.applyChance) == 1 then
+                                        table.insert(produce.mutations, {name = mut.name, multiplier = mut.multiplier})
+                                        print("Applied " .. mut.name .. " to " .. produce.name)
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        
+        -- Update merchant button visibility
+        merchantButton.Visible = #activeWeathers > 0
+        
+        -- Update weather display
+        local txt = "Weather: "
+        if #activeWeathers == 0 then
+            local timeToNext = math.max(nextWeatherRoll - now, 0)
+            txt = txt .. "Clear (Next in " .. formatTime(timeToNext) .. ")"
+        else
+            for i, aw in ipairs(activeWeathers) do
+                if i > 1 then txt = txt .. ", " end
+                txt = txt .. aw.weather.name .. " (" .. formatTime(aw.endTime - now) .. ")"
+            end
+        end
+        weatherDisplay.Text = txt
+        
+        if merchantFrame.Visible then
+            updateMerchantDisplay()
+        end
+    end
+end)
+
+-- Initialize
+generateStock()
+setupShop()
+updateShopDisplay()
+updateTimer()
+
+print("Plant Shop System Loaded!")
+print("- Press SHOP to buy seeds")
+print("- Press INV to view inventory and plant seeds")
+print("- Press GARDEN to view growing plants and harvest produce")
+print("- Press MERCHANT during weather events for special seeds")
