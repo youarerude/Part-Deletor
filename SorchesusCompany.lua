@@ -6,7 +6,6 @@
 -- Added Execute button and Terminator Protocol button
 -- Changed Apocalypse Herald starter mood to 45
 -- Updated Terminator Protocol to spawn temporary agents that attack with priority and wipe anomalies
--- Modifications: Prevent terminator button and crucible text from merging with horizontal scroll, change terminator to contain instead of kill, added base system
 
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
@@ -15,119 +14,26 @@ local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 local isMobile = UserInputService.TouchEnabled
 
--- Employee Database from the list
-local EmployeeDatabase = {
-    ["Unlucky Worker"] = {cost = 500, hp = 60, success = 0.1, type = "Worker"},
-    ["Normal Worker"] = {cost = 850, hp = 90, success = 0.23, type = "Worker"},
-    ["Smart Worker"] = {cost = 1750, hp = 110, success = 0.35, type = "Worker"},
-    ["Lucky Worker"] = {cost = 2355, hp = 150, success = 0.40, type = "Worker"},
-    ["Smarter Worker"] = {cost = 3400, hp = 230, success = 0.50, type = "Worker"},
-    ["Weak Guard"] = {cost = 900, hp = 120, damage = 25, type = "Guard"},
-    ["Normal Guard"] = {cost = 1500, hp = 175, damage = 40, type = "Guard"},
-    ["Strong Guard"] = {cost = 2500, hp = 299, damage = 75, type = "Guard"},
-    ["Tanky Guard"] = {cost = 5000, hp = 500, damage = 100, type = "Guard"}
-}
-
--- Bases Database
-local BasesDatabase = {
-    {
-        Name = "Ginkha",
-        Cost = 0,
-        StarterCrucible = 100,
-        StarterEquipment = {},
-        Requirement = nil,
-        MaxAnomalyContainment = 5,
-        Perks = {CrucMult = 1, DmgMult = 1},
-        CosmicShardCoreHealth = 15700,
-    },
-    {
-        Name = "Alessia",
-        Cost = 50000,
-        StarterCrucible = 500,
-        StarterEquipment = {
-            Guards = {{Type = "Weak Guard", Count = 1}},
-            Workers = {{Type = "Unlucky Worker", Count = 1}},
-        },
-        Requirement = {Base = "Ginkha", Containment = 5},
-        MaxAnomalyContainment = 7,
-        Perks = {CrucMult = 1.5, DmgMult = 1},
-        CosmicShardCoreHealth = 35000,
-    },
-    {
-        Name = "Carract",
-        Cost = 150000,
-        StarterCrucible = 1750,
-        StarterEquipment = {
-            Guards = {{Type = "Weak Guard", Count = 3}, {Type = "Normal Guard", Count = 1}},
-            Workers = {{Type = "Unlucky Worker", Count = 3}, {Type = "Normal Worker", Count = 1}},
-        },
-        Requirement = {Base = "Alessia", Containment = 7},
-        MaxAnomalyContainment = 10,
-        Perks = {CrucMult = 2, DmgMult = 1.5},
-        CosmicShardCoreHealth = 70000,
-    },
-    {
-        Name = "Carract Sector 2",
-        Cost = 350000,
-        StarterCrucible = 5000,
-        StarterEquipment = {
-            Guards = {{Type = "Normal Guard", Count = 4}},
-            Workers = {{Type = "Normal Worker", Count = 2}},
-        },
-        Requirement = {Base = "Carract", Containment = 10},
-        MaxAnomalyContainment = 15,
-        Perks = {CrucMult = 2.5, DmgMult = 1.5},
-        CosmicShardCoreHealth = 95000,
-    },
-    {
-        Name = "Genesis",
-        Cost = 500000,
-        StarterCrucible = 17500,
-        StarterEquipment = {
-            Guards = {{Type = "Normal Guard", Count = 10}},
-            Workers = {{Type = "Lucky Worker", Count = 2}, {Type = "Normal Worker", Count = 4}},
-        },
-        Requirement = {Base = "Carract Sector 2", Containment = 15},
-        MaxAnomalyContainment = 25,
-        Perks = {CrucMult = 3, DmgMult = 2},
-        CosmicShardCoreHealth = 125000,
-    },
-}
-
 -- Game Data
 local GameData = {
-    Crucible = 0,
+    Crucible = 100,
+    OwnedAnomalies = {},
     WhiteTrainActive = false,
     TrainTimer = 0,
     CurrentDocuments = {},
-    TerminatorAgents = {},
-    TerminatorActive = false,
-    Bases = {},
-    CurrentBase = "Ginkha",
+    CosmicShardCoreHealth = 15700,
+    MaxCoreHealth = 15700,
+    BreachedAnomalies = {},
     WorkerNames = {"Michael", "Christina", "Tenna", "Ethan", "Andy", "Joe", "Richard", "Kaleb", "Brian"},
     GuardNames = {"Peter", "Rick", "Kyle", "Jayden", "Nolan", "Steven", "Spencer"},
+    OwnedWorkers = {},
+    OwnedGuards = {},
+    OuterGuards = {},
+    TerminatorAgents = {},
+    TerminatorActive = false
 }
 
--- Initialize Bases
-for _, baseData in ipairs(BasesDatabase) do
-    GameData.Bases[baseData.Name] = {
-        owned = (baseData.Cost == 0),
-        anomalies = {},
-        workers = {},
-        guards = {},
-        outerGuards = {},
-        breachedAnomalies = {},
-        coreHealth = baseData.CosmicShardCoreHealth,
-        maxCoreHealth = baseData.CosmicShardCoreHealth,
-        maxContainment = baseData.MaxAnomalyContainment,
-        perks = baseData.Perks,
-    }
-    if baseData.Cost == 0 then
-        GameData.Crucible = baseData.StarterCrucible
-    end
-end
-
--- Anomaly Database (unchanged from original)
+-- Anomaly Database
 local AnomalyDatabase = {
     ["Crying Eyeball"] = {
         Description = "Sinful Tears, Sinful Deeds.",
@@ -425,39 +331,7 @@ local AnomalyDatabase = {
     }
 }
 
--- Helper Functions (adjusted)
-local function GetCurrentBase()
-    return GameData.Bases[GameData.CurrentBase]
-end
-
-local function GetBase(anomaly)
-    return GameData.Bases[anomaly.Base]
-end
-
-local function GetAllBreachedAnomalies()
-    local all = {}
-    for _, base in pairs(GameData.Bases) do
-        if base.owned then
-            for _, br in ipairs(base.breachedAnomalies) do
-                table.insert(all, br)
-            end
-        end
-    end
-    return all
-end
-
-local function GetAllAnomalies()
-    local all = {}
-    for _, base in pairs(GameData.Bases) do
-        if base.owned then
-            for _, an in ipairs(base.anomalies) do
-                table.insert(all, an)
-            end
-        end
-    end
-    return all
-end
-
+-- Helper Functions
 local function CreateInstance(className, properties)
     local instance = Instance.new(className)
     for k, v in pairs(properties) do
@@ -512,7 +386,7 @@ local function UpdateRoomDisplay(anomalyInstance)
         else
             moodLabel.Text = "Mood: " .. anomalyInstance.CurrentMood .. "/100"
         end
-    }
+    end
     if moodBar then
         if anomalyInstance.Data.NoMoodMeter then
             moodBar.Size = UDim2.new(1, -10, 0, 8)
@@ -569,9 +443,970 @@ local function UpdateRoomDisplay(anomalyInstance)
     end
 end
 
-local function CreateRoomFrame(anomalyInstance)
+-- Create Main GUI
+local MainGui = CreateInstance("ScreenGui", {
+    Name = "SorchesusCompanyGUI",
+    Parent = playerGui,
+    ResetOnSpawn = false,
+    ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+})
+
+-- Top Bar
+local TopBar = CreateInstance("Frame", {
+    Name = "TopBar",
+    Parent = MainGui,
+    BackgroundColor3 = Color3.fromRGB(20, 20, 20),
+    BorderSizePixel = 0,
+    Size = UDim2.new(1, 0, 0, 50),
+    Position = UDim2.new(0, 0, 0, 0)
+})
+
+local CompanyName = CreateInstance("TextLabel", {
+    Name = "CompanyName",
+    Parent = TopBar,
+    BackgroundTransparency = 1,
+    Size = UDim2.new(0, 300, 1, 0),
+    Position = UDim2.new(0, 20, 0, 0),
+    Text = "SORCHESUS COMPANY",
+    Font = Enum.Font.GothamBold,
+    TextSize = 24,
+    TextColor3 = Color3.fromRGB(200, 50, 50),
+    TextXAlignment = Enum.TextXAlignment.Left
+})
+
+local EmployeeButton = CreateInstance("TextButton", {
+    Name = "EmployeeButton",
+    Parent = TopBar,
+    BackgroundTransparency = 1,
+    Size = UDim2.new(0, 120, 1, 0),
+    Position = UDim2.new(0, 340, 0, 0),
+    Text = "Employees",
+    Font = Enum.Font.GothamBold,
+    TextSize = 20,
+    TextColor3 = Color3.fromRGB(255, 255, 255),
+    TextXAlignment = Enum.TextXAlignment.Left
+})
+
+local OuterGuardButton = CreateInstance("TextButton", {
+    Name = "OuterGuardButton",
+    Parent = TopBar,
+    BackgroundTransparency = 1,
+    Size = UDim2.new(0, 120, 1, 0),
+    Position = UDim2.new(0, 460, 0, 0),
+    Text = "Outer Guard",
+    Font = Enum.Font.GothamBold,
+    TextSize = 20,
+    TextColor3 = Color3.fromRGB(255, 255, 255),
+    TextXAlignment = Enum.TextXAlignment.Left
+})
+
+local TerminatorButton = CreateInstance("TextButton", {
+    Name = "TerminatorButton",
+    Parent = TopBar,
+    BackgroundTransparency = 1,
+    Size = UDim2.new(0, 150, 1, 0),
+    Position = UDim2.new(0, 580, 0, 0),
+    Text = "Terminator Protocol",
+    Font = Enum.Font.GothamBold,
+    TextSize = 20,
+    TextColor3 = Color3.fromRGB(255, 255, 255),
+    TextXAlignment = Enum.TextXAlignment.Left
+})
+
+local CrucibleLabel = CreateInstance("TextLabel", {
+    Name = "CrucibleLabel",
+    Parent = TopBar,
+    BackgroundTransparency = 1,
+    Size = UDim2.new(0, 200, 1, 0),
+    Position = UDim2.new(1, -220, 0, 0),
+    Text = "Crucible: 100",
+    Font = Enum.Font.GothamBold,
+    TextSize = 20,
+    TextColor3 = Color3.fromRGB(255, 215, 0),
+    TextXAlignment = Enum.TextXAlignment.Right
+})
+
+-- Employee Shop GUI
+local EmployeeShop = CreateInstance("Frame", {
+    Name = "EmployeeShop",
+    Parent = MainGui,
+    BackgroundColor3 = Color3.fromRGB(20, 20, 20),
+    BorderSizePixel = 3,
+    BorderColor3 = Color3.fromRGB(100, 100, 100),
+    Size = isMobile and UDim2.new(0.95, 0, 0.95, 0) or UDim2.new(0, 700, 0, 550),
+    Position = isMobile and UDim2.new(0.025, 0, 0.025, 0) or UDim2.new(0.5, -350, 0.5, -275),
+    Visible = false,
+    ZIndex = 10
+})
+
+local ShopTitle = CreateInstance("TextLabel", {
+    Name = "ShopTitle",
+    Parent = EmployeeShop,
+    BackgroundColor3 = Color3.fromRGB(30, 30, 30),
+    BorderSizePixel = 0,
+    Size = UDim2.new(1, 0, 0, 40),
+    Text = "EMPLOYEE SHOP",
+    Font = Enum.Font.GothamBold,
+    TextSize = 18,
+    TextColor3 = Color3.fromRGB(255, 255, 255)
+})
+
+local ShopScroll = CreateInstance("ScrollingFrame", {
+    Name = "ShopScroll",
+    Parent = EmployeeShop,
+    BackgroundColor3 = Color3.fromRGB(25, 25, 25),
+    Size = UDim2.new(1, -20, 1, -90),
+    Position = UDim2.new(0, 10, 0, 50),
+    CanvasSize = UDim2.new(0, 0, 0, 0),
+    ScrollBarThickness = 8
+})
+
+local shopGrid = CreateInstance("UIGridLayout", {
+    Parent = ShopScroll,
+    CellSize = UDim2.new(isMobile and 1 or 0.5, -10, 0, 180),
+    CellPadding = UDim2.new(0, 10, 0, 10),
+    SortOrder = Enum.SortOrder.LayoutOrder,
+    HorizontalAlignment = Enum.HorizontalAlignment.Center
+})
+
+-- Create employee cards in shop
+local employees = {
+    {name = "Unlucky Worker", cost = 500, hp = 60, success = 0.1, type = "Worker"},
+    {name = "Normal Worker", cost = 850, hp = 90, success = 0.23, type = "Worker"},
+    {name = "Smart Worker", cost = 1750, hp = 110, success = 0.35, type = "Worker"},
+    {name = "Lucky Worker", cost = 2355, hp = 150, success = 0.40, type = "Worker"},
+    {name = "Smarter Worker", cost = 3400, hp = 230, success = 0.50, type = "Worker"},
+    {name = "Weak Guard", cost = 900, hp = 120, damage = 25, type = "Guard"},
+    {name = "Normal Guard", cost = 1500, hp = 175, damage = 40, type = "Guard"},
+    {name = "Strong Guard", cost = 2500, hp = 299, damage = 75, type = "Guard"},
+    {name = "Tanky Guard", cost = 5000, hp = 500, damage = 100, type = "Guard"}
+}
+
+for i, emp in ipairs(employees) do
+    local frame = CreateInstance("Frame", {
+        Parent = ShopScroll,
+        BackgroundColor3 = Color3.fromRGB(50, 50, 60)
+    })
+    CreateInstance("UICorner", {Parent = frame})
+    
+    CreateInstance("TextLabel", {
+        Parent = frame,
+        BackgroundTransparency = 1,
+        Size = UDim2.new(1, 0, 0, 30),
+        Text = emp.name,
+        Font = Enum.Font.GothamBold,
+        TextSize = 16,
+        TextColor3 = Color3.fromRGB(255, 255, 255)
+    })
+    
+    local stats = "Cost: " .. emp.cost .. " Crucible\nHealth: " .. emp.hp
+    if emp.type == "Worker" then
+        stats = stats .. "\nSuccess: " .. (emp.success * 100) .. "%"
+    else
+        stats = stats .. "\nDamage: " .. emp.damage
+    end
+    
+    CreateInstance("TextLabel", {
+        Parent = frame,
+        BackgroundTransparency = 1,
+        Size = UDim2.new(1, -10, 0, 90),
+        Position = UDim2.new(0, 5, 0, 30),
+        Text = stats,
+        Font = Enum.Font.Gotham,
+        TextSize = 14,
+        TextColor3 = Color3.fromRGB(200, 200, 200),
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextWrapped = true
+    })
+    
+    local buyBtn = CreateInstance("TextButton", {
+        Parent = frame,
+        BackgroundColor3 = Color3.fromRGB(50, 150, 50),
+        Size = UDim2.new(1, -10, 0, 35),
+        Position = UDim2.new(0, 5, 1, -40),
+        Text = "Buy",
+        Font = Enum.Font.GothamBold,
+        TextSize = 16,
+        TextColor3 = Color3.fromRGB(255, 255, 255)
+    })
+    CreateInstance("UICorner", {Parent = buyBtn})
+    
+    buyBtn.MouseButton1Click:Connect(function()
+        if GameData.Crucible >= emp.cost then
+            UpdateCrucible(-emp.cost)
+            RefreshCrucibleDisplay()
+            local nameFunc = emp.type == "Worker" and GetRandomWorkerName or GetRandomGuardName
+            local name = nameFunc()
+            local employee = {
+                Name = name,
+                Type = emp.name,
+                MaxHP = emp.hp,
+                HP = emp.hp,
+                AssignedTo = nil
+            }
+            if emp.type == "Worker" then
+                employee.SuccessChance = emp.success
+                table.insert(GameData.OwnedWorkers, employee)
+            else
+                employee.Damage = emp.damage
+                table.insert(GameData.OwnedGuards, employee)
+            end
+            CreateNotification("Hired " .. name .. " (" .. emp.name .. ")", Color3.fromRGB(50, 200, 50))
+        else
+            CreateNotification("Not enough Crucible!", Color3.fromRGB(200, 50, 50))
+        end
+    end)
+end
+
+shopGrid:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+    ShopScroll.CanvasSize = UDim2.new(0, 0, 0, shopGrid.AbsoluteContentSize.Y + 20)
+end)
+
+local CloseShopButton = CreateInstance("TextButton", {
+    Name = "CloseButton",
+    Parent = EmployeeShop,
+    BackgroundColor3 = Color3.fromRGB(150, 50, 50),
+    Size = UDim2.new(0, 30, 0, 30),
+    Position = UDim2.new(1, -35, 0, 5),
+    Text = "X",
+    Font = Enum.Font.GothamBold,
+    TextSize = 20,
+    TextColor3 = Color3.fromRGB(255, 255, 255)
+})
+CreateInstance("UICorner", {Parent = CloseShopButton, CornerRadius = UDim.new(0, 6)})
+
+-- Assign GUI
+local AssignGui = CreateInstance("Frame", {
+    Name = "AssignGui",
+    Parent = MainGui,
+    BackgroundColor3 = Color3.fromRGB(20, 20, 20),
+    BorderSizePixel = 3,
+    BorderColor3 = Color3.fromRGB(100, 100, 100),
+    Size = isMobile and UDim2.new(0.95, 0, 0.95, 0) or UDim2.new(0, 600, 0, 450),
+    Position = isMobile and UDim2.new(0.025, 0, 0.025, 0) or UDim2.new(0.5, -300, 0.5, -225),
+    Visible = false,
+    ZIndex = 10
+})
+
+local AssignTitle = CreateInstance("TextLabel", {
+    Name = "AssignTitle",
+    Parent = AssignGui,
+    BackgroundColor3 = Color3.fromRGB(30, 30, 30),
+    BorderSizePixel = 0,
+    Size = UDim2.new(1, 0, 0, 40),
+    Text = "ASSIGN WORKERS & GUARDS",
+    Font = Enum.Font.GothamBold,
+    TextSize = 18,
+    TextColor3 = Color3.fromRGB(255, 255, 255)
+})
+
+local CloseWGButton = CreateInstance("TextButton", {
+    Name = "CloseWGButton",
+    Parent = AssignGui,
+    BackgroundColor3 = Color3.fromRGB(150, 50, 50),
+    Size = UDim2.new(0, 30, 0, 30),
+    Position = UDim2.new(1, -35, 0, 5),
+    Text = "X",
+    Font = Enum.Font.GothamBold,
+    TextSize = 20,
+    TextColor3 = Color3.fromRGB(255, 255, 255),
+    ZIndex = 11
+})
+CreateInstance("UICorner", {Parent = CloseWGButton, CornerRadius = UDim.new(0, 6)})
+
+local WorkerSection = CreateInstance("ScrollingFrame", {
+    Name = "WorkerSection",
+    Parent = AssignGui,
+    BackgroundColor3 = Color3.fromRGB(30, 30, 30),
+    Size = UDim2.new(0.48, 0, 1, -100),
+    Position = UDim2.new(0.01, 0, 0, 50),
+    CanvasSize = UDim2.new(0, 0, 0, 0),
+    ScrollBarThickness = 6
+})
+
+local workerList = CreateInstance("UIListLayout", {
+    Parent = WorkerSection,
+    Padding = UDim.new(0, 10),
+    SortOrder = Enum.SortOrder.LayoutOrder
+})
+
+local WorkerTitle = CreateInstance("TextLabel", {
+    Parent = WorkerSection,
+    BackgroundTransparency = 1,
+    Size = UDim2.new(1, 0, 0, 30),
+    Text = "Available Workers",
+    Font = Enum.Font.GothamBold,
+    TextSize = 16,
+    TextColor3 = Color3.fromRGB(255, 255, 255)
+})
+
+local GuardSection = CreateInstance("ScrollingFrame", {
+    Name = "GuardSection",
+    Parent = AssignGui,
+    BackgroundColor3 = Color3.fromRGB(30, 30, 30),
+    Size = UDim2.new(0.48, 0, 1, -100),
+    Position = UDim2.new(0.51, 0, 0, 50),
+    CanvasSize = UDim2.new(0, 0, 0, 0),
+    ScrollBarThickness = 6
+})
+
+local guardList = CreateInstance("UIListLayout", {
+    Parent = GuardSection,
+    Padding = UDim.new(0, 10),
+    SortOrder = Enum.SortOrder.LayoutOrder
+})
+
+local GuardTitle = CreateInstance("TextLabel", {
+    Parent = GuardSection,
+    BackgroundTransparency = 1,
+    Size = UDim2.new(1, 0, 0, 30),
+    Text = "Available Guards",
+    Font = Enum.Font.GothamBold,
+    TextSize = 16,
+    TextColor3 = Color3.fromRGB(255, 255, 255)
+})
+
+local CloseAssignButtonBottom = CreateInstance("TextButton", {
+    Name = "CloseButtonBottom",
+    Parent = AssignGui,
+    BackgroundColor3 = Color3.fromRGB(100, 100, 100),
+    Size = UDim2.new(0, 100, 0, 35),
+    Position = UDim2.new(0.5, -50, 1, -50),
+    Text = "Close",
+    Font = Enum.Font.GothamBold,
+    TextSize = 14,
+    TextColor3 = Color3.fromRGB(255, 255, 255)
+})
+CreateInstance("UICorner", {Parent = CloseAssignButtonBottom, CornerRadius = UDim.new(0, 6)})
+
+-- Outer Guard GUI
+local OuterGuardGui = CreateInstance("Frame", {
+    Name = "OuterGuardGui",
+    Parent = MainGui,
+    BackgroundColor3 = Color3.fromRGB(20, 20, 20),
+    BorderSizePixel = 3,
+    BorderColor3 = Color3.fromRGB(100, 100, 100),
+    Size = isMobile and UDim2.new(0.95, 0, 0.95, 0) or UDim2.new(0, 600, 0, 450),
+    Position = isMobile and UDim2.new(0.025, 0, 0.025, 0) or UDim2.new(0.5, -300, 0.5, -225),
+    Visible = false,
+    ZIndex = 10
+})
+
+local OuterGuardTitle = CreateInstance("TextLabel", {
+    Name = "OuterGuardTitle",
+    Parent = OuterGuardGui,
+    BackgroundColor3 = Color3.fromRGB(30, 30, 30),
+    BorderSizePixel = 0,
+    Size = UDim2.new(1, 0, 0, 40),
+    Text = "ASSIGN OUTER GUARDS",
+    Font = Enum.Font.GothamBold,
+    TextSize = 18,
+    TextColor3 = Color3.fromRGB(255, 255, 255)
+})
+
+local CloseOuterButton = CreateInstance("TextButton", {
+    Name = "CloseOuterButton",
+    Parent = OuterGuardGui,
+    BackgroundColor3 = Color3.fromRGB(150, 50, 50),
+    Size = UDim2.new(0, 30, 0, 30),
+    Position = UDim2.new(1, -35, 0, 5),
+    Text = "X",
+    Font = Enum.Font.GothamBold,
+    TextSize = 20,
+    TextColor3 = Color3.fromRGB(255, 255, 255),
+    ZIndex = 11
+})
+CreateInstance("UICorner", {Parent = CloseOuterButton, CornerRadius = UDim.new(0, 6)})
+
+local AvailableOuterGuardSection = CreateInstance("ScrollingFrame", {
+    Name = "AvailableOuterGuardSection",
+    Parent = OuterGuardGui,
+    BackgroundColor3 = Color3.fromRGB(30, 30, 30),
+    Size = UDim2.new(0.48, 0, 1, -100),
+    Position = UDim2.new(0.01, 0, 0, 50),
+    CanvasSize = UDim2.new(0, 0, 0, 0),
+    ScrollBarThickness = 6
+})
+
+local availableOuterList = CreateInstance("UIListLayout", {
+    Parent = AvailableOuterGuardSection,
+    Padding = UDim.new(0, 10),
+    SortOrder = Enum.SortOrder.LayoutOrder
+})
+
+local AvailableOuterTitle = CreateInstance("TextLabel", {
+    Parent = AvailableOuterGuardSection,
+    BackgroundTransparency = 1,
+    Size = UDim2.new(1, 0, 0, 30),
+    Text = "Available Guards",
+    Font = Enum.Font.GothamBold,
+    TextSize = 16,
+    TextColor3 = Color3.fromRGB(255, 255, 255)
+})
+
+local CurrentOuterGuardSection = CreateInstance("ScrollingFrame", {
+    Name = "CurrentOuterGuardSection",
+    Parent = OuterGuardGui,
+    BackgroundColor3 = Color3.fromRGB(30, 30, 30),
+    Size = UDim2.new(0.48, 0, 1, -100),
+    Position = UDim2.new(0.51, 0, 0, 50),
+    CanvasSize = UDim2.new(0, 0, 0, 0),
+    ScrollBarThickness = 6
+})
+
+local currentOuterList = CreateInstance("UIListLayout", {
+    Parent = CurrentOuterGuardSection,
+    Padding = UDim.new(0, 10),
+    SortOrder = Enum.SortOrder.LayoutOrder
+})
+
+local CurrentOuterTitle = CreateInstance("TextLabel", {
+    Parent = CurrentOuterGuardSection,
+    BackgroundTransparency = 1,
+    Size = UDim2.new(1, 0, 0, 30),
+    Text = "Current Outer Guards",
+    Font = Enum.Font.GothamBold,
+    TextSize = 16,
+    TextColor3 = Color3.fromRGB(255, 255, 255)
+})
+
+local CloseOuterBottom = CreateInstance("TextButton", {
+    Name = "CloseOuterBottom",
+    Parent = OuterGuardGui,
+    BackgroundColor3 = Color3.fromRGB(100, 100, 100),
+    Size = UDim2.new(0, 100, 0, 35),
+    Position = UDim2.new(0.5, -50, 1, -50),
+    Text = "Close",
+    Font = Enum.Font.GothamBold,
+    TextSize = 14,
+    TextColor3 = Color3.fromRGB(255, 255, 255)
+})
+CreateInstance("UICorner", {Parent = CloseOuterBottom, CornerRadius = UDim.new(0, 6)})
+
+-- Cosmic Shard Core Display
+local CoreFrame = CreateInstance("Frame", {
+    Name = "CoreFrame",
+    Parent = MainGui,
+    BackgroundColor3 = Color3.fromRGB(20, 20, 30),
+    BorderSizePixel = 2,
+    BorderColor3 = Color3.fromRGB(100, 200, 255),
+    Size = UDim2.new(0.28, -20, 0.25, 0),
+    Position = UDim2.new(0.72, 0, 0.5, 10)
+})
+
+CreateInstance("UICorner", {Parent = CoreFrame, CornerRadius = UDim.new(0, 10)})
+
+local CoreTitle = CreateInstance("TextLabel", {
+    Name = "CoreTitle",
+    Parent = CoreFrame,
+    BackgroundColor3 = Color3.fromRGB(30, 30, 50),
+    BorderSizePixel = 0,
+    Size = UDim2.new(1, 0, 0, 40),
+    Text = "COSMIC SHARD CORE",
+    Font = Enum.Font.GothamBold,
+    TextSize = 16,
+    TextColor3 = Color3.fromRGB(150, 220, 255)
+})
+
+CreateInstance("UICorner", {Parent = CoreTitle, CornerRadius = UDim.new(0, 10)})
+
+local CoreHealthLabel = CreateInstance("TextLabel", {
+    Name = "CoreHealthLabel",
+    Parent = CoreFrame,
+    BackgroundTransparency = 1,
+    Size = UDim2.new(1, -20, 0, 30),
+    Position = UDim2.new(0, 10, 0, 50),
+    Text = "Health: 15700 / 15700",
+    Font = Enum.Font.GothamBold,
+    TextSize = 14,
+    TextColor3 = Color3.fromRGB(255, 255, 255),
+    TextXAlignment = Enum.TextXAlignment.Center
+})
+
+local CoreHealthBarBG = CreateInstance("Frame", {
+    Name = "CoreHealthBarBG",
+    Parent = CoreFrame,
+    BackgroundColor3 = Color3.fromRGB(40, 40, 40),
+    BorderSizePixel = 0,
+    Size = UDim2.new(1, -20, 0, 25),
+    Position = UDim2.new(0, 10, 0, 85)
+})
+
+CreateInstance("UICorner", {Parent = CoreHealthBarBG, CornerRadius = UDim.new(0, 8)})
+
+local CoreHealthBar = CreateInstance("Frame", {
+    Name = "CoreHealthBar",
+    Parent = CoreHealthBarBG,
+    BackgroundColor3 = Color3.fromRGB(100, 200, 255),
+    BorderSizePixel = 0,
+    Size = UDim2.new(1, 0, 1, 0),
+    Position = UDim2.new(0, 0, 0, 0)
+})
+
+CreateInstance("UICorner", {Parent = CoreHealthBar, CornerRadius = UDim.new(0, 8)})
+
+local CoreStatusLabel = CreateInstance("TextLabel", {
+    Name = "CoreStatusLabel",
+    Parent = CoreFrame,
+    BackgroundTransparency = 1,
+    Size = UDim2.new(1, -20, 0, 30),
+    Position = UDim2.new(0, 10, 0, 120),
+    Text = "STATUS: PROTECTED",
+    Font = Enum.Font.GothamBold,
+    TextSize = 13,
+    TextColor3 = Color3.fromRGB(100, 255, 100),
+    TextXAlignment = Enum.TextXAlignment.Center
+})
+
+-- Breach Alert Container
+local BreachAlertContainer = CreateInstance("Frame", {
+    Name = "BreachAlertContainer",
+    Parent = MainGui,
+    BackgroundTransparency = 1,
+    Size = UDim2.new(0.28, -20, 0.15, 0),
+    Position = UDim2.new(0.72, 0, 0.77, 0)
+})
+
+-- Anomaly Container
+local AnomalyContainer = CreateInstance("ScrollingFrame", {
+    Name = "AnomalyContainer",
+    Parent = MainGui,
+    BackgroundColor3 = Color3.fromRGB(15, 15, 15),
+    BorderSizePixel = 2,
+    BorderColor3 = Color3.fromRGB(50, 50, 50),
+    Size = UDim2.new(0.7, -20, 0.85, -20),
+    Position = UDim2.new(0, 10, 0, 60),
+    CanvasSize = UDim2.new(0, 0, 0, 0),
+    ScrollBarThickness = 10
+})
+
+CreateInstance("UIGridLayout", {
+    Parent = AnomalyContainer,
+    CellSize = UDim2.new(isMobile and 1 or 0.5, -10, 0, 360),
+    CellPadding = UDim2.new(0, 10, 0, 10),
+    SortOrder = Enum.SortOrder.LayoutOrder
+})
+
+-- White Train Panel
+local TrainPanel = CreateInstance("Frame", {
+    Name = "TrainPanel",
+    Parent = MainGui,
+    BackgroundColor3 = Color3.fromRGB(25, 25, 35),
+    BorderSizePixel = 2,
+    BorderColor3 = Color3.fromRGB(100, 100, 150),
+    Size = UDim2.new(0.28, -20, 0.4, 0),
+    Position = UDim2.new(0.72, 0, 0, 60)
+})
+
+local TrainTitle = CreateInstance("TextLabel", {
+    Name = "TrainTitle",
+    Parent = TrainPanel,
+    BackgroundColor3 = Color3.fromRGB(35, 35, 50),
+    BorderSizePixel = 0,
+    Size = UDim2.new(1, 0, 0, 40),
+    Text = "THE WHITE TRAIN",
+    Font = Enum.Font.GothamBold,
+    TextSize = 18,
+    TextColor3 = Color3.fromRGB(255, 255, 255)
+})
+
+local TrainStatus = CreateInstance("TextLabel", {
+    Name = "TrainStatus",
+    Parent = TrainPanel,
+    BackgroundTransparency = 1,
+    Size = UDim2.new(1, -20, 0, 30),
+    Position = UDim2.new(0, 10, 0, 50),
+    Text = "Arriving in 20:00...",
+    Font = Enum.Font.Gotham,
+    TextSize = 16,
+    TextColor3 = Color3.fromRGB(200, 200, 200),
+    TextXAlignment = Enum.TextXAlignment.Left
+})
+
+local BuyDocButton = CreateInstance("TextButton", {
+    Name = "BuyDocButton",
+    Parent = TrainPanel,
+    BackgroundColor3 = Color3.fromRGB(80, 50, 120),
+    BorderSizePixel = 0,
+    Size = UDim2.new(1, -20, 0, 50),
+    Position = UDim2.new(0, 10, 0, 90),
+    Text = "Get 3 Documents (-100 Crucible)",
+    Font = Enum.Font.GothamBold,
+    TextSize = 14,
+    TextColor3 = Color3.fromRGB(255, 255, 255),
+    Visible = false
+})
+
+CreateInstance("UICorner", {Parent = BuyDocButton, CornerRadius = UDim.new(0, 8)})
+
+local TrainTimer = CreateInstance("TextLabel", {
+    Name = "TrainTimer",
+    Parent = TrainPanel,
+    BackgroundTransparency = 1,
+    Size = UDim2.new(1, -20, 0, 30),
+    Position = UDim2.new(0, 10, 0, 150),
+    Text = "",
+    Font = Enum.Font.GothamBold,
+    TextSize = 16,
+    TextColor3 = Color3.fromRGB(255, 100, 100),
+    Visible = false
+})
+
+-- Document Selection GUI
+local DocumentGui = CreateInstance("Frame", {
+    Name = "DocumentGui",
+    Parent = MainGui,
+    BackgroundColor3 = Color3.fromRGB(20, 20, 20),
+    BorderSizePixel = 3,
+    BorderColor3 = Color3.fromRGB(100, 100, 100),
+    Size = isMobile and UDim2.new(0.95, 0, 0.95, 0) or UDim2.new(0, 600, 0, 450),
+    Position = isMobile and UDim2.new(0.025, 0, 0.025, 0) or UDim2.new(0.5, -300, 0.5, -225),
+    Visible = false,
+    ZIndex = 10
+})
+
+local DocTitle = CreateInstance("TextLabel", {
+    Name = "DocTitle",
+    Parent = DocumentGui,
+    BackgroundColor3 = Color3.fromRGB(30, 30, 30),
+    BorderSizePixel = 0,
+    Size = UDim2.new(1, 0, 0, 40),
+    Text = "SELECT ANOMALY DOCUMENT",
+    Font = Enum.Font.GothamBold,
+    TextSize = 18,
+    TextColor3 = Color3.fromRGB(255, 255, 255)
+})
+
+local DocContainer = CreateInstance("Frame", {
+    Name = "DocContainer",
+    Parent = DocumentGui,
+    BackgroundTransparency = 1,
+    Size = UDim2.new(1, -40, 0, 100),
+    Position = UDim2.new(0, 20, 0, 60)
+})
+
+local docGrid = CreateInstance("UIGridLayout", {
+    Parent = DocContainer,
+    CellSize = UDim2.new(0.333, -10, 1, -10),
+    CellPadding = UDim2.new(0, 10, 0, 0),
+    SortOrder = Enum.SortOrder.LayoutOrder,
+    FillDirection = Enum.FillDirection.Horizontal
+})
+
+for i = 1, 3 do
+    local docBtn = CreateInstance("TextButton", {
+        Name = "Document" .. i,
+        Parent = DocContainer,
+        BackgroundColor3 = Color3.fromRGB(50, 50, 60),
+        BorderSizePixel = 2,
+        BorderColor3 = Color3.fromRGB(100, 100, 120),
+        Text = "Document " .. i,
+        Font = Enum.Font.GothamBold,
+        TextSize = 16,
+        TextColor3 = Color3.fromRGB(255, 255, 255)
+    })
+    CreateInstance("UICorner", {Parent = docBtn, CornerRadius = UDim.new(0, 8)})
+end
+
+local AnomalyInfo = CreateInstance("Frame", {
+    Name = "AnomalyInfo",
+    Parent = DocumentGui,
+    BackgroundColor3 = Color3.fromRGB(30, 30, 30),
+    BorderSizePixel = 2,
+    BorderColor3 = Color3.fromRGB(70, 70, 70),
+    Size = UDim2.new(1, -40, 0, 160),
+    Position = UDim2.new(0, 20, 0, 160),
+    Visible = false
+})
+
+local AnomalyNameLabel = CreateInstance("TextLabel", {
+    Name = "AnomalyNameLabel",
+    Parent = AnomalyInfo,
+    BackgroundTransparency = 1,
+    Size = UDim2.new(1, -20, 0, 30),
+    Position = UDim2.new(0, 10, 0, 5),
+    Text = "",
+    Font = Enum.Font.GothamBold,
+    TextSize = 20,
+    TextColor3 = Color3.fromRGB(255, 200, 100),
+    TextXAlignment = Enum.TextXAlignment.Left
+})
+
+local DangerClassLabel = CreateInstance("TextLabel", {
+    Name = "DangerClassLabel",
+    Parent = AnomalyInfo,
+    BackgroundTransparency = 1,
+    Size = UDim2.new(1, -20, 0, 25),
+    Position = UDim2.new(0, 10, 0, 40),
+    Text = "",
+    Font = Enum.Font.GothamBold,
+    TextSize = 16,
+    TextColor3 = Color3.fromRGB(255, 100, 100),
+    TextXAlignment = Enum.TextXAlignment.Left
+})
+
+local DescriptionLabel = CreateInstance("TextLabel", {
+    Name = "DescriptionLabel",
+    Parent = AnomalyInfo,
+    BackgroundTransparency = 1,
+    Size = UDim2.new(1, -20, 0, 50),
+    Position = UDim2.new(0, 10, 0, 70),
+    Text = "",
+    Font = Enum.Font.Gotham,
+    TextSize = 14,
+    TextColor3 = Color3.fromRGB(200, 200, 200),
+    TextXAlignment = Enum.TextXAlignment.Left,
+    TextYAlignment = Enum.TextYAlignment.Top,
+    TextWrapped = true
+})
+
+local AcceptButton = CreateInstance("TextButton", {
+    Name = "AcceptButton",
+    Parent = AnomalyInfo,
+    BackgroundColor3 = Color3.fromRGB(50, 150, 50),
+    Size = UDim2.new(0, 120, 0, 35),
+    Position = UDim2.new(0, 10, 0, 125),
+    Text = "Accept",
+    Font = Enum.Font.GothamBold,
+    TextSize = 16,
+    TextColor3 = Color3.fromRGB(255, 255, 255)
+})
+CreateInstance("UICorner", {Parent = AcceptButton, CornerRadius = UDim.new(0, 6)})
+
+local DeclineButton = CreateInstance("TextButton", {
+    Name = "DeclineButton",
+    Parent = AnomalyInfo,
+    BackgroundColor3 = Color3.fromRGB(150, 50, 50),
+    Size = UDim2.new(0, 120, 0, 35),
+    Position = UDim2.new(0, 140, 0, 125),
+    Text = "Decline",
+    Font = Enum.Font.GothamBold,
+    TextSize = 16,
+    TextColor3 = Color3.fromRGB(255, 255, 255)
+})
+CreateInstance("UICorner", {Parent = DeclineButton, CornerRadius = UDim.new(0, 6)})
+
+local CloseDocButton = CreateInstance("TextButton", {
+    Name = "CloseButton",
+    Parent = DocumentGui,
+    BackgroundColor3 = Color3.fromRGB(100, 100, 100),
+    Size = UDim2.new(0, 100, 0, 35),
+    Position = UDim2.new(0.5, -50, 1, -50),
+    Text = "Close",
+    Font = Enum.Font.GothamBold,
+    TextSize = 14,
+    TextColor3 = Color3.fromRGB(255, 255, 255)
+})
+CreateInstance("UICorner", {Parent = CloseDocButton, CornerRadius = UDim.new(0, 6)})
+
+-- Functions
+local function StartWorkerLoop(worker, anomalyInstance)
+    spawn(function()
+        while worker.AssignedTo == anomalyInstance and worker.HP > 0 and not anomalyInstance.IsBreached do
+            wait(5)
+            local oldMood = anomalyInstance.CurrentMood
+            local success = math.random() < worker.SuccessChance
+            local moodChange = success and 15 or -10
+            anomalyInstance.CurrentMood = math.clamp(anomalyInstance.CurrentMood + moodChange, 0, 100)
+            if success then
+                UpdateCrucible(20)
+                RefreshCrucibleDisplay()
+            end
+            UpdateRoomDisplay(anomalyInstance)
+            if moodChange < 0 then
+                if anomalyInstance.Data.Special == "JarOfBlood" then
+                    local damage = 0
+                    local newMood = anomalyInstance.CurrentMood
+                    if newMood <= 10 then damage = 69
+                    elseif newMood <= 30 then damage = 30
+                    elseif newMood <= 75 then damage = 10
+                    end
+                    worker.HP = math.max(0, worker.HP - damage)
+                    CreateNotification(anomalyInstance.Name .. " damaged " .. worker.Name .. " for " .. damage, Color3.fromRGB(200, 50, 50))
+                    if worker.HP <= 0 then
+                        CreateNotification(worker.Name .. " was killed!", Color3.fromRGB(200, 50, 50))
+                        anomalyInstance.AssignedWorker = nil
+                        worker.AssignedTo = nil
+                        UpdateRoomDisplay(anomalyInstance)
+                        break
+                    end
+                end
+            end
+            if anomalyInstance.Data.Special == "MeatMess" and anomalyInstance.CurrentMood < 30 and math.random() < 0.3 then
+                if anomalyInstance.AssignedWorker then
+                    anomalyInstance.AssignedWorker.HP = 0
+                    CreateNotification(anomalyInstance.Name .. " killed and ate " .. anomalyInstance.AssignedWorker.Name, Color3.fromRGB(200, 50, 50))
+                    anomalyInstance.BonusBreachHealth = (anomalyInstance.BonusBreachHealth or 0) + 10
+                    anomalyInstance.AssignedWorker = nil
+                    UpdateRoomDisplay(anomalyInstance)
+                end
+            end
+            if anomalyInstance.CurrentMood <= 0 then
+                TriggerBreach(anomalyInstance, anomalyInstance.RoomFrame)
+                break
+            end
+            if anomalyInstance.CurrentMood < 30 and math.random() < 0.4 then
+                local damage = anomalyInstance.Data.BreachForm.M1Damage * 0.5
+                worker.HP = math.max(0, worker.HP - damage)
+                CreateNotification(anomalyInstance.Name .. " attacked " .. worker.Name .. " for " .. damage, Color3.fromRGB(200, 50, 50))
+                if worker.HP <= 0 then
+                    CreateNotification(worker.Name .. " was killed!", Color3.fromRGB(200, 50, 50))
+                    anomalyInstance.AssignedWorker = nil
+                    worker.AssignedTo = nil
+                    UpdateRoomDisplay(anomalyInstance)
+                    break
+                end
+            end
+        end
+    end)
+end
+
+local function PopulateAssignGui(anomalyInstance)
+    AssignTitle.Text = "ASSIGN TO " .. anomalyInstance.Name:upper()
+    
+    for _, child in pairs(WorkerSection:GetChildren()) do
+        if child.Name ~= "UIListLayout" and child.Name ~= "TextLabel" then
+            child:Destroy()
+        end
+    end
+    for _, child in pairs(GuardSection:GetChildren()) do
+        if child.Name ~= "UIListLayout" and child.Name ~= "TextLabel" then
+            child:Destroy()
+        end
+    end
+
+    for _, worker in ipairs(GameData.OwnedWorkers) do
+        if worker.HP > 0 and worker.AssignedTo == nil then
+            local btn = CreateInstance("TextButton", {
+                Parent = WorkerSection,
+                BackgroundColor3 = Color3.fromRGB(60, 60, 80),
+                Size = UDim2.new(1, -10, 0, 40),
+                Text = worker.Name .. " (" .. worker.Type .. ") HP: " .. worker.HP,
+                Font = Enum.Font.Gotham,
+                TextSize = 14,
+                TextColor3 = Color3.fromRGB(255, 255, 255)
+            })
+            CreateInstance("UICorner", {Parent = btn})
+            btn.MouseButton1Click:Connect(function()
+                if anomalyInstance.AssignedWorker == nil then
+                    anomalyInstance.AssignedWorker = worker
+                    worker.AssignedTo = anomalyInstance
+                    StartWorkerLoop(worker, anomalyInstance)
+                    AssignGui.Visible = false
+                    UpdateRoomDisplay(anomalyInstance)
+                else
+                    CreateNotification("Worker slot full!", Color3.fromRGB(200, 50, 50))
+                end
+            end)
+        end
+    end
+    WorkerSection.CanvasSize = UDim2.new(0, 0, 0, workerList.AbsoluteContentSize.Y + 50)
+
+    for _, guard in ipairs(GameData.OwnedGuards) do
+        if guard.HP > 0 and guard.AssignedTo == nil then
+            local btn = CreateInstance("TextButton", {
+                Parent = GuardSection,
+                BackgroundColor3 = Color3.fromRGB(60, 60, 80),
+                Size = UDim2.new(1, -10, 0, 40),
+                Text = guard.Name .. " (" .. guard.Type .. ") HP: " .. guard.HP,
+                Font = Enum.Font.Gotham,
+                TextSize = 14,
+                TextColor3 = Color3.fromRGB(255, 255, 255)
+            })
+            CreateInstance("UICorner", {Parent = btn})
+            btn.MouseButton1Click:Connect(function()
+                if #anomalyInstance.AssignedGuards < 2 then
+                    table.insert(anomalyInstance.AssignedGuards, guard)
+                    guard.AssignedTo = anomalyInstance
+                    AssignGui.Visible = false
+                    UpdateRoomDisplay(anomalyInstance)
+                else
+                    CreateNotification("Guard slots full!", Color3.fromRGB(200, 50, 50))
+                end
+            end)
+        end
+    end
+    GuardSection.CanvasSize = UDim2.new(0, 0, 0, guardList.AbsoluteContentSize.Y + 50)
+end
+
+local function PopulateOuterGui()
+    for _, child in pairs(AvailableOuterGuardSection:GetChildren()) do
+        if child.Name ~= "UIListLayout" and child.Name ~= "TextLabel" then
+            child:Destroy()
+        end
+    end
+    for _, child in pairs(CurrentOuterGuardSection:GetChildren()) do
+        if child.Name ~= "UIListLayout" and child.Name ~= "TextLabel" then
+            child:Destroy()
+        end
+    end
+
+    for _, guard in ipairs(GameData.OwnedGuards) do
+        if guard.HP > 0 and guard.AssignedTo == nil then
+            local btn = CreateInstance("TextButton", {
+                Parent = AvailableOuterGuardSection,
+                BackgroundColor3 = Color3.fromRGB(60, 60, 80),
+                Size = UDim2.new(1, -10, 0, 40),
+                Text = guard.Name .. " (" .. guard.Type .. ") HP: " .. guard.HP,
+                Font = Enum.Font.Gotham,
+                TextSize = 14,
+                TextColor3 = Color3.fromRGB(255, 255, 255)
+            })
+            CreateInstance("UICorner", {Parent = btn})
+            btn.MouseButton1Click:Connect(function()
+                table.insert(GameData.OuterGuards, guard)
+                guard.AssignedTo = "Outer"
+                PopulateOuterGui()
+            end)
+        end
+    end
+    AvailableOuterGuardSection.CanvasSize = UDim2.new(0, 0, 0, availableOuterList.AbsoluteContentSize.Y + 50)
+
+    for _, guard in ipairs(GameData.OuterGuards) do
+        local btn = CreateInstance("TextButton", {
+            Parent = CurrentOuterGuardSection,
+            BackgroundColor3 = Color3.fromRGB(60, 60, 80),
+            Size = UDim2.new(1, -10, 0, 40),
+            Text = guard.Name .. " (" .. guard.Type .. ") HP: " .. guard.HP .. " (Assigned)",
+            Font = Enum.Font.Gotham,
+            TextSize = 14,
+            TextColor3 = Color3.fromRGB(255, 255, 255)
+        })
+        CreateInstance("UICorner", {Parent = btn})
+        btn.MouseButton1Click:Connect(function()
+            guard.AssignedTo = nil
+            for i = #GameData.OuterGuards, 1, -1 do
+                if GameData.OuterGuards[i] == guard then
+                    table.remove(GameData.OuterGuards, i)
+                    break
+                end
+            end
+            PopulateOuterGui()
+        end)
+    end
+    CurrentOuterGuardSection.CanvasSize = UDim2.new(0, 0, 0, currentOuterList.AbsoluteContentSize.Y + 50)
+end
+
+local function CreateAnomalyRoom(anomalyName)
+    local anomalyData = AnomalyDatabase[anomalyName]
+    if not anomalyData then return end
+    
+    local anomalyInstance = {
+        Name = anomalyName,
+        CurrentMood = anomalyData.BaseMood,
+        Data = anomalyData,
+        AssignedWorker = nil,
+        AssignedGuards = {},
+        IsBreached = false,
+        RoomFrame = nil,
+        BonusBreachHealth = 0,
+        ToBeExecuted = false
+    }
+    
+    table.insert(GameData.OwnedAnomalies, anomalyInstance)
+    
     local roomFrame = CreateInstance("Frame", {
-        Name = "AnomalyRoom_" .. #GetCurrentBase().anomalies,
+        Name = "AnomalyRoom_" .. #GameData.OwnedAnomalies,
         Parent = AnomalyContainer,
         BackgroundColor3 = Color3.fromRGB(30, 30, 35),
         BorderSizePixel = 2,
@@ -585,7 +1420,7 @@ local function CreateRoomFrame(anomalyInstance)
         BackgroundColor3 = Color3.fromRGB(40, 40, 50),
         BorderSizePixel = 0,
         Size = UDim2.new(1, 0, 0, 35),
-        Text = anomalyInstance.Name,
+        Text = anomalyName,
         Font = Enum.Font.GothamBold,
         TextSize = 14,
         TextColor3 = Color3.fromRGB(255, 200, 100),
@@ -597,7 +1432,7 @@ local function CreateRoomFrame(anomalyInstance)
         BackgroundTransparency = 1,
         Size = UDim2.new(1, -10, 0, 25),
         Position = UDim2.new(0, 5, 0, 40),
-        Text = "Danger Class: " .. anomalyInstance.Data.DangerClass,
+        Text = "Danger Class: " .. anomalyData.DangerClass,
         Font = Enum.Font.GothamBold,
         TextSize = 13,
         TextColor3 = Color3.fromRGB(255, 100, 100),
@@ -732,613 +1567,26 @@ local function CreateRoomFrame(anomalyInstance)
         end
     end)
     
-    return roomFrame
-end
-
-local function RefreshAnomalyContainer()
-    for _, child in pairs(AnomalyContainer:GetChildren()) do
-        if child:IsA("Frame") then
-            child:Destroy()
+    anomalyInstance.RoomFrame = roomFrame
+    UpdateRoomDisplay(anomalyInstance)
+    
+    local function UpdateCanvasSize()
+        local layout = AnomalyContainer:FindFirstChildOfClass("UIGridLayout")
+        if layout then
+            AnomalyContainer.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y + 10)
         end
     end
     
-    local currentBase = GetCurrentBase()
-    for _, anomalyInstance in ipairs(currentBase.anomalies) do
-        local roomFrame = CreateRoomFrame(anomalyInstance)
-        anomalyInstance.RoomFrame = roomFrame
-        UpdateRoomDisplay(anomalyInstance)
-    end
+    wait(0.1)
+    UpdateCanvasSize()
     
     local layout = AnomalyContainer:FindFirstChildOfClass("UIGridLayout")
     if layout then
-        layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-            AnomalyContainer.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y + 10)
-        end)
-        AnomalyContainer.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y + 10)
+        layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(UpdateCanvasSize)
     end
 end
 
--- Create Main GUI
-local MainGui = CreateInstance("ScreenGui", {
-    Name = "SorchesusCompanyGUI",
-    Parent = playerGui,
-    ResetOnSpawn = false,
-    ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-})
-
--- Top Bar with horizontal scroll
-local TopBar = CreateInstance("ScrollingFrame", {
-    Name = "TopBar",
-    Parent = MainGui,
-    BackgroundColor3 = Color3.fromRGB(20, 20, 20),
-    BorderSizePixel = 0,
-    Size = UDim2.new(1, 0, 0, 50),
-    Position = UDim2.new(0, 0, 0, 0),
-    CanvasSize = UDim2.new(0, 1000, 0, 50),
-    HorizontalScrollBarInset = Enum.ScrollBarInset.ScrollBar,
-    ScrollBarThickness = 5,
-    VerticalScrollBarVisibility = Enum.ScrollerScrollBarVisibility.Never
-})
-
-local CompanyName = CreateInstance("TextLabel", {
-    Name = "CompanyName",
-    Parent = TopBar,
-    BackgroundTransparency = 1,
-    Size = UDim2.new(0, 300, 1, 0),
-    Position = UDim2.new(0, 10, 0, 0),
-    Text = "SORCHESUS COMPANY - Ginkha",
-    Font = Enum.Font.GothamBold,
-    TextSize = 24,
-    TextColor3 = Color3.fromRGB(200, 50, 50),
-    TextXAlignment = Enum.TextXAlignment.Left
-})
-
-local EmployeeButton = CreateInstance("TextButton", {
-    Name = "EmployeeButton",
-    Parent = TopBar,
-    BackgroundTransparency = 1,
-    Size = UDim2.new(0, 120, 1, 0),
-    Position = UDim2.new(0, 320, 0, 0),
-    Text = "Employees",
-    Font = Enum.Font.GothamBold,
-    TextSize = 20,
-    TextColor3 = Color3.fromRGB(255, 255, 255),
-    TextXAlignment = Enum.TextXAlignment.Left
-})
-
-local OuterGuardButton = CreateInstance("TextButton", {
-    Name = "OuterGuardButton",
-    Parent = TopBar,
-    BackgroundTransparency = 1,
-    Size = UDim2.new(0, 120, 1, 0),
-    Position = UDim2.new(0, 450, 0, 0),
-    Text = "Outer Guard",
-    Font = Enum.Font.GothamBold,
-    TextSize = 20,
-    TextColor3 = Color3.fromRGB(255, 255, 255),
-    TextXAlignment = Enum.TextXAlignment.Left
-})
-
-local TerminatorButton = CreateInstance("TextButton", {
-    Name = "TerminatorButton",
-    Parent = TopBar,
-    BackgroundTransparency = 1,
-    Size = UDim2.new(0, 150, 1, 0),
-    Position = UDim2.new(0, 580, 0, 0),
-    Text = "Terminator Protocol",
-    Font = Enum.Font.GothamBold,
-    TextSize = 20,
-    TextColor3 = Color3.fromRGB(255, 255, 255),
-    TextXAlignment = Enum.TextXAlignment.Left
-})
-
-local BasesButton = CreateInstance("TextButton", {
-    Name = "BasesButton",
-    Parent = TopBar,
-    BackgroundTransparency = 1,
-    Size = UDim2.new(0, 120, 1, 0),
-    Position = UDim2.new(0, 740, 0, 0),
-    Text = "Base",
-    Font = Enum.Font.GothamBold,
-    TextSize = 20,
-    TextColor3 = Color3.fromRGB(255, 255, 255),
-    TextXAlignment = Enum.TextXAlignment.Left
-})
-
-local CrucibleLabel = CreateInstance("TextLabel", {
-    Name = "CrucibleLabel",
-    Parent = TopBar,
-    BackgroundTransparency = 1,
-    Size = UDim2.new(0, 200, 1, 0),
-    Position = UDim2.new(0, 870, 0, 0),
-    Text = "Crucible: " .. GameData.Crucible,
-    Font = Enum.Font.GothamBold,
-    TextSize = 20,
-    TextColor3 = Color3.fromRGB(255, 215, 0),
-    TextXAlignment = Enum.TextXAlignment.Left
-})
-
--- Employee Shop GUI (adjusted)
-local EmployeeShop = CreateInstance("Frame", {
-    Name = "EmployeeShop",
-    Parent = MainGui,
-    BackgroundColor3 = Color3.fromRGB(20, 20, 20),
-    BorderSizePixel = 3,
-    BorderColor3 = Color3.fromRGB(100, 100, 100),
-    Size = isMobile and UDim2.new(0.95, 0, 0.95, 0) or UDim2.new(0, 700, 0, 550),
-    Position = isMobile and UDim2.new(0.025, 0, 0.025, 0) or UDim2.new(0.5, -350, 0.5, -275),
-    Visible = false,
-    ZIndex = 10
-})
-
-local ShopTitle = CreateInstance("TextLabel", {
-    Name = "ShopTitle",
-    Parent = EmployeeShop,
-    BackgroundColor3 = Color3.fromRGB(30, 30, 30),
-    BorderSizePixel = 0,
-    Size = UDim2.new(1, 0, 0, 40),
-    Text = "EMPLOYEE SHOP",
-    Font = Enum.Font.GothamBold,
-    TextSize = 18,
-    TextColor3 = Color3.fromRGB(255, 255, 255)
-})
-
-local ShopScroll = CreateInstance("ScrollingFrame", {
-    Name = "ShopScroll",
-    Parent = EmployeeShop,
-    BackgroundColor3 = Color3.fromRGB(25, 25, 25),
-    Size = UDim2.new(1, -20, 1, -90),
-    Position = UDim2.new(0, 10, 0, 50),
-    CanvasSize = UDim2.new(0, 0, 0, 0),
-    ScrollBarThickness = 8
-})
-
-local shopGrid = CreateInstance("UIGridLayout", {
-    Parent = ShopScroll,
-    CellSize = UDim2.new(isMobile and 1 or 0.5, -10, 0, 180),
-    CellPadding = UDim2.new(0, 10, 0, 10),
-    SortOrder = Enum.SortOrder.LayoutOrder,
-    HorizontalAlignment = Enum.HorizontalAlignment.Center
-})
-
--- employees list from original
-local employees = {
-    {name = "Unlucky Worker", cost = 500, hp = 60, success = 0.1, type = "Worker"},
-    {name = "Normal Worker", cost = 850, hp = 90, success = 0.23, type = "Worker"},
-    {name = "Smart Worker", cost = 1750, hp = 110, success = 0.35, type = "Worker"},
-    {name = "Lucky Worker", cost = 2355, hp = 150, success = 0.40, type = "Worker"},
-    {name = "Smarter Worker", cost = 3400, hp = 230, success = 0.50, type = "Worker"},
-    {name = "Weak Guard", cost = 900, hp = 120, damage = 25, type = "Guard"},
-    {name = "Normal Guard", cost = 1500, hp = 175, damage = 40, type = "Guard"},
-    {name = "Strong Guard", cost = 2500, hp = 299, damage = 75, type = "Guard"},
-    {name = "Tanky Guard", cost = 5000, hp = 500, damage = 100, type = "Guard"}
-}
-
-for _, emp in ipairs(employees) do
-    local frame = CreateInstance("Frame", {
-        Parent = ShopScroll,
-        BackgroundColor3 = Color3.fromRGB(50, 50, 60)
-    })
-    CreateInstance("UICorner", {Parent = frame})
-    
-    CreateInstance("TextLabel", {
-        Parent = frame,
-        BackgroundTransparency = 1,
-        Size = UDim2.new(1, 0, 0, 30),
-        Text = emp.name,
-        Font = Enum.Font.GothamBold,
-        TextSize = 16,
-        TextColor3 = Color3.fromRGB(255, 255, 255)
-    })
-    
-    local stats = "Cost: " .. emp.cost .. " Crucible\nHealth: " .. emp.hp
-    if emp.type == "Worker" then
-        stats = stats .. "\nSuccess: " .. (emp.success * 100) .. "%"
-    else
-        stats = stats .. "\nDamage: " .. emp.damage
-    end
-    
-    CreateInstance("TextLabel", {
-        Parent = frame,
-        BackgroundTransparency = 1,
-        Size = UDim2.new(1, -10, 0, 90),
-        Position = UDim2.new(0, 5, 0, 30),
-        Text = stats,
-        Font = Enum.Font.Gotham,
-        TextSize = 14,
-        TextColor3 = Color3.fromRGB(200, 200, 200),
-        TextXAlignment = Enum.TextXAlignment.Left,
-        TextWrapped = true
-    })
-    
-    local buyBtn = CreateInstance("TextButton", {
-        Parent = frame,
-        BackgroundColor3 = Color3.fromRGB(50, 150, 50),
-        Size = UDim2.new(1, -10, 0, 35),
-        Position = UDim2.new(0, 5, 1, -40),
-        Text = "Buy",
-        Font = Enum.Font.GothamBold,
-        TextSize = 16,
-        TextColor3 = Color3.fromRGB(255, 255, 255)
-    })
-    CreateInstance("UICorner", {Parent = buyBtn})
-    
-    buyBtn.MouseButton1Click:Connect(function()
-        if GameData.Crucible >= emp.cost then
-            UpdateCrucible(-emp.cost)
-            RefreshCrucibleDisplay()
-            local currentBase = GetCurrentBase()
-            local nameFunc = emp.type == "Worker" and GetRandomWorkerName or GetRandomGuardName
-            local name = nameFunc()
-            local employee = {
-                Name = name,
-                Type = emp.name,
-                MaxHP = emp.hp,
-                HP = emp.hp,
-                AssignedTo = nil
-            }
-            if emp.type == "Worker" then
-                employee.SuccessChance = emp.success
-                table.insert(currentBase.workers, employee)
-            else
-                employee.Damage = emp.damage
-                table.insert(currentBase.guards, employee)
-            end
-            CreateNotification("Hired " .. name .. " (" .. emp.name .. ")", Color3.fromRGB(50, 200, 50))
-        else
-            CreateNotification("Not enough Crucible!", Color3.fromRGB(200, 50, 50))
-        end
-    end)
-end
-
-shopGrid:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-    ShopScroll.CanvasSize = UDim2.new(0, 0, 0, shopGrid.AbsoluteContentSize.Y + 20)
-end)
-
-local CloseShopButton = CreateInstance("TextButton", {
-    Name = "CloseButton",
-    Parent = EmployeeShop,
-    BackgroundColor3 = Color3.fromRGB(150, 50, 50),
-    Size = UDim2.new(0, 30, 0, 30),
-    Position = UDim2.new(1, -35, 0, 5),
-    Text = "X",
-    Font = Enum.Font.GothamBold,
-    TextSize = 20,
-    TextColor3 = Color3.fromRGB(255, 255, 255)
-})
-CreateInstance("UICorner", {Parent = CloseShopButton, CornerRadius = UDim.new(0, 6)})
-
--- Assign GUI (adjusted)
-local AssignGui = CreateInstance("Frame", {
-    Name = "AssignGui",
-    Parent = MainGui,
-    BackgroundColor3 = Color3.fromRGB(20, 20, 20),
-    BorderSizePixel = 3,
-    BorderColor3 = Color3.fromRGB(100, 100, 100),
-    Size = isMobile and UDim2.new(0.95, 0, 0.95, 0) or UDim2.new(0, 600, 0, 450),
-    Position = isMobile and UDim2.new(0.025, 0, 0.025, 0) or UDim2.new(0.5, -300, 0.5, -225),
-    Visible = false,
-    ZIndex = 10
-})
-
--- ... (rest of AssignGui creation unchanged)
-
-local function PopulateAssignGui(anomalyInstance)
-    AssignTitle.Text = "ASSIGN TO " .. anomalyInstance.Name:upper()
-    
-    for _, child in pairs(WorkerSection:GetChildren()) do
-        if child.Name ~= "UIListLayout" and child.Name ~= "TextLabel" then
-            child:Destroy()
-        end
-    end
-    for _, child in pairs(GuardSection:GetChildren()) do
-        if child.Name ~= "UIListLayout" and child.Name ~= "TextLabel" then
-            child:Destroy()
-        end
-    end
-
-    local currentBase = GetCurrentBase()
-    for _, worker in ipairs(currentBase.workers) do
-        if worker.HP > 0 and worker.AssignedTo == nil then
-            local btn = CreateInstance("TextButton", {
-                Parent = WorkerSection,
-                BackgroundColor3 = Color3.fromRGB(60, 60, 80),
-                Size = UDim2.new(1, -10, 0, 40),
-                Text = worker.Name .. " (" .. worker.Type .. ") HP: " .. worker.HP,
-                Font = Enum.Font.Gotham,
-                TextSize = 14,
-                TextColor3 = Color3.fromRGB(255, 255, 255)
-            })
-            CreateInstance("UICorner", {Parent = btn})
-            btn.MouseButton1Click:Connect(function()
-                if anomalyInstance.AssignedWorker == nil then
-                    anomalyInstance.AssignedWorker = worker
-                    worker.AssignedTo = anomalyInstance
-                    StartWorkerLoop(worker, anomalyInstance)
-                    AssignGui.Visible = false
-                    UpdateRoomDisplay(anomalyInstance)
-                else
-                    CreateNotification("Worker slot full!", Color3.fromRGB(200, 50, 50))
-                end
-            end)
-        end
-    end
-    WorkerSection.CanvasSize = UDim2.new(0, 0, 0, workerList.AbsoluteContentSize.Y + 50)
-
-    for _, guard in ipairs(currentBase.guards) do
-        if guard.HP > 0 and guard.AssignedTo == nil then
-            local btn = CreateInstance("TextButton", {
-                Parent = GuardSection,
-                BackgroundColor3 = Color3.fromRGB(60, 60, 80),
-                Size = UDim2.new(1, -10, 0, 40),
-                Text = guard.Name .. " (" .. guard.Type .. ") HP: " .. guard.HP,
-                Font = Enum.Font.Gotham,
-                TextSize = 14,
-                TextColor3 = Color3.fromRGB(255, 255, 255)
-            })
-            CreateInstance("UICorner", {Parent = btn})
-            btn.MouseButton1Click:Connect(function()
-                if #anomalyInstance.AssignedGuards < 2 then
-                    table.insert(anomalyInstance.AssignedGuards, guard)
-                    guard.AssignedTo = anomalyInstance
-                    AssignGui.Visible = false
-                    UpdateRoomDisplay(anomalyInstance)
-                else
-                    CreateNotification("Guard slots full!", Color3.fromRGB(200, 50, 50))
-                end
-            end)
-        end
-    end
-    GuardSection.CanvasSize = UDim2.new(0, 0, 0, guardList.AbsoluteContentSize.Y + 50)
-end
-
--- Outer Guard GUI (adjusted)
-local OuterGuardGui = CreateInstance("Frame", {
-    Name = "OuterGuardGui",
-    Parent = MainGui,
-    BackgroundColor3 = Color3.fromRGB(20, 20, 20),
-    BorderSizePixel = 3,
-    BorderColor3 = Color3.fromRGB(100, 100, 100),
-    Size = isMobile and UDim2.new(0.95, 0, 0.95, 0) or UDim2.new(0, 600, 0, 450),
-    Position = isMobile and UDim2.new(0.025, 0, 0.025, 0) or UDim2.new(0.5, -300, 0.5, -225),
-    Visible = false,
-    ZIndex = 10
-})
-
--- ... (rest unchanged)
-
-local function PopulateOuterGui()
-    local currentBase = GetCurrentBase()
-    for _, child in pairs(AvailableOuterGuardSection:GetChildren()) do
-        if child.Name ~= "UIListLayout" and child.Name ~= "TextLabel" then
-            child:Destroy()
-        end
-    end
-    for _, child in pairs(CurrentOuterGuardSection:GetChildren()) do
-        if child.Name ~= "UIListLayout" and child.Name ~= "TextLabel" then
-            child:Destroy()
-        end
-    end
-
-    for _, guard in ipairs(currentBase.guards) do
-        if guard.HP > 0 and guard.AssignedTo == nil then
-            local btn = CreateInstance("TextButton", {
-                Parent = AvailableOuterGuardSection,
-                BackgroundColor3 = Color3.fromRGB(60, 60, 80),
-                Size = UDim2.new(1, -10, 0, 40),
-                Text = guard.Name .. " (" .. guard.Type .. ") HP: " .. guard.HP,
-                Font = Enum.Font.Gotham,
-                TextSize = 14,
-                TextColor3 = Color3.fromRGB(255, 255, 255)
-            })
-            CreateInstance("UICorner", {Parent = btn})
-            btn.MouseButton1Click:Connect(function()
-                table.insert(currentBase.outerGuards, guard)
-                guard.AssignedTo = "Outer"
-                PopulateOuterGui()
-            end)
-        end
-    end
-    AvailableOuterGuardSection.CanvasSize = UDim2.new(0, 0, 0, availableOuterList.AbsoluteContentSize.Y + 50)
-
-    for _, guard in ipairs(currentBase.outerGuards) do
-        local btn = CreateInstance("TextButton", {
-            Parent = CurrentOuterGuardSection,
-            BackgroundColor3 = Color3.fromRGB(60, 60, 80),
-            Size = UDim2.new(1, -10, 0, 40),
-            Text = guard.Name .. " (" .. guard.Type .. ") HP: " .. guard.HP .. " (Assigned)",
-            Font = Enum.Font.Gotham,
-            TextSize = 14,
-            TextColor3 = Color3.fromRGB(255, 255, 255)
-        })
-        CreateInstance("UICorner", {Parent = btn})
-        btn.MouseButton1Click:Connect(function()
-            guard.AssignedTo = nil
-            for i = #currentBase.outerGuards, 1, -1 do
-                if currentBase.outerGuards[i] == guard then
-                    table.remove(currentBase.outerGuards, i)
-                    break
-                end
-            end
-            PopulateOuterGui()
-        end)
-    end
-    CurrentOuterGuardSection.CanvasSize = UDim2.new(0, 0, 0, currentOuterList.AbsoluteContentSize.Y + 50)
-end
-
--- Cosmic Shard Core Display (adjusted for current base)
-local CoreFrame = CreateInstance("Frame", {
-    Name = "CoreFrame",
-    Parent = MainGui,
-    BackgroundColor3 = Color3.fromRGB(20, 20, 30),
-    BorderSizePixel = 2,
-    BorderColor3 = Color3.fromRGB(100, 200, 255),
-    Size = UDim2.new(0.28, -20, 0.25, 0),
-    Position = UDim2.new(0.72, 0, 0.5, 10)
-})
-
--- ... (rest unchanged)
-
-local function UpdateCoreDisplay()
-    local currentBase = GetCurrentBase()
-    local healthPercent = currentBase.coreHealth / currentBase.maxCoreHealth
-    
-    CoreHealthLabel.Text = string.format("Health: %d / %d", currentBase.coreHealth, currentBase.maxCoreHealth)
-    
-    TweenService:Create(CoreHealthBar, TweenInfo.new(0.5), {
-        Size = UDim2.new(healthPercent, 0, 1, 0),
-        BackgroundColor3 = healthPercent > 0.6 and Color3.fromRGB(100, 200, 255) or healthPercent > 0.3 and Color3.fromRGB(255, 200, 100) or Color3.fromRGB(255, 100, 100)
-    }):Play()
-    
-    CoreStatusLabel.Text = currentBase.coreHealth <= 0 and "STATUS: DESTROYED" or healthPercent < 0.3 and "STATUS: CRITICAL" or healthPercent < 0.6 and "STATUS: DAMAGED" or "STATUS: PROTECTED"
-    CoreStatusLabel.TextColor3 = currentBase.coreHealth <= 0 and Color3.fromRGB(255, 50, 50) or healthPercent < 0.3 and Color3.fromRGB(255, 100, 50) or healthPercent < 0.6 and Color3.fromRGB(255, 200, 100) or Color3.fromRGB(100, 255, 100)
-    
-    UpdateBreachAlert()
-end
-
--- Breach Alert Container (global)
-local BreachAlertContainer = CreateInstance("Frame", {
-    Name = "BreachAlertContainer",
-    Parent = MainGui,
-    BackgroundTransparency = 1,
-    Size = UDim2.new(0.28, -20, 0.15, 0),
-    Position = UDim2.new(0.72, 0, 0.77, 0)
-})
-
-local function UpdateBreachAlert()
-    for _, child in pairs(BreachAlertContainer:GetChildren()) do
-        child:Destroy()
-    end
-    
-    local totalBreached = #GetAllBreachedAnomalies()
-    if totalBreached > 0 then
-        local alertLabel = CreateInstance("TextLabel", {
-            Name = "BreachAlert",
-            Parent = BreachAlertContainer,
-            BackgroundColor3 = Color3.fromRGB(150, 20, 20),
-            BorderSizePixel = 2,
-            BorderColor3 = Color3.fromRGB(255, 50, 50),
-            Size = UDim2.new(1, 0, 0, 50),
-            Text = string.format("⚠ ACTIVE BREACHES: %d ⚠", totalBreached),
-            Font = Enum.Font.GothamBold,
-            TextSize = 14,
-            TextColor3 = Color3.fromRGB(255, 255, 255)
-        })
-        
-        CreateInstance("UICorner", {Parent = alertLabel, CornerRadius = UDim.new(0, 8)})
-        
-        spawn(function()
-            while alertLabel.Parent do
-                alertLabel.BackgroundColor3 = Color3.fromRGB(150, 20, 20)
-                wait(0.5)
-                if alertLabel.Parent then
-                    alertLabel.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
-                    wait(0.5)
-                end
-            end
-        end)
-    end
-end
-
--- Anomaly Container
-local AnomalyContainer = CreateInstance("ScrollingFrame", {
-    Name = "AnomalyContainer",
-    Parent = MainGui,
-    BackgroundColor3 = Color3.fromRGB(15, 15, 15),
-    BorderSizePixel = 2,
-    BorderColor3 = Color3.fromRGB(50, 50, 50),
-    Size = UDim2.new(0.7, -20, 0.85, -20),
-    Position = UDim2.new(0, 10, 0, 60),
-    CanvasSize = UDim2.new(0, 0, 0, 0),
-    ScrollBarThickness = 10
-})
-
-CreateInstance("UIGridLayout", {
-    Parent = AnomalyContainer,
-    CellSize = UDim2.new(isMobile and 1 or 0.5, -10, 0, 360),
-    CellPadding = UDim2.new(0, 10, 0, 10),
-    SortOrder = Enum.SortOrder.LayoutOrder
-})
-
--- Train Panel (unchanged)
-local TrainPanel = CreateInstance("Frame", {
-    Name = "TrainPanel",
-    Parent = MainGui,
-    BackgroundColor3 = Color3.fromRGB(25, 25, 35),
-    BorderSizePixel = 2,
-    BorderColor3 = Color3.fromRGB(100, 100, 150),
-    Size = UDim2.new(0.28, -20, 0.4, 0),
-    Position = UDim2.new(0.72, 0, 0, 60)
-})
-
--- ... (rest of TrainPanel unchanged)
-
--- Document Selection GUI (unchanged, but accept checks max containment)
-
--- Functions (adjusted)
-local function StartWorkerLoop(worker, anomalyInstance)
-    spawn(function()
-        while worker.AssignedTo == anomalyInstance and worker.HP > 0 and not anomalyInstance.IsBreached do
-            wait(5)
-            local oldMood = anomalyInstance.CurrentMood
-            local success = math.random() < worker.SuccessChance
-            local moodChange = success and 15 or -10
-            anomalyInstance.CurrentMood = math.clamp(anomalyInstance.CurrentMood + moodChange, 0, 100)
-            if success then
-                local mult = GetBase(anomalyInstance).perks.CrucMult
-                UpdateCrucible(20 * mult)
-                RefreshCrucibleDisplay()
-            end
-            UpdateRoomDisplay(anomalyInstance)
-            if moodChange < 0 then
-                if anomalyInstance.Data.Special == "JarOfBlood" then
-                    local damage = 0
-                    local newMood = anomalyInstance.CurrentMood
-                    if newMood <= 10 then damage = 69
-                    elseif newMood <= 30 then damage = 30
-                    elseif newMood <= 75 then damage = 10
-                    end
-                    worker.HP = math.max(0, worker.HP - damage)
-                    CreateNotification(anomalyInstance.Name .. " damaged " .. worker.Name .. " for " .. damage, Color3.fromRGB(200, 50, 50))
-                    if worker.HP <= 0 then
-                        CreateNotification(worker.Name .. " was killed!", Color3.fromRGB(200, 50, 50))
-                        anomalyInstance.AssignedWorker = nil
-                        worker.AssignedTo = nil
-                        UpdateRoomDisplay(anomalyInstance)
-                        break
-                    end
-                end
-            end
-            if anomalyInstance.Data.Special == "MeatMess" and anomalyInstance.CurrentMood < 30 and math.random() < 0.3 then
-                if anomalyInstance.AssignedWorker then
-                    anomalyInstance.AssignedWorker.HP = 0
-                    CreateNotification(anomalyInstance.Name .. " killed and ate " .. anomalyInstance.AssignedWorker.Name, Color3.fromRGB(200, 50, 50))
-                    anomalyInstance.BonusBreachHealth = (anomalyInstance.BonusBreachHealth or 0) + 10
-                    anomalyInstance.AssignedWorker = nil
-                    UpdateRoomDisplay(anomalyInstance)
-                end
-            end
-            if anomalyInstance.CurrentMood <= 0 then
-                TriggerBreach(anomalyInstance, anomalyInstance.RoomFrame)
-                break
-            end
-            if anomalyInstance.CurrentMood < 30 and math.random() < 0.4 then
-                local damage = anomalyInstance.Data.BreachForm.M1Damage * 0.5
-                worker.HP = math.max(0, worker.HP - damage)
-                CreateNotification(anomalyInstance.Name .. " attacked " .. worker.Name .. " for " .. damage, Color3.fromRGB(200, 50, 50))
-                if worker.HP <= 0 then
-                    CreateNotification(worker.Name .. " was killed!", Color3.fromRGB(200, 50, 50))
-                    anomalyInstance.AssignedWorker = nil
-                    worker.AssignedTo = nil
-                    UpdateRoomDisplay(anomalyInstance)
-                    break
-                end
-            end
-        end
-    end)
-end
-
-local function PerformWork(anomalyInstance, workType, roomFrame)
+function PerformWork(anomalyInstance, workType, roomFrame)
     local workResult = anomalyInstance.Data.WorkResults[workType]
     if not workResult then return end
     
@@ -1348,10 +1596,9 @@ local function PerformWork(anomalyInstance, workType, roomFrame)
     end
     
     if anomalyInstance.Data.NoMoodMeter then
-        local mult = GetBase(anomalyInstance).perks.CrucMult
-        UpdateCrucible(workResult.Crucible * mult)
+        UpdateCrucible(workResult.Crucible)
         RefreshCrucibleDisplay()
-        CreateNotification("Work Success! +" .. workResult.Crucible * mult .. " Crucible", Color3.fromRGB(50, 200, 50))
+        CreateNotification("Work Success! +" .. workResult.Crucible .. " Crucible", Color3.fromRGB(50, 200, 50))
         return
     end
     
@@ -1360,8 +1607,7 @@ local function PerformWork(anomalyInstance, workType, roomFrame)
     local moodChange = 0
     
     if success then
-        local mult = GetBase(anomalyInstance).perks.CrucMult
-        UpdateCrucible(workResult.Crucible * mult)
+        UpdateCrucible(workResult.Crucible)
         RefreshCrucibleDisplay()
         moodChange = workResult.MoodChange
     else
@@ -1389,8 +1635,7 @@ local function PerformWork(anomalyInstance, workType, roomFrame)
             elseif newMood <= 30 then damage = 750
             elseif newMood <= 75 then damage = 100
             end
-            local base = GetBase(anomalyInstance)
-            base.coreHealth = math.max(0, base.coreHealth - damage)
+            GameData.CosmicShardCoreHealth = math.max(0, GameData.CosmicShardCoreHealth - damage)
             CreateNotification(anomalyInstance.Name .. " damaged the Cosmic Shard Core for " .. damage, Color3.fromRGB(200, 50, 50))
             UpdateCoreDisplay()
         end
@@ -1427,7 +1672,7 @@ local function PerformWork(anomalyInstance, workType, roomFrame)
     UpdateRoomDisplay(anomalyInstance)
 end
 
-local function TriggerBreach(anomalyInstance, roomFrame)
+function TriggerBreach(anomalyInstance, roomFrame)
     if anomalyInstance.IsBreached or anomalyInstance.Data.NoBreach then return end
     
     if anomalyInstance.Data.NoMoodMeter and not anomalyInstance.Data.BreachOnLinkedBreach then
@@ -1439,25 +1684,19 @@ local function TriggerBreach(anomalyInstance, roomFrame)
     anomalyInstance.BreachHP = breachData.Health + (anomalyInstance.BonusBreachHealth or 0)
     anomalyInstance.BreachTime = os.time()
     
-    local base = GetBase(anomalyInstance)
-    table.insert(base.breachedAnomalies, {
+    table.insert(GameData.BreachedAnomalies, {
         Instance = anomalyInstance,
         BreachData = breachData,
         RoomFrame = roomFrame
     })
     
-    local message = "BREACH! " .. breachData.Name .. " has escaped!"
-    if anomalyInstance.Base ~= GameData.CurrentBase then
-        message = "Anomaly Breach in " .. anomalyInstance.Base .. "!"
-    end
-    CreateNotification(message, Color3.fromRGB(255, 0, 0))
+    CreateNotification("BREACH! " .. breachData.Name .. " has escaped!", Color3.fromRGB(255, 0, 0))
     
     UpdateRoomDisplay(anomalyInstance)
     UpdateBreachAlert()
     
     if anomalyInstance.Data.LinkedAnomaly then
-        local allAnomalies = GetAllAnomalies()
-        for _, otherAnomaly in ipairs(allAnomalies) do
+        for _, otherAnomaly in ipairs(GameData.OwnedAnomalies) do
             if otherAnomaly.Name == anomalyInstance.Data.LinkedAnomaly and otherAnomaly.Data.BreachOnLinkedBreach then
                 CreateNotification(otherAnomaly.Name .. " is responding to the breach!", Color3.fromRGB(100, 200, 255))
                 TriggerBreach(otherAnomaly, otherAnomaly.RoomFrame)
@@ -1468,7 +1707,7 @@ local function TriggerBreach(anomalyInstance, roomFrame)
     StartBreachLoop(anomalyInstance)
 end
 
-local function StartBreachLoop(anomalyInstance)
+function StartBreachLoop(anomalyInstance)
     spawn(function()
         local breachData = anomalyInstance.Data.BreachForm
         local isYang = anomalyInstance.Name == "Yang"
@@ -1491,8 +1730,7 @@ local function StartBreachLoop(anomalyInstance)
         end
         
         if isYang then
-            local allAnomalies = GetAllAnomalies()
-            for _, anomaly in ipairs(allAnomalies) do
+            for _, anomaly in ipairs(GameData.OwnedAnomalies) do
                 if anomaly.Name == "Yin" and anomaly.IsBreached then
                     yinInstance = anomaly
                     break
@@ -1505,12 +1743,11 @@ local function StartBreachLoop(anomalyInstance)
             elapsed = elapsed + 2
             
             if anomalyInstance.Data.Special == "SkeletonKing" and elapsed % 30 == 0 then
-                local base = GetBase(anomalyInstance)
                 local allEmployees = {}
-                for _, w in ipairs(base.workers) do
+                for _, w in ipairs(GameData.OwnedWorkers) do
                     if w.HP > 0 then table.insert(allEmployees, w) end
                 end
-                for _, g in ipairs(base.guards) do
+                for _, g in ipairs(GameData.OwnedGuards) do
                     if g.HP > 0 then table.insert(allEmployees, g) end
                 end
                 if #allEmployees > 0 then
@@ -1519,9 +1756,9 @@ local function StartBreachLoop(anomalyInstance)
                     CreateNotification(target.Name .. " joined the skeleton army!", Color3.fromRGB(200, 50, 50))
                     if target.AssignedTo then
                         if target.AssignedTo == "Outer" then
-                            for i = #base.outerGuards, 1, -1 do
-                                if base.outerGuards[i] == target then
-                                    table.remove(base.outerGuards, i)
+                            for i = #GameData.OuterGuards, 1, -1 do
+                                if GameData.OuterGuards[i] == target then
+                                    table.remove(GameData.OuterGuards, i)
                                     break
                                 end
                             end
@@ -1539,15 +1776,15 @@ local function StartBreachLoop(anomalyInstance)
                     end
                     target.AssignedTo = nil
                     if target.SuccessChance then
-                        for i = #base.workers, 1, -1 do
-                            if base.workers[i] == target then
-                                table.remove(base.workers, i)
+                        for i = #GameData.OwnedWorkers, 1, -1 do
+                            if GameData.OwnedWorkers[i] == target then
+                                table.remove(GameData.OwnedWorkers, i)
                             end
                         end
                     else
-                        for i = #base.guards, 1, -1 do
-                            if base.guards[i] == target then
-                                table.remove(base.guards, i)
+                        for i = #GameData.OwnedGuards, 1, -1 do
+                            if GameData.OwnedGuards[i] == target then
+                                table.remove(GameData.OwnedGuards, i)
                             end
                         end
                     end
@@ -1597,7 +1834,7 @@ local function StartBreachLoop(anomalyInstance)
                         UpdateRoomDisplay(anomalyInstance)
                     end
                 else
-                    local damageTarget = GetBase(anomalyInstance).coreHealth
+                    local damageTarget = GameData.CosmicShardCoreHealth
                     if GameData.TerminatorActive and #GameData.TerminatorAgents > 0 then
                         local agent = GameData.TerminatorAgents[math.random(#GameData.TerminatorAgents)]
                         agent.HP = math.max(0, agent.HP - extraDamage)
@@ -1612,11 +1849,10 @@ local function StartBreachLoop(anomalyInstance)
                             end
                         end
                     else
-                        local base = GetBase(anomalyInstance)
-                        base.coreHealth = math.max(0, base.coreHealth - extraDamage)
+                        GameData.CosmicShardCoreHealth = math.max(0, GameData.CosmicShardCoreHealth - extraDamage)
                         UpdateCoreDisplay()
-                        if base.coreHealth <= 0 then
-                            CompanyDestroyed(anomalyInstance.Base)
+                        if GameData.CosmicShardCoreHealth <= 0 then
+                            CompanyDestroyed()
                             break
                         end
                     end
@@ -1634,20 +1870,18 @@ local function StartBreachLoop(anomalyInstance)
                         yinInstance.IsBreached = false
                         yinInstance.CurrentMood = yinInstance.Data.BaseMood / 2
                         yinInstance.BreachHP = nil
-                        local yinBase = GetBase(yinInstance)
-                        for i, b in ipairs(yinBase.breachedAnomalies) do
+                        for i, b in ipairs(GameData.BreachedAnomalies) do
                             if b.Instance == yinInstance then
-                                table.remove(yinBase.breachedAnomalies, i)
+                                table.remove(GameData.BreachedAnomalies, i)
                                 break
                             end
                         end
                         UpdateRoomDisplay(yinInstance)
                         
                         anomalyInstance.IsBreached = false
-                        local thisBase = GetBase(anomalyInstance)
-                        for i, b in ipairs(thisBase.breachedAnomalies) do
+                        for i, b in ipairs(GameData.BreachedAnomalies) do
                             if b.Instance == anomalyInstance then
-                                table.remove(thisBase.breachedAnomalies, i)
+                                table.remove(GameData.BreachedAnomalies, i)
                                 break
                             end
                         end
@@ -1658,10 +1892,9 @@ local function StartBreachLoop(anomalyInstance)
                     end
                 else
                     anomalyInstance.IsBreached = false
-                    local thisBase = GetBase(anomalyInstance)
-                    for i, b in ipairs(thisBase.breachedAnomalies) do
+                    for i, b in ipairs(GameData.BreachedAnomalies) do
                         if b.Instance == anomalyInstance then
-                            table.remove(thisBase.breachedAnomalies, i)
+                            table.remove(GameData.BreachedAnomalies, i)
                             break
                         end
                     end
@@ -1708,21 +1941,18 @@ local function StartBreachLoop(anomalyInstance)
                             end
                         end
                     else
-                        local base = GetBase(anomalyInstance)
-                        base.coreHealth = math.max(0, base.coreHealth - damage)
+                        GameData.CosmicShardCoreHealth = math.max(0, GameData.CosmicShardCoreHealth - damage)
                         UpdateCoreDisplay()
-                        if base.coreHealth <= 0 then
-                            CompanyDestroyed(anomalyInstance.Base)
+                        if GameData.CosmicShardCoreHealth <= 0 then
+                            CompanyDestroyed()
                             break
                         end
                     end
                 end
                 
-                local base = GetBase(anomalyInstance)
-                local dmgMult = base.perks.DmgMult
                 for _, guard in ipairs(anomalyInstance.AssignedGuards) do
                     if guard.HP > 0 then
-                        local gdamage = guard.Damage * dmgMult
+                        local gdamage = guard.Damage
                         local attacked = false
                         if anomalyInstance.Data.Special == "Radio" and #minions > 0 then
                             minions[1].HP = math.max(0, minions[1].HP - gdamage)
@@ -1753,29 +1983,25 @@ local function StartBreachLoop(anomalyInstance)
                 end
                 
                 if anomalyInstance.BreachHP <= 0 then
-                    local wipe = anomalyInstance.ToBeExecuted
+                    local wipe = GameData.TerminatorActive or anomalyInstance.ToBeExecuted
                     if wipe then
                         CreateNotification(anomalyInstance.Name .. " has been wiped forever!", Color3.fromRGB(255, 0, 0))
-                        local base = GetBase(anomalyInstance)
-                        for i = #base.anomalies, 1, -1 do
-                            if base.anomalies[i] == anomalyInstance then
-                                table.remove(base.anomalies, i)
+                        for i = #GameData.OwnedAnomalies, 1, -1 do
+                            if GameData.OwnedAnomalies[i] == anomalyInstance then
+                                table.remove(GameData.OwnedAnomalies, i)
                                 break
                             end
                         end
-                        if anomalyInstance.RoomFrame then
-                            anomalyInstance.RoomFrame:Destroy()
-                        end
+                        anomalyInstance.RoomFrame:Destroy()
                     else
                         CreateNotification(breachData.Name .. " has been contained!", Color3.fromRGB(50, 200, 50))
                         anomalyInstance.IsBreached = false
                         anomalyInstance.CurrentMood = anomalyInstance.Data.BaseMood / 2
                         anomalyInstance.BreachHP = nil
                     end
-                    local base = GetBase(anomalyInstance)
-                    for i, b in ipairs(base.breachedAnomalies) do
+                    for i, b in ipairs(GameData.BreachedAnomalies) do
                         if b.Instance == anomalyInstance then
-                            table.remove(base.breachedAnomalies, i)
+                            table.remove(GameData.BreachedAnomalies, i)
                             break
                         end
                     end
@@ -1789,6 +2015,530 @@ local function StartBreachLoop(anomalyInstance)
     end)
 end
 
--- Initialize
-RefreshAnomalyContainer()
+-- Outer Guards Loop
+spawn(function()
+    while true do
+        wait(2)
+        if #GameData.BreachedAnomalies > 0 then
+            for _, guard in ipairs(GameData.OuterGuards) do
+                if guard.HP > 0 then
+                    if #GameData.BreachedAnomalies == 0 then break end
+                    table.sort(GameData.BreachedAnomalies, function(a, b) return a.Instance.BreachTime < b.Instance.BreachTime end)
+                    local target = GameData.BreachedAnomalies[1].Instance
+                    local damage = guard.Damage
+                    target.BreachHP = math.max(0, target.BreachHP - damage)
+                    CreateNotification(guard.Name .. " (Outer) attacked " .. target.Data.BreachForm.Name .. " for " .. damage, Color3.fromRGB(50, 200, 50))
+                    if target.BreachHP <= 0 then
+                        CreateNotification(target.Data.BreachForm.Name .. " contained!", Color3.fromRGB(50, 200, 50))
+                        target.IsBreached = false
+                        target.CurrentMood = target.Data.BaseMood / 2
+                        target.BreachHP = nil
+                        for i = #GameData.BreachedAnomalies, 1, -1 do
+                            if GameData.BreachedAnomalies[i].Instance == target then
+                                table.remove(GameData.BreachedAnomalies, i)
+                                break
+                            end
+                        end
+                        UpdateRoomDisplay(target)
+                        UpdateBreachAlert()
+                        UpdateCoreDisplay()
+                    end
+                end
+            end
+        end
+    end
+end)
+
+-- Terminator Attack Loop
+spawn(function()
+    while true do
+        wait(2)
+        if GameData.TerminatorActive and #GameData.TerminatorAgents > 0 and #GameData.BreachedAnomalies > 0 then
+            local sorted = {}
+            for _, b in ipairs(GameData.BreachedAnomalies) do
+                table.insert(sorted, b)
+            end
+            table.sort(sorted, function(a, b)
+                return getDangerLevel(a.Instance.Data.DangerClass) > getDangerLevel(b.Instance.Data.DangerClass)
+            end)
+            local target = sorted[1].Instance
+            for _, agent in ipairs(GameData.TerminatorAgents) do
+                if agent.HP > 0 then
+                    local damage = agent.Damage
+                    target.BreachHP = math.max(0, target.BreachHP - damage)
+                    CreateNotification(agent.Name .. " attacked " .. target.Data.BreachForm.Name .. " for " .. damage, Color3.fromRGB(50, 200, 50))
+                    if target.BreachHP <= 0 then
+                        CreateNotification(target.Data.BreachForm.Name .. " wiped!", Color3.fromRGB(255, 0, 0))
+                        for i = #GameData.BreachedAnomalies, 1, -1 do
+                            if GameData.BreachedAnomalies[i].Instance == target then
+                                table.remove(GameData.BreachedAnomalies, i)
+                                break
+                            end
+                        end
+                        for i = #GameData.OwnedAnomalies, 1, -1 do
+                            if GameData.OwnedAnomalies[i] == target then
+                                table.remove(GameData.OwnedAnomalies, i)
+                                break
+                            end
+                        end
+                        target.RoomFrame:Destroy()
+                        UpdateBreachAlert()
+                        UpdateCoreDisplay()
+                        if #GameData.BreachedAnomalies == 0 then
+                            GameData.TerminatorActive = false
+                            GameData.TerminatorAgents = {}
+                            CreateNotification("Terminator agents returning.", Color3.fromRGB(100, 100, 255))
+                        end
+                    end
+                end
+            end
+        end
+    end
+end)
+
+-- Global Mood Decrease Loop
+spawn(function()
+    while true do
+        wait(30)
+        for _, anomaly in ipairs(GameData.OwnedAnomalies) do
+            if not anomaly.IsBreached and not anomaly.Data.NoMoodMeter and not anomaly.Data.NoBreach then
+                local decrease = 0
+                local class = anomaly.Data.DangerClass
+                if class == "X" or class == "XI" then
+                    decrease = 5
+                elseif class == "XII" or class == "XIII" then
+                    decrease = 10
+                elseif class == "XIV" then
+                    decrease = 15
+                end
+                anomaly.CurrentMood = math.clamp(anomaly.CurrentMood - decrease, 0, 100)
+                UpdateRoomDisplay(anomaly)
+                if anomaly.CurrentMood <= 0 then
+                    TriggerBreach(anomaly, anomaly.RoomFrame)
+                end
+            end
+        end
+    end
+end)
+
+function UpdateCoreDisplay()
+    local healthPercent = GameData.CosmicShardCoreHealth / GameData.MaxCoreHealth
+    
+    CoreHealthLabel.Text = string.format("Health: %d / %d", GameData.CosmicShardCoreHealth, GameData.MaxCoreHealth)
+    
+    TweenService:Create(CoreHealthBar, TweenInfo.new(0.5), {
+        Size = UDim2.new(healthPercent, 0, 1, 0),
+        BackgroundColor3 = healthPercent > 0.6 and Color3.fromRGB(100, 200, 255) or healthPercent > 0.3 and Color3.fromRGB(255, 200, 100) or Color3.fromRGB(255, 100, 100)
+    }):Play()
+    
+    CoreStatusLabel.Text = GameData.CosmicShardCoreHealth <= 0 and "STATUS: DESTROYED" or healthPercent < 0.3 and "STATUS: CRITICAL" or healthPercent < 0.6 and "STATUS: DAMAGED" or "STATUS: PROTECTED"
+    CoreStatusLabel.TextColor3 = GameData.CosmicShardCoreHealth <= 0 and Color3.fromRGB(255, 50, 50) or healthPercent < 0.3 and Color3.fromRGB(255, 100, 50) or healthPercent < 0.6 and Color3.fromRGB(255, 200, 100) or Color3.fromRGB(100, 255, 100)
+    
+    UpdateBreachAlert()
+end
+
+function UpdateBreachAlert()
+    for _, child in pairs(BreachAlertContainer:GetChildren()) do
+        child:Destroy()
+    end
+    
+    if #GameData.BreachedAnomalies > 0 then
+        local alertLabel = CreateInstance("TextLabel", {
+            Name = "BreachAlert",
+            Parent = BreachAlertContainer,
+            BackgroundColor3 = Color3.fromRGB(150, 20, 20),
+            BorderSizePixel = 2,
+            BorderColor3 = Color3.fromRGB(255, 50, 50),
+            Size = UDim2.new(1, 0, 0, 50),
+            Text = string.format("⚠ ACTIVE BREACHES: %d ⚠", #GameData.BreachedAnomalies),
+            Font = Enum.Font.GothamBold,
+            TextSize = 14,
+            TextColor3 = Color3.fromRGB(255, 255, 255)
+        })
+        
+        CreateInstance("UICorner", {Parent = alertLabel, CornerRadius = UDim.new(0, 8)})
+        
+        spawn(function()
+            while alertLabel.Parent do
+                alertLabel.BackgroundColor3 = Color3.fromRGB(150, 20, 20)
+                wait(0.5)
+                if alertLabel.Parent then
+                    alertLabel.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+                    wait(0.5)
+                end
+            end
+        end)
+    end
+end
+
+function CompanyDestroyed()
+    local gameOverScreen = CreateInstance("Frame", {
+        Name = "GameOverScreen",
+        Parent = MainGui,
+        BackgroundColor3 = Color3.fromRGB(0, 0, 0),
+        BackgroundTransparency = 0.3,
+        Size = UDim2.new(1, 0, 1, 0),
+        ZIndex = 100
+    })
+    
+    local gameOverFrame = CreateInstance("Frame", {
+        Name = "GameOverFrame",
+        Parent = gameOverScreen,
+        BackgroundColor3 = Color3.fromRGB(20, 20, 20),
+        BorderSizePixel = 5,
+        BorderColor3 = Color3.fromRGB(200, 50, 50),
+        Size = isMobile and UDim2.new(0.95, 0, 0.95, 0) or UDim2.new(0, 600, 0, 400),
+        Position = isMobile and UDim2.new(0.025, 0, 0.025, 0) or UDim2.new(0.5, -300, 0.5, -200),
+        ZIndex = 101
+    })
+    
+    CreateInstance("TextLabel", {
+        Parent = gameOverFrame,
+        BackgroundTransparency = 1,
+        Size = UDim2.new(1, 0, 0, 80),
+        Position = UDim2.new(0, 0, 0, 50),
+        Text = "COMPANY DESTROYED",
+        Font = Enum.Font.GothamBold,
+        TextSize = 48,
+        TextColor3 = Color3.fromRGB(255, 50, 50),
+        ZIndex = 102
+    })
+    
+    CreateInstance("TextLabel", {
+        Parent = gameOverFrame,
+        BackgroundTransparency = 1,
+        Size = UDim2.new(1, -40, 0, 100),
+        Position = UDim2.new(0, 20, 0, 150),
+        Text = "The Cosmic Shard Core has been destroyed.\nAll anomalies have escaped.\nSorchesus Company has fallen.",
+        Font = Enum.Font.Gotham,
+        TextSize = 18,
+        TextColor3 = Color3.fromRGB(255, 255, 255),
+        TextWrapped = true,
+        ZIndex = 102
+    })
+    
+    CreateInstance("TextLabel", {
+        Parent = gameOverFrame,
+        BackgroundTransparency = 1,
+        Size = UDim2.new(1, -40, 0, 60),
+        Position = UDim2.new(0, 20, 0, 270),
+        Text = string.format("Final Crucible: %d\nAnomalies Contained: %d\nBreaches: %d", GameData.Crucible, #GameData.OwnedAnomalies, #GameData.BreachedAnomalies),
+        Font = Enum.Font.Gotham,
+        TextSize = 16,
+        TextColor3 = Color3.fromRGB(200, 200, 200),
+        TextWrapped = true,
+        ZIndex = 102
+    })
+end
+
+function ShowAnomalyInfo(anomalyInstance)
+    local infoGui = CreateInstance("Frame", {
+        Name = "InfoPopup",
+        Parent = MainGui,
+        BackgroundColor3 = Color3.fromRGB(20, 20, 20),
+        BorderSizePixel = 3,
+        BorderColor3 = Color3.fromRGB(100, 100, 100),
+        Size = isMobile and UDim2.new(0.95, 0, 0.95, 0) or UDim2.new(0, 500, 0, 400),
+        Position = isMobile and UDim2.new(0.025, 0, 0.025, 0) or UDim2.new(0.5, -250, 0.5, -200),
+        ZIndex = 10
+    })
+    
+    CreateInstance("TextLabel", {
+        Parent = infoGui,
+        BackgroundColor3 = Color3.fromRGB(30, 30, 30),
+        Size = UDim2.new(1, 0, 0, 40),
+        Text = anomalyInstance.Name,
+        Font = Enum.Font.GothamBold,
+        TextSize = 18,
+        TextColor3 = Color3.fromRGB(255, 200, 100)
+    })
+    
+    local breachInfo = anomalyInstance.Data.BreachForm and string.format(
+        "\n\nBreach Form: %s\nHealth: %d\nDamage: %d\n\nAbilities: %s",
+        anomalyInstance.Data.BreachForm.Name,
+        anomalyInstance.Data.BreachForm.Health,
+        anomalyInstance.Data.BreachForm.M1Damage,
+        #anomalyInstance.Data.BreachForm.Abilities > 0 and table.concat(anomalyInstance.Data.BreachForm.Abilities, ", ") or "None"
+    ) or "\n\nNo Breach Form"
+    
+    local infoText = string.format(
+        "Description: %s\n\nDanger Class: %s%s",
+        anomalyInstance.Data.Description,
+        anomalyInstance.Data.DangerClass,
+        breachInfo
+    )
+    
+    CreateInstance("TextLabel", {
+        Parent = infoGui,
+        BackgroundTransparency = 1,
+        Size = UDim2.new(1, -40, 1, -100),
+        Position = UDim2.new(0, 20, 0, 50),
+        Text = infoText,
+        Font = Enum.Font.Gotham,
+        TextSize = 14,
+        TextColor3 = Color3.fromRGB(200, 200, 200),
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextYAlignment = Enum.TextYAlignment.Top,
+        TextWrapped = true
+    })
+    
+    local closeBtn = CreateInstance("TextButton", {
+        Parent = infoGui,
+        BackgroundColor3 = Color3.fromRGB(100, 100, 100),
+        Size = UDim2.new(0, 100, 0, 35),
+        Position = UDim2.new(0.5, -50, 1, -50),
+        Text = "Close",
+        Font = Enum.Font.GothamBold,
+        TextSize = 14,
+        TextColor3 = Color3.fromRGB(255, 255, 255)
+    })
+    CreateInstance("UICorner", {Parent = closeBtn, CornerRadius = UDim.new(0, 6)})
+    
+    closeBtn.MouseButton1Click:Connect(function()
+        infoGui:Destroy()
+    end)
+end
+
+function CreateNotification(message, color)
+    local notif = CreateInstance("Frame", {
+        Name = "Notification",
+        Parent = MainGui,
+        BackgroundColor3 = color,
+        BorderSizePixel = 0,
+        Size = UDim2.new(0, 400, 0, 60),
+        Position = UDim2.new(0.5, -200, 0, -70)
+    })
+    CreateInstance("UICorner", {Parent = notif, CornerRadius = UDim.new(0, 10)})
+    
+    CreateInstance("TextLabel", {
+        Parent = notif,
+        BackgroundTransparency = 1,
+        Size = UDim2.new(1, -20, 1, 0),
+        Position = UDim2.new(0, 10, 0, 0),
+        Text = message,
+        Font = Enum.Font.GothamBold,
+        TextSize = 16,
+        TextColor3 = Color3.fromRGB(255, 255, 255),
+        TextWrapped = true
+    })
+    
+    TweenService:Create(notif, TweenInfo.new(0.3), {Position = UDim2.new(0.5, -200, 0, 10)}):Play()
+    
+    wait(3)
+    TweenService:Create(notif, TweenInfo.new(0.3), {Position = UDim2.new(0.5, -200, 0, -70)}):Play()
+    wait(0.3)
+    notif:Destroy()
+end
+
+-- White Train System
+local function GenerateRandomDocuments()
+    local anomalyNames = {}
+    for name, _ in pairs(AnomalyDatabase) do
+        table.insert(anomalyNames, name)
+    end
+    
+    local documents = {}
+    for i = 1, 3 do
+        local randomIndex = math.random(1, #anomalyNames)
+        documents[i] = anomalyNames[randomIndex]
+    end
+    
+    return documents
+end
+
+local function StartWhiteTrain()
+    GameData.WhiteTrainActive = true
+    GameData.TrainTimer = 720
+    
+    TrainStatus.Text = "The White Train Has Arrived!"
+    TrainStatus.TextColor3 = Color3.fromRGB(100, 255, 100)
+    BuyDocButton.Visible = true
+    TrainTimer.Visible = true
+    
+    CreateNotification("The White Train has arrived!", Color3.fromRGB(100, 100, 200))
+    
+    spawn(function()
+        while GameData.TrainTimer > 0 and GameData.WhiteTrainActive do
+            local minutes = math.floor(GameData.TrainTimer / 60)
+            local seconds = GameData.TrainTimer % 60
+            TrainTimer.Text = string.format("Train leaving in %02d:%02d", minutes, seconds)
+            wait(1)
+            GameData.TrainTimer = GameData.TrainTimer - 1
+        end
+        
+        if GameData.WhiteTrainActive then
+            EndWhiteTrain()
+        end
+    end)
+end
+
+local function EndWhiteTrain()
+    GameData.WhiteTrainActive = false
+    
+    TrainStatus.Text = "The White Train has left..."
+    TrainStatus.TextColor3 = Color3.fromRGB(200, 200, 200)
+    BuyDocButton.Visible = false
+    TrainTimer.Visible = false
+    DocumentGui.Visible = false
+    
+    CreateNotification("The White Train has departed.", Color3.fromRGB(100, 100, 100))
+    
+    spawn(function()
+        GameData.TrainTimer = 1200
+        while GameData.TrainTimer > 0 do
+            local minutes = math.floor(GameData.TrainTimer / 60)
+            local seconds = GameData.TrainTimer % 60
+            TrainStatus.Text = string.format("Arriving in %02d:%02d", minutes, seconds)
+            wait(1)
+            GameData.TrainTimer = GameData.TrainTimer - 1
+        end
+        StartWhiteTrain()
+    end)
+end
+
+-- Terminator Protocol Function
+local function IsTerminatorAvailable()
+    if #GameData.BreachedAnomalies >= 5 then
+        return true
+    end
+    for _, breach in ipairs(GameData.BreachedAnomalies) do
+        if breach.Instance.Data.DangerClass == "XIV" then
+            return true
+        end
+    end
+    return false
+end
+
+-- Button Connections
+EmployeeButton.MouseButton1Click:Connect(function()
+    EmployeeShop.Visible = true
+end)
+
+CloseShopButton.MouseButton1Click:Connect(function()
+    EmployeeShop.Visible = false
+end)
+
+OuterGuardButton.MouseButton1Click:Connect(function()
+    PopulateOuterGui()
+    OuterGuardGui.Visible = true
+end)
+
+CloseOuterButton.MouseButton1Click:Connect(function()
+    OuterGuardGui.Visible = false
+end)
+
+CloseOuterBottom.MouseButton1Click:Connect(function()
+    OuterGuardGui.Visible = false
+end)
+
+TerminatorButton.MouseButton1Click:Connect(function()
+    if not IsTerminatorAvailable() then
+        CreateNotification("Terminator Protocol not available!", Color3.fromRGB(200, 50, 50))
+        return
+    end
+    if GameData.Crucible < 35000 then
+        CreateNotification("Not enough Crucible!", Color3.fromRGB(200, 50, 50))
+        return
+    end
+    UpdateCrucible(-35000)
+    RefreshCrucibleDisplay()
+    
+    local agents = {
+        {Name = "Agent Aisyah", HP = 3500, Damage = 500},
+        {Name = "Agent Blake", HP = 4000, Damage = 350},
+        {Name = "Agent Tyler", HP = 3750, Damage = 450},
+        {Name = "Agent Toby", HP = 3000, Damage = 750},
+        {Name = "Agent Anastasia", HP = 4300, Damage = 530},
+        {Name = "Agent Elmer", HP = 6000, Damage = 600},
+        {Name = "Juggernaut Paul", HP = 9000, Damage = 1000},
+        {Name = "Juggernaut Dexter", HP = 10000, Damage = 1500},
+        {Name = "Commander Britney", HP = 17500, Damage = 3000}
+    }
+    
+    GameData.TerminatorAgents = agents
+    GameData.TerminatorActive = true
+    CreateNotification("Terminator Protocol activated!", Color3.fromRGB(255, 0, 0))
+end)
+
+CloseWGButton.MouseButton1Click:Connect(function()
+    AssignGui.Visible = false
+end)
+
+CloseAssignButtonBottom.MouseButton1Click:Connect(function()
+    AssignGui.Visible = false
+end)
+
+BuyDocButton.MouseButton1Click:Connect(function()
+    if GameData.Crucible >= 100 then
+        UpdateCrucible(-100)
+        RefreshCrucibleDisplay()
+        
+        GameData.CurrentDocuments = GenerateRandomDocuments()
+        DocumentGui.Visible = true
+        AnomalyInfo.Visible = false
+        
+        CreateNotification("Documents purchased!", Color3.fromRGB(100, 200, 100))
+    else
+        CreateNotification("Not enough Crucible!", Color3.fromRGB(200, 50, 50))
+    end
+end)
+
+for i = 1, 3 do
+    local docBtn = DocContainer:FindFirstChild("Document" .. i)
+    docBtn.MouseButton1Click:Connect(function()
+        local selectedAnomaly = GameData.CurrentDocuments[i]
+        if selectedAnomaly then
+            local anomalyData = AnomalyDatabase[selectedAnomaly]
+            
+            AnomalyInfo.Visible = true
+            AnomalyNameLabel.Text = "???"
+            DangerClassLabel.Text = "Danger Class: ???"
+            DescriptionLabel.Text = anomalyData.Description
+            
+            GameData.SelectedDocument = selectedAnomaly
+            
+            for j = 1, 3 do
+                local btn = DocContainer:FindFirstChild("Document" .. j)
+                btn.BorderColor3 = j == i and Color3.fromRGB(255, 200, 0) or Color3.fromRGB(100, 100, 120)
+                btn.BorderSizePixel = j == i and 3 or 2
+            end
+        end
+    end)
+end
+
+AcceptButton.MouseButton1Click:Connect(function()
+    if GameData.SelectedDocument then
+        CreateAnomalyRoom(GameData.SelectedDocument)
+        CreateNotification("Anomaly accepted: " .. GameData.SelectedDocument, Color3.fromRGB(50, 200, 50))
+        DocumentGui.Visible = false
+        AnomalyInfo.Visible = false
+        GameData.SelectedDocument = nil
+    end
+end)
+
+DeclineButton.MouseButton1Click:Connect(function()
+    AnomalyInfo.Visible = false
+    GameData.SelectedDocument = nil
+    
+    for i = 1, 3 do
+        local btn = DocContainer:FindFirstChild("Document" .. i)
+        btn.BorderColor3 = Color3.fromRGB(100, 100, 120)
+        btn.BorderSizePixel = 2
+    end
+end)
+
+CloseDocButton.MouseButton1Click:Connect(function()
+    DocumentGui.Visible = false
+    AnomalyInfo.Visible = false
+    GameData.SelectedDocument = nil
+end)
+
+-- Initialize Game
+wait(0.5)
+CreateNotification("Welcome to Sorchesus Company!", Color3.fromRGB(200, 50, 50))
+wait(2)
+
+wait(3)
 StartWhiteTrain()
+
+print("Sorchesus Company GUI Loaded Successfully!")
