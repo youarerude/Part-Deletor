@@ -1,11 +1,3 @@
-local function map(t, f)
-    local res = {}
-    for _, v in ipairs(t) do
-        table.insert(res, f(v))
-    end
-    return res
-end
-
 -- Weapon Rarity Simulator GUI Script
 -- Place this in StarterGui as a LocalScript
 
@@ -95,48 +87,48 @@ local weapons = {
 -- Mutations data
 local mutations = {
     default = {
-        {name = "Bronze", chance_rarity = 75, is_rarify = true, multi = 75},
-        {name = "Silver", chance_rarity = 100, is_rarify = true, multi = 100},
-        {name = "Gold", chance_rarity = 235, is_rarify = true, multi = 235},
-        {name = "Diamond", chance_rarity = 500, is_rarify = true, multi = 500},
-        {name = "Rainbowified", chance_rarity = 1500, is_rarify = true, multi = 1500},
-        {name = "Nightbloom", chance_rarity = 1000000, is_rarify = false, multi = 1.3},
-        {name = "Burning", chance_rarity = 1000000, is_rarify = false, multi = 2},
-        {name = "Natural", chance_rarity = 1000000, is_rarify = false, multi = 4.5}
+        {name = "Bronze", rarity = 75},
+        {name = "Silver", rarity = 100},
+        {name = "Gold", rarity = 235},
+        {name = "Diamond", rarity = 500},
+        {name = "Rainbowified", rarity = 1500}
     },
     ["Pumpkin Wrath"] = {
-        {name = "Pumpkinized", chance_rarity = 10, is_rarify = true, multi = 10},
-        {name = "SoulFlamed", chance_rarity = 25, is_rarify = true, multi = 25}
+        {name = "Pumpkinized", rarity = 10},
+        {name = "SoulFlamed", rarity = 25}
     },
     ["Steampunk"] = {
-        {name = "Steamy", chance_rarity = 500, is_rarify = true, multi = 500},
-        {name = "Fogged", chance_rarity = 1000, is_rarify = true, multi = 1000},
-        {name = "Mistful", chance_rarity = 50000, is_rarify = true, multi = 50000}
+        {name = "Steamy", rarity = 500},
+        {name = "Fogged", rarity = 1000},
+        {name = "Mistful", rarity = 50000}
     },
     ["Robot Invasion"] = {
-        {name = "Cyber", chance_rarity = 300, is_rarify = true, multi = 300}
+        {name = "Cyber", rarity = 300}
     },
     ["Night City"] = {
-        {name = "Corrupted", chance_rarity = 750, is_rarify = true, multi = 750},
-        {name = "Impeached", chance_rarity = 7500, is_rarify = true, multi = 7500},
-        {name = "Madness", chance_rarity = 95000, is_rarify = true, multi = 95000},
-        {name = "IMPURED", chance_rarity = 100000, is_rarify = true, multi = 100000}
+        {name = "Corrupted", rarity = 750},
+        {name = "Impeached", rarity = 7500},
+        {name = "Madness", rarity = 95000},
+        {name = "IMPURED", rarity = 100000}
     },
     ["Graveyard"] = {
-        {name = "Wilted", chance_rarity = 50, is_rarify = true, multi = 50},
-        {name = "Blighted", chance_rarity = 99, is_rarify = true, multi = 99},
-        {name = "Deformed", chance_rarity = 750, is_rarify = true, multi = 750},
-        {name = "ECTOPLASM", chance_rarity = 75000, is_rarify = true, multi = 75000},
-        {name = "UNDERWORLD", chance_rarity = 1000000, is_rarify = true, multi = 1000000}
+        {name = "Wilted", rarity = 50},
+        {name = "Blighted", rarity = 99},
+        {name = "Deformed", rarity = 750},
+        {name = "ECTOPLASM", rarity = 75000},
+        {name = "UNDERWORLD", rarity = 1000000}
     }
 }
 
-local mut_info = {}
-for _, group in pairs(mutations) do
-    for _, m in ipairs(group) do
-        mut_info[m.name] = m
+local mutationRarities = {}
+for _, mutList in pairs(mutations) do
+    for _, m in ipairs(mutList) do
+        mutationRarities[m.name] = m.rarity
     end
 end
+mutationRarities["Nightbloom"] = 1.3
+mutationRarities["Burning"] = 2
+mutationRarities["Natural"] = 4.5
 
 local mutationColors = {
     ["Bronze"] = "184,115,51",
@@ -159,8 +151,8 @@ local mutationColors = {
     ["Deformed"] = "128,0,128",
     ["ECTOPLASM"] = "0,255,0",
     ["UNDERWORLD"] = "178,34,34",
-    ["Nightbloom"] = "148,0,211",
-    ["Burning"] = "255,0,0",
+    ["Nightbloom"] = "138,43,226",
+    ["Burning"] = "255,69,0",
     ["Natural"] = "0,128,0"
 }
 
@@ -193,40 +185,24 @@ for _, mutList in pairs(mutations) do
         end
     end
 end
+seenMuts["Nightbloom"] = true
+seenMuts["Burning"] = true
+seenMuts["Natural"] = true
+table.insert(mutationNames, "Nightbloom")
+table.insert(mutationNames, "Burning")
+table.insert(mutationNames, "Natural")
 table.sort(mutationNames, function(a, b)
     if a == "None" then return true end
     if b == "None" then return false end
     return a < b
 end)
 
--- Pets data
-local pets = {
-    {name = "Fox", cost = 25700, description = "every 10 Minute it has 50% chance to give a random 1/1 to 1/1,000 chance Gun!", rarity = "Common"},
-    {name = "Owl", cost = 28500, description = "every 1 Minute and 30 second it gives NightBloom to a random Gun! (Doesnt need chance)", rarity = "Common"},
-    {name = "Dog", cost = 37777, description = "every 1 minute it has 5% chance to give Lucky Potion I or Mutation Potion I or Biome Potion I!", rarity = "Uncommon"},
-    {name = "Giant Fire Ant", cost = 39000, description = "every 1 minute it has 50% chance to apply Burning mutation to a random Gun!", rarity = "Uncommon"},
-    {name = "Pumpkin Head Deer", cost = 42573, description = "If its during Pumpkin Wrath Biome, It will increase the chance of Pumpkinized into 1/5 Chance and Soulflamed into 1/7!", rarity = "Uncommon"},
-    {name = "Druid", cost = 50000, description = "increase the chance of Druid Vine gun from 1/59,690,100 to 1/5,966,001. Second ability : every 2 minute it applies Natural Mutation to a random Gun!", rarity = "Rare"}
-}
-
-local pet_table = {}
-for _, p in ipairs(pets) do
-    pet_table[p.name] = p
-end
-
--- Add pets to shopItems
-for _, pet in ipairs(pets) do
-    table.insert(shopItems, {name = pet.name, cost = pet.cost, description = pet.description, func = function() table.insert(playerData.pets, pet.name) end})
-end
-
 -- Player stats
 local playerData = {
     rolls = 0,
-    inventory = {},
+    inventory = {}, -- list of {baseName = string, mutations = table}
     items = {},
-    pets = {},
-    equipped_pets = {},
-    pet_tasks = {},
+    pets = {}, -- list of {name = string, lastAction = number}
     currentBiome = "Default",
     money = 0,
     usedCarved = false,
@@ -259,73 +235,64 @@ local potionTimers = {
     biomePotion5 = 0
 }
 
--- Pet abilities
-local pet_abilities = {
-    ["Fox"] = function()
-        while true do
-            task.wait(600)
-            if math.random() < 0.5 then
-                local low_guns = {}
-                for _, w in ipairs(weapons) do
-                    if w.rarity <= 1000 then
-                        table.insert(low_guns, w)
-                    end
-                end
-                if #low_guns > 0 then
-                    local rand_gun = low_guns[math.random(1, #low_guns)]
-                    table.insert(playerData.inventory, rand_gun.name)
-                end
-            end
+-- Shop items
+local shopItems = {
+    {name = "Lucky Potion I", cost = 50, description = "Increases gun luck by 5% for 60 seconds.", func = function() gunLuckBoost = 0.05; potionTimers.luckyPotion1 = 60 end},
+    {name = "Mutation Potion I", cost = 65, description = "Increases mutation luck by 5% for 55 seconds.", func = function() mutationLuckBoost = 0.05; potionTimers.mutationPotion1 = 55 end},
+    {name = "Biome Potion I", cost = 100, description = "Increases biome luck by 10% for 1 use.", func = function() biomeLuckBoost = 0.10; potionTimers.biomePotion1 = 1 end},
+    {name = "Lucky Potion II", cost = 125, description = "Increases gun luck by 15% for 90 seconds.", func = function() gunLuckBoost = 0.15; potionTimers.luckyPotion2 = 90 end},
+    {name = "Mutation Potion II", cost = 175, description = "Increases mutation luck by 12% for 72 seconds.", func = function() mutationLuckBoost = 0.12; potionTimers.mutationPotion2 = 72 end},
+    {name = "Biome Potion II", cost = 235, description = "Increases biome luck by 25% for 1 use.", func = function() biomeLuckBoost = 0.25; potionTimers.biomePotion2 = 1 end},
+    {name = "Lucky Potion III", cost = 300, description = "Increases gun luck by 30% for 180 seconds.", func = function() gunLuckBoost = 0.30; potionTimers.luckyPotion3 = 180 end},
+    {name = "Mutation Potion III", cost = 375, description = "Increases mutation luck by 34% for 162 seconds.", func = function() mutationLuckBoost = 0.34; potionTimers.mutationPotion3 = 162 end},
+    {name = "Biome Potion III", cost = 499, description = "Increases biome luck by 45% for 1 use.", func = function() biomeLuckBoost = 0.45; potionTimers.biomePotion3 = 1 end},
+    {name = "Carved Pumpkin", cost = 900, description = "Activates Pumpkin Wrath biome for 5 minutes.", func = function() playerData.currentBiome = "Pumpkin Wrath"; biomeEndTime = os.time() + 300; biomeDuration = 300 end, once = true},
+    {name = "Lucky Potion IV", cost = 1750, description = "Increases gun luck by 50% for 300 seconds.", func = function() gunLuckBoost = 0.50; potionTimers.luckyPotion4 = 300 end},
+    {name = "Mutation Potion IV", cost = 2300, description = "Increases mutation luck by 55% for 240 seconds.", func = function() mutationLuckBoost = 0.55; potionTimers.mutationPotion4 = 240 end},
+    {name = "Biome Potion IV", cost = 4500, description = "Increases biome luck by 60% for 1 use.", func = function() biomeLuckBoost = 0.60; potionTimers.biomePotion4 = 1 end},
+    {name = "UFO Necklace", cost = 9000, description = "Activates Robot Invasion biome for 6 minutes.", func = function() playerData.currentBiome = "Robot Invasion"; biomeEndTime = os.time() + 360; biomeDuration = 360 end, once = true},
+    {name = "Dice Potion", cost = 14500, description = "Gives a random luck boost for 60 seconds.", func = function() 
+        local rand = math.random(1, 95 + 25 + 2)
+        if rand <= 2 then
+            gunLuckBoost = 0.01
+        elseif rand <= 2 + 25 then
+            gunLuckBoost = 5
+        else
+            gunLuckBoost = 10
         end
-    end,
-    ["Owl"] = function()
-        while true do
-            task.wait(90)
-            if #playerData.inventory > 0 then
-                local idx = math.random(1, #playerData.inventory)
-                local old = playerData.inventory[idx]
-                local new = "Nightbloom " .. old
-                playerData.inventory[idx] = new
-            end
+        potionTimers.dicePotion = 60
+    end},
+    {name = "Lucky Potion V", cost = 19500, description = "Increases gun luck by 69% for 300 seconds.", func = function() gunLuckBoost = 0.69; potionTimers.luckyPotion5 = 300 end},
+    {name = "Mutation Potion V", cost = 25750, description = "Increases mutation luck by 72% for 264 seconds.", func = function() mutationLuckBoost = 0.72; potionTimers.mutationPotion5 = 264 end},
+    {name = "Elemental Controller", cost = 29500, description = "Activates a random biome for 5 minutes.", func = function() 
+        local rand = math.random(1, 245 + 111 + 75 + 40 + 10 + 2)
+        local selectedBiome
+        if rand <= 2 then
+            selectedBiome = nil
+        elseif rand <= 2 + 10 then
+            selectedBiome = "Pumpkin Wrath"
+        elseif rand <= 2 + 10 + 40 then
+            selectedBiome = "Robot Invasion"
+        elseif rand <= 2 + 10 + 40 + 75 then
+            selectedBiome = "Steampunk"
+        elseif rand <= 2 + 10 + 40 + 75 + 111 then
+            selectedBiome = "Graveyard"
+        else
+            selectedBiome = "Night City"
         end
-    end,
-    ["Dog"] = function()
-        while true do
-            task.wait(60)
-            if math.random() < 0.05 then
-                local potions = {"Lucky Potion I", "Mutation Potion I", "Biome Potion I"}
-                local rand_p = potions[math.random(1, 3)]
-                table.insert(playerData.items, rand_p)
-            end
+        if selectedBiome then
+            playerData.currentBiome = selectedBiome
+            biomeEndTime = os.time() + 300
+            biomeDuration = 300
         end
-    end,
-    ["Giant Fire Ant"] = function()
-        while true do
-            task.wait(60)
-            if math.random() < 0.5 then
-                if #playerData.inventory > 0 then
-                    local idx = math.random(1, #playerData.inventory)
-                    local old = playerData.inventory[idx]
-                    local new = "Burning " .. old
-                    playerData.inventory[idx] = new
-                end
-            end
-        end
-    end,
-    ["Pumpkin Head Deer"] = function()
-        -- passive, no loop
-    end,
-    ["Druid"] = function()
-        while true do
-            task.wait(120)
-            if #playerData.inventory > 0 then
-                local idx = math.random(1, #playerData.inventory)
-                local old = playerData.inventory[idx]
-                local new = "Natural " .. old
-                playerData.inventory[idx] = new
-            end
-        end
-    end,
+    end},
+    {name = "Biome Potion V", cost = 31000, description = "Increases biome luck by 85% for 1 use.", func = function() biomeLuckBoost = 0.85; potionTimers.biomePotion5 = 1 end},
+    {name = "Fox", cost = 25700, description = "Every 10 minutes it has 50% chance to give a random 1/1 to 1/1,000 chance Gun!", rarity = "Common", func = function() table.insert(playerData.pets, {name = "Fox", lastAction = 0}) end},
+    {name = "Owl", cost = 28500, description = "Every 1 minute and 30 seconds it gives Nightbloom to a random Gun! (Doesn't need chance)", rarity = "Common", func = function() table.insert(playerData.pets, {name = "Owl", lastAction = 0}) end},
+    {name = "Dog", cost = 37777, description = "Every 1 minute it has 5% chance to give Lucky Potion I or Mutation Potion I or Biome Potion I!", rarity = "Uncommon", func = function() table.insert(playerData.pets, {name = "Dog", lastAction = 0}) end},
+    {name = "Giant Fire Ant", cost = 39000, description = "Every 1 minute it has 50% chance to apply Burning mutation to a random Gun!", rarity = "Uncommon", func = function() table.insert(playerData.pets, {name = "Giant Fire Ant", lastAction = 0}) end},
+    {name = "Pumpkin Head Deer", cost = 42573, description = "If it's during Pumpkin Wrath Biome, it will increase the chance of Pumpkinized into 1/5 Chance and Soulflamed into 1/7!", rarity = "Uncommon", func = function() table.insert(playerData.pets, {name = "Pumpkin Head Deer", lastAction = 0}) end},
+    {name = "Druid", cost = 50000, description = "Increases the chance of Druid Vine gun from 1/59,690,100 to 1/5,966,001. Second ability: every 2 minutes it applies Natural Mutation to a random Gun!", rarity = "Rare", func = function() table.insert(playerData.pets, {name = "Druid", lastAction = 0}) end}
 }
 
 -- Create ScreenGui
@@ -547,7 +514,7 @@ closeInvCorner.Parent = closeInvButton
 
 -- Tabs for Inventory
 local gunsTabButton = Instance.new("TextButton")
-gunsTabButton.Size = UDim2.new(0.333, 0, 0, 40)
+gunsTabButton.Size = UDim2.new(1/3, 0, 0, 40)
 gunsTabButton.Position = UDim2.new(0, 0, 0, 50)
 gunsTabButton.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
 gunsTabButton.BorderSizePixel = 0
@@ -562,8 +529,8 @@ gunsTabCorner.CornerRadius = UDim.new(0, 8)
 gunsTabCorner.Parent = gunsTabButton
 
 local itemsTabButton = Instance.new("TextButton")
-itemsTabButton.Size = UDim2.new(0.333, 0, 0, 40)
-itemsTabButton.Position = UDim2.new(0.333, 0, 0, 50)
+itemsTabButton.Size = UDim2.new(1/3, 0, 0, 40)
+itemsTabButton.Position = UDim2.new(1/3, 0, 0, 50)
 itemsTabButton.BackgroundColor3 = Color3.fromRGB(40, 40, 55)
 itemsTabButton.BorderSizePixel = 0
 itemsTabButton.Text = "Items"
@@ -577,8 +544,8 @@ itemsTabCorner.CornerRadius = UDim.new(0, 8)
 itemsTabCorner.Parent = itemsTabButton
 
 local petsTabButton = Instance.new("TextButton")
-petsTabButton.Size = UDim2.new(0.334, 0, 0, 40)
-petsTabButton.Position = UDim2.new(0.666, 0, 0, 50)
+petsTabButton.Size = UDim2.new(1/3, 0, 0, 40)
+petsTabButton.Position = UDim2.new(2/3, 0, 0, 50)
 petsTabButton.BackgroundColor3 = Color3.fromRGB(40, 40, 55)
 petsTabButton.BorderSizePixel = 0
 petsTabButton.Text = "Pets"
@@ -1017,6 +984,29 @@ local function getRainbowText(text)
     return coloredText
 end
 
+local function getMutationText(mutations)
+    local texts = {}
+    for _, mutation in ipairs(mutations) do
+        local mutText
+        if mutation == "Rainbowified" then
+            mutText = getRainbowText("Rainbowified")
+        else
+            local colorStr = mutationColors[mutation] or "255,255,255"
+            mutText = '<font color="rgb(' .. colorStr .. ')">' .. string.upper(mutation) .. '</font>'
+        end
+        table.insert(texts, "[" .. mutText .. "]")
+    end
+    return table.concat(texts, " + ")
+end
+
+local function calculateEffectiveRarity(gunRarity, mutations)
+    local effective = gunRarity
+    for _, mut in ipairs(mutations) do
+        effective = effective * (mutationRarities[mut] or 1)
+    end
+    return math.floor(effective)
+end
+
 local function getMoneyFromRarity(rarity)
     if rarity <= 100 then
         return math.random(5, 10)
@@ -1045,8 +1035,17 @@ local function getMoneyFromRarity(rarity)
     end
 end
 
+local function hasPet(petName)
+    for _, pet in ipairs(playerData.pets) do
+        if pet.name == petName then
+            return true
+        end
+    end
+    return false
+end
+
 local function updateInventoryDisplay(tab)
-    local scroll = tab == "Guns" and gunsScrollFrame or (tab == "Items" and itemsScrollFrame or petsScrollFrame)
+    local scroll = (tab == "Guns" and gunsScrollFrame) or (tab == "Items" and itemsScrollFrame) or (tab == "Pets" and petsScrollFrame)
     for _, child in ipairs(scroll:GetChildren()) do
         if child:IsA("Frame") then
             child:Destroy()
@@ -1055,8 +1054,11 @@ local function updateInventoryDisplay(tab)
     
     if tab == "Guns" then
         local count = {}
-        for _, weaponName in ipairs(playerData.inventory) do
-            count[weaponName] = (count[weaponName] or 0) + 1
+        for _, gun in ipairs(playerData.inventory) do
+            local muts = table.concat(table.sort(table.clone(gun.mutations)), ":")
+            local key = gun.baseName .. ":" .. muts
+            count[key] = (count[key] or 0) + 1
+            gun.key = key -- for reference
         end
         
         if next(count) == nil then
@@ -1073,12 +1075,11 @@ local function updateInventoryDisplay(tab)
         end
         
         local yOffset = 0
-        for name, amount in pairs(count) do
-            local parts = string.split(name, " ")
-            local baseName = parts[#parts]
-            local mutationsList = {}
-            for i=1, #parts-1 do
-                table.insert(mutationsList, parts[i])
+        for key, amount in pairs(count) do
+            local baseName, mutsStr = string.match(key, "([^:]+):(.+)")
+            local mutations = {}
+            if mutsStr ~= "" then
+                mutations = string.split(mutsStr, ":")
             end
             
             local weaponData = nil
@@ -1090,13 +1091,7 @@ local function updateInventoryDisplay(tab)
             end
             
             if weaponData then
-                local effectiveRarity = weaponData.rarity
-                for _, mut in ipairs(mutationsList) do
-                    local info = mut_info[mut]
-                    if info then
-                        effectiveRarity = effectiveRarity * (info.is_rarify and info.multi or 1/info.multi)
-                    end
-                end
+                local effectiveRarity = calculateEffectiveRarity(weaponData.rarity, mutations)
                 
                 local itemFrame = Instance.new("Frame")
                 itemFrame.Size = UDim2.new(1, -10, 0, 60)
@@ -1114,22 +1109,14 @@ local function updateInventoryDisplay(tab)
                 itemCorner.CornerRadius = UDim.new(0, 8)
                 itemCorner.Parent = itemFrame
                 
+                local displayName = baseName
+                if #mutations > 0 then
+                    displayName = displayName .. "\n" .. getMutationText(mutations)
+                end
                 local nameLabel = Instance.new("TextLabel")
                 nameLabel.Size = UDim2.new(0.7, -10, 1, 0)
                 nameLabel.Position = UDim2.new(0, 10, 0, 0)
                 nameLabel.BackgroundTransparency = 1
-                local displayName = baseName
-                if #mutationsList > 0 then
-                    local muts_disp = mutationsList
-                    local mutText
-                    if #muts_disp > 4 then
-                        muts_disp = {muts_disp[1], muts_disp[2], muts_disp[3], muts_disp[4]}
-                        mutText = table.concat(map(muts_disp, function(mut) local colorStr = mutationColors[mut] or "255,255,255" return '<font color="rgb(' .. colorStr .. ')">[' .. string.upper(mut) .. ']</font>' end), " + ") .. " and so on..."
-                    else
-                        mutText = table.concat(map(muts_disp, function(mut) local colorStr = mutationColors[mut] or "255,255,255" return '<font color="rgb(' .. colorStr .. ')">[' .. string.upper(mut) .. ']</font>' end), " + ")
-                    end
-                    displayName = baseName .. '\n' .. mutText
-                end
                 nameLabel.Text = displayName
                 nameLabel.RichText = true
                 nameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -1168,17 +1155,17 @@ local function updateInventoryDisplay(tab)
         scroll.CanvasSize = UDim2.new(0, 0, 0, yOffset)
     elseif tab == "Items" then
         local yOffset = 0
-        for _, item in ipairs(playerData.items) do
+        for _, itemName in ipairs(playerData.items) do
             local itemData
             for _, shopItem in ipairs(shopItems) do
-                if shopItem.name == item then
+                if shopItem.name == itemName then
                     itemData = shopItem
                     break
                 end
             end
             if itemData then
                 local itemFrame = Instance.new("Frame")
-                itemFrame.Size = UDim2.new(1, -10, 0, 60)
+                itemFrame.Size = UDim2.new(1, -10, 0, 80)
                 itemFrame.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
                 itemFrame.BorderSizePixel = 0
                 itemFrame.Parent = scroll
@@ -1188,16 +1175,28 @@ local function updateInventoryDisplay(tab)
                 itemCorner.Parent = itemFrame
                 
                 local nameLabel = Instance.new("TextLabel")
-                nameLabel.Size = UDim2.new(0.7, -10, 1, 0)
+                nameLabel.Size = UDim2.new(0.7, -10, 0.375, 0)
                 nameLabel.Position = UDim2.new(0, 10, 0, 0)
                 nameLabel.BackgroundTransparency = 1
-                nameLabel.Text = item
+                nameLabel.Text = itemName
                 nameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
                 nameLabel.TextSize = 16
                 nameLabel.Font = Enum.Font.GothamBold
                 nameLabel.TextXAlignment = Enum.TextXAlignment.Left
                 nameLabel.TextWrapped = true
                 nameLabel.Parent = itemFrame
+                
+                local descLabel = Instance.new("TextLabel")
+                descLabel.Size = UDim2.new(0.7, -10, 0.625, 0)
+                descLabel.Position = UDim2.new(0, 10, 0.375, 0)
+                descLabel.BackgroundTransparency = 1
+                descLabel.Text = itemData.description or ""
+                descLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+                descLabel.TextSize = 14
+                descLabel.Font = Enum.Font.Gotham
+                descLabel.TextXAlignment = Enum.TextXAlignment.Left
+                descLabel.TextWrapped = true
+                descLabel.Parent = itemFrame
                 
                 local useButton = Instance.new("TextButton")
                 useButton.Size = UDim2.new(0, 80, 0, 30)
@@ -1223,7 +1222,7 @@ local function updateInventoryDisplay(tab)
                     end
                     -- Remove from inventory
                     for i, v in ipairs(playerData.items) do
-                        if v == item then
+                        if v == itemName then
                             table.remove(playerData.items, i)
                             break
                         end
@@ -1231,7 +1230,62 @@ local function updateInventoryDisplay(tab)
                     updateInventoryDisplay("Items")
                 end)
                 
-                yOffset = yOffset + 65
+                yOffset = yOffset + 85
+            end
+        end
+        
+        scroll.CanvasSize = UDim2.new(0, 0, 0, yOffset)
+    elseif tab == "Pets" then
+        local count = {}
+        for _, pet in ipairs(playerData.pets) do
+            count[pet.name] = (count[pet.name] or 0) + 1
+        end
+        
+        local yOffset = 0
+        for name, amount in pairs(count) do
+            local petData
+            for _, shopItem in ipairs(shopItems) do
+                if shopItem.name == name and shopItem.rarity then
+                    petData = shopItem
+                    break
+                end
+            end
+            if petData then
+                local itemFrame = Instance.new("Frame")
+                itemFrame.Size = UDim2.new(1, -10, 0, 80)
+                itemFrame.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
+                itemFrame.BorderSizePixel = 0
+                itemFrame.Parent = scroll
+                
+                local itemCorner = Instance.new("UICorner")
+                itemCorner.CornerRadius = UDim.new(0, 8)
+                itemCorner.Parent = itemFrame
+                
+                local nameLabel = Instance.new("TextLabel")
+                nameLabel.Size = UDim2.new(0.7, -10, 0.375, 0)
+                nameLabel.Position = UDim2.new(0, 10, 0, 0)
+                nameLabel.BackgroundTransparency = 1
+                nameLabel.Text = name .. " x" .. amount .. " (" .. petData.rarity .. ")"
+                nameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+                nameLabel.TextSize = 16
+                nameLabel.Font = Enum.Font.GothamBold
+                nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+                nameLabel.TextWrapped = true
+                nameLabel.Parent = itemFrame
+                
+                local descLabel = Instance.new("TextLabel")
+                descLabel.Size = UDim2.new(0.7, -10, 0.625, 0)
+                descLabel.Position = UDim2.new(0, 10, 0.375, 0)
+                descLabel.BackgroundTransparency = 1
+                descLabel.Text = petData.description or ""
+                descLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+                descLabel.TextSize = 14
+                descLabel.Font = Enum.Font.Gotham
+                descLabel.TextXAlignment = Enum.TextXAlignment.Left
+                descLabel.TextWrapped = true
+                descLabel.Parent = itemFrame
+                
+                yOffset = yOffset + 85
             end
         end
         
@@ -1249,7 +1303,7 @@ local function updateShopDisplay()
     local yOffset = 0
     for _, item in ipairs(shopItems) do
         local itemFrame = Instance.new("Frame")
-        itemFrame.Size = UDim2.new(1, -10, 0, 60)
+        itemFrame.Size = UDim2.new(1, -10, 0, 80)
         itemFrame.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
         itemFrame.BorderSizePixel = 0
         itemFrame.Parent = shopScrollFrame
@@ -1259,10 +1313,10 @@ local function updateShopDisplay()
         itemCorner.Parent = itemFrame
         
         local nameLabel = Instance.new("TextLabel")
-        nameLabel.Size = UDim2.new(0.7, -10, 0.5, 0)
+        nameLabel.Size = UDim2.new(0.7, -10, 0.375, 0)
         nameLabel.Position = UDim2.new(0, 10, 0, 0)
         nameLabel.BackgroundTransparency = 1
-        nameLabel.Text = item.name
+        nameLabel.Text = item.name .. (item.rarity and " (" .. item.rarity .. ")" or "")
         nameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
         nameLabel.TextSize = 16
         nameLabel.Font = Enum.Font.GothamBold
@@ -1271,8 +1325,8 @@ local function updateShopDisplay()
         nameLabel.Parent = itemFrame
         
         local costLabel = Instance.new("TextLabel")
-        costLabel.Size = UDim2.new(0.7, -10, 0.5, 0)
-        costLabel.Position = UDim2.new(0, 10, 0.5, 0)
+        costLabel.Size = UDim2.new(0.7, -10, 0.25, 0)
+        costLabel.Position = UDim2.new(0, 10, 0.375, 0)
         costLabel.BackgroundTransparency = 1
         costLabel.Text = "Cost: " .. item.cost .. " Money"
         costLabel.TextColor3 = Color3.fromRGB(255, 215, 0)
@@ -1280,6 +1334,18 @@ local function updateShopDisplay()
         costLabel.Font = Enum.Font.Gotham
         costLabel.TextXAlignment = Enum.TextXAlignment.Left
         costLabel.Parent = itemFrame
+        
+        local descLabel = Instance.new("TextLabel")
+        descLabel.Size = UDim2.new(0.7, -10, 0.375, 0)
+        descLabel.Position = UDim2.new(0, 10, 0.625, 0)
+        descLabel.BackgroundTransparency = 1
+        descLabel.Text = item.description or ""
+        descLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+        descLabel.TextSize = 14
+        descLabel.Font = Enum.Font.Gotham
+        descLabel.TextXAlignment = Enum.TextXAlignment.Left
+        descLabel.TextWrapped = true
+        descLabel.Parent = itemFrame
         
         local buyButton = Instance.new("TextButton")
         buyButton.Size = UDim2.new(0, 80, 0, 30)
@@ -1299,12 +1365,16 @@ local function updateShopDisplay()
         buyButton.MouseButton1Click:Connect(function()
             if playerData.money >= item.cost then
                 playerData.money = playerData.money - item.cost
-                table.insert(playerData.items, item.name)
+                if item.rarity then
+                    item.func()
+                else
+                    table.insert(playerData.items, item.name)
+                end
                 updateStats()
             end
         end)
         
-        yOffset = yOffset + 65
+        yOffset = yOffset + 85
     end
     
     shopScrollFrame.CanvasSize = UDim2.new(0, 0, 0, yOffset)
@@ -1342,75 +1412,74 @@ local function rollWeapon()
     
     for _, weapon in ipairs(weapons) do
         if weapon.biome == "Default" or weapon.biome == playerData.currentBiome then
-            table.insert(availableWeapons, weapon)
-            local baseWeight = 1 / weapon.rarity
+            local adjustedRarity = weapon.rarity
+            if weapon.name == "Druid Vine" and hasPet("Druid") then
+                adjustedRarity = 5966001
+            end
+            local baseWeight = 1 / adjustedRarity
             local weight = math.pow(baseWeight, gunExp)
             totalWeight = totalWeight + weight
+            table.insert(availableWeapons, {weapon = weapon, weight = weight, adjustedRarity = adjustedRarity})
         end
     end
     
     local roll = math.random() * totalWeight
     local current = 0
     
-    local selectedWeapon = nil
-    for _, weapon in ipairs(availableWeapons) do
-        local baseWeight = 1 / weapon.rarity
-        local weight = math.pow(baseWeight, gunExp)
-        current = current + weight
+    local selectedEntry = nil
+    for _, entry in ipairs(availableWeapons) do
+        current = current + entry.weight
         if roll <= current then
-            selectedWeapon = weapon
+            selectedEntry = entry
             break
         end
     end
     
-    if selectedWeapon then
+    if selectedEntry then
+        local selectedWeapon = selectedEntry.weapon
         -- Apply mutation
         local possibleMutations = {}
         for _, m in ipairs(mutations.default) do
-            table.insert(possibleMutations, m)
+            table.insert(possibleMutations, {name = m.name, rarity = m.rarity})
         end
         local biomeMuts = mutations[playerData.currentBiome]
         if biomeMuts then
             for _, m in ipairs(biomeMuts) do
-                table.insert(possibleMutations, m)
+                table.insert(possibleMutations, {name = m.name, rarity = m.rarity})
             end
         end
         
-        table.sort(possibleMutations, function(a, b) return a.chance_rarity > b.chance_rarity end)  -- Rarest first
+        if playerData.currentBiome == "Pumpkin Wrath" and hasPet("Pumpkin Head Deer") then
+            for _, m in ipairs(possibleMutations) do
+                if m.name == "Pumpkinized" then m.rarity = 5 end
+                if m.name == "SoulFlamed" then m.rarity = 7 end
+            end
+        end
         
-        local mutationsList = {}
+        table.sort(possibleMutations, function(a, b) return a.rarity > b.rarity end)  -- Rarest first
+        
+        local mutationName = nil
         for _, m in ipairs(possibleMutations) do
-            local baseProb = 1 / m.chance_rarity
+            local baseProb = 1 / m.rarity
             local adjustedProb = math.pow(baseProb, mutationExp)
             if math.random() < adjustedProb then
-                table.insert(mutationsList, m.name)
+                mutationName = m.name
+                break
             end
         end
         
-        local fullName = table.concat(mutationsList, " ") .. (#mutationsList > 0 and " " or "") .. selectedWeapon.name
-        local effectiveRarity = selectedWeapon.rarity
-        for _, mut in ipairs(mutationsList) do
-            local info = mut_info[mut]
-            if info then
-                effectiveRarity = effectiveRarity * (info.is_rarify and info.multi or 1/info.multi)
-            end
-        end
+        local mutationsList = mutationName and {mutationName} or {}
+        local newGun = {baseName = selectedWeapon.name, mutations = mutationsList}
+        
+        local effectiveRarity = calculateEffectiveRarity(selectedWeapon.rarity, mutationsList)
         
         local displayName = selectedWeapon.name
         if #mutationsList > 0 then
-            local muts_disp = mutationsList
-            local mutText
-            if #muts_disp > 4 then
-                muts_disp = {muts_disp[1], muts_disp[2], muts_disp[3], muts_disp[4]}
-                mutText = table.concat(map(muts_disp, function(mut) local colorStr = mutationColors[mut] or "255,255,255" return '<font color="rgb(' .. colorStr .. ')">[' .. string.upper(mut) .. ']</font>' end), " + ") .. " and so on..."
-            else
-                mutText = table.concat(map(muts_disp, function(mut) local colorStr = mutationColors[mut] or "255,255,255" return '<font color="rgb(' .. colorStr .. ')">[' .. string.upper(mut) .. ']</font>' end), " + ")
-            end
-            displayName = selectedWeapon.name .. '\n' .. mutText
+            displayName = displayName .. '\n' .. getMutationText(mutationsList)
         end
         
         playerData.rolls = playerData.rolls + 1
-        table.insert(playerData.inventory, fullName)
+        table.insert(playerData.inventory, newGun)
         playerData.money = playerData.money + getMoneyFromRarity(effectiveRarity)
         
         updateStats()
@@ -1431,6 +1500,70 @@ local function rollWeapon()
         return selectedWeapon
     end
 end
+
+local function applyMutationToRandomGun(mutation)
+    if #playerData.inventory == 0 then return end
+    local index = math.random(1, #playerData.inventory)
+    table.insert(playerData.inventory[index].mutations, mutation)
+end
+
+local function giveRandomLowRarityGun()
+    local lowWeapons = {}
+    for _, w in ipairs(weapons) do
+        if w.rarity <= 1000 then
+            table.insert(lowWeapons, w)
+        end
+    end
+    if #lowWeapons > 0 then
+        local selected = lowWeapons[math.random(1, #lowWeapons)]
+        table.insert(playerData.inventory, {baseName = selected.name, mutations = {}})
+    end
+end
+
+local function giveRandomPotionI()
+    local potions = {"Lucky Potion I", "Mutation Potion I", "Biome Potion I"}
+    table.insert(playerData.items, potions[math.random(1, #potions)])
+end
+
+task.spawn(function()
+    while true do
+        local now = os.time()
+        for _, pet in ipairs(playerData.pets) do
+            local interval = 0
+            local prob = 0
+            local action = nil
+            if pet.name == "Fox" then
+                interval = 600
+                prob = 0.5
+                action = giveRandomLowRarityGun
+            elseif pet.name == "Owl" then
+                interval = 90
+                prob = 1
+                action = function() applyMutationToRandomGun("Nightbloom") end
+            elseif pet.name == "Dog" then
+                interval = 60
+                prob = 0.05
+                action = giveRandomPotionI
+            elseif pet.name == "Giant Fire Ant" then
+                interval = 60
+                prob = 0.5
+                action = function() applyMutationToRandomGun("Burning") end
+            elseif pet.name == "Druid" then
+                interval = 120
+                prob = 1
+                action = function() applyMutationToRandomGun("Natural") end
+            end
+            -- Pumpkin Head Deer is passive, no action here
+            if interval > 0 and now - pet.lastAction >= interval then
+                pet.lastAction = now
+                if math.random() < prob then
+                    action()
+                end
+            end
+        end
+        task.wait(1)
+    end
+end)
 
 local autoRolling = false
 rollButton.MouseButton1Click:Connect(function()
@@ -1527,7 +1660,8 @@ task.spawn(function()
             }
             local candidates = {}
             for _, b in ipairs(specialBiomes) do
-                if math.random(1, b.rarity) == 1 then
+                local effectiveRar = b.rarity / biomeLuckBoost -- Use biomeLuckBoost here
+                if math.random(1, math.floor(effectiveRar)) == 1 then
                     table.insert(candidates, b)
                 end
             end
@@ -1593,13 +1727,8 @@ end)
 sendGunButton.MouseButton1Click:Connect(function()
     local selectedGun = getGun()
     local selectedMut = getMut()
-    local fullName = selectedGun
-    local mutRar = 1
-    if selectedMut ~= "None" then
-        fullName = selectedMut .. " " .. selectedGun
-        mutRar = mutationRarities[selectedMut]
-    end
-    table.insert(playerData.inventory, fullName)
+    local mutations = selectedMut ~= "None" and {selectedMut} or {}
+    table.insert(playerData.inventory, {baseName = selectedGun, mutations = mutations})
     -- Optionally update result, but skip for now
 end)
 
