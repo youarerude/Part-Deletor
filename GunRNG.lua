@@ -1170,7 +1170,7 @@ local function updateInventoryDisplay(tab)
             end
             if itemData then
                 local itemFrame = Instance.new("Frame")
-                itemFrame.Size = UDim2.new(1, -10, 0, 90)
+                itemFrame.Size = UDim2.new(1, -10, 0, 60)
                 itemFrame.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
                 itemFrame.BorderSizePixel = 0
                 itemFrame.Parent = scroll
@@ -1180,7 +1180,7 @@ local function updateInventoryDisplay(tab)
                 itemCorner.Parent = itemFrame
                 
                 local nameLabel = Instance.new("TextLabel")
-                nameLabel.Size = UDim2.new(0.7, -10, 0.4, 0)
+                nameLabel.Size = UDim2.new(0.7, -10, 1, 0)
                 nameLabel.Position = UDim2.new(0, 10, 0, 0)
                 nameLabel.BackgroundTransparency = 1
                 nameLabel.Text = item
@@ -1190,18 +1190,6 @@ local function updateInventoryDisplay(tab)
                 nameLabel.TextXAlignment = Enum.TextXAlignment.Left
                 nameLabel.TextWrapped = true
                 nameLabel.Parent = itemFrame
-                
-                local descLabel = Instance.new("TextLabel")
-                descLabel.Size = UDim2.new(0.7, -10, 0.6, 0)
-                descLabel.Position = UDim2.new(0, 10, 0.4, 0)
-                descLabel.BackgroundTransparency = 1
-                descLabel.Text = itemData.description or ""
-                descLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
-                descLabel.TextSize = 12
-                descLabel.Font = Enum.Font.Gotham
-                descLabel.TextXAlignment = Enum.TextXAlignment.Left
-                descLabel.TextWrapped = true
-                descLabel.Parent = itemFrame
                 
                 local useButton = Instance.new("TextButton")
                 useButton.Size = UDim2.new(0, 80, 0, 30)
@@ -1235,7 +1223,7 @@ local function updateInventoryDisplay(tab)
                     updateInventoryDisplay("Items")
                 end)
                 
-                yOffset = yOffset + 95
+                yOffset = yOffset + 65
             end
         end
         
@@ -1469,7 +1457,7 @@ local function rollWeapon()
     for _, weapon in ipairs(availableWeapons) do
         local baseWeight = 1 / weapon.rarity
         local weight = math.pow(baseWeight, gunExp)
-        if table.find(playerData.equipped_pets, "Druid") and weapon.name == "Druid Vine" then
+        if table.find(playerData.equipped_pets, "Druid") and weapon.name = "Druid Vine" then
             weight = weight * 10
         end
         current = current + weight
@@ -1527,7 +1515,7 @@ local function rollWeapon()
         for _, mut in ipairs(mutationsList) do
             local info = mut_info[mut]
             if info then
-                effectiveRarity = effectiveRarity * (info.is_rarify and info.multi or 1 / info.multi)
+                effectiveRarity = effectiveRarity * (info.is_rarify and info.multi or 1/info.multi)
             end
         end
         
@@ -1623,7 +1611,7 @@ petsTabButton.MouseButton1Click:Connect(function()
     itemsTabButton.BackgroundColor3 = Color3.fromRGB(40, 40, 55)
     petsTabButton.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
     gunsScrollFrame.Visible = false
-    itemsScrollFrame = false
+    itemsScrollFrame.Visible = false
     petsScrollFrame.Visible = true
     updateInventoryDisplay("Pets")
 end)
