@@ -1,3 +1,11 @@
+local function map(t, f)
+    local res = {}
+    for _, v in ipairs(t) do
+        table.insert(res, f(v))
+    end
+    return res
+end
+
 -- Weapon Rarity Simulator GUI Script
 -- Place this in StarterGui as a LocalScript
 
@@ -198,7 +206,7 @@ local pets = {
     {name = "Dog", cost = 37777, description = "every 1 minute it has 5% chance to give Lucky Potion I or Mutation Potion I or Biome Potion I!", rarity = "Uncommon"},
     {name = "Giant Fire Ant", cost = 39000, description = "every 1 minute it has 50% chance to apply Burning mutation to a random Gun!", rarity = "Uncommon"},
     {name = "Pumpkin Head Deer", cost = 42573, description = "If its during Pumpkin Wrath Biome, It will increase the chance of Pumpkinized into 1/5 Chance and Soulflamed into 1/7!", rarity = "Uncommon"},
-    {name = "Druid", cost = 50000, description = "increase the chance of Druid Vine gun from 1/59,690,100 to 1/5,966,001. Secon ability : every 2 minute it applies Natural Mutation to a random Gun!", rarity = "Rare"}
+    {name = "Druid", cost = 50000, description = "increase the chance of Druid Vine gun from 1/59,690,100 to 1/5,966,001. Second ability : every 2 minute it applies Natural Mutation to a random Gun!", rarity = "Rare"}
 }
 
 local pet_table = {}
@@ -1228,100 +1236,6 @@ local function updateInventoryDisplay(tab)
         end
         
         scroll.CanvasSize = UDim2.new(0, 0, 0, yOffset)
-    elseif tab == "Pets" then
-        local yOffset = 0
-        for _, petName in ipairs(playerData.pets) do
-            local pet = pet_table[petName]
-            if pet then
-                local itemFrame = Instance.new("Frame")
-                itemFrame.Size = UDim2.new(1, -10, 0, 90)
-                itemFrame.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
-                itemFrame.BorderSizePixel = 0
-                itemFrame.Parent = scroll
-                
-                local itemCorner = Instance.new("UICorner")
-                itemCorner.CornerRadius = UDim.new(0, 8)
-                itemCorner.Parent = itemFrame
-                
-                local nameLabel = Instance.new("TextLabel")
-                nameLabel.Size = UDim2.new(0.7, -10, 0.3, 0)
-                nameLabel.Position = UDim2.new(0, 10, 0, 0)
-                nameLabel.BackgroundTransparency = 1
-                nameLabel.Text = petName
-                nameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-                nameLabel.TextSize = 16
-                nameLabel.Font = Enum.Font.GothamBold
-                nameLabel.TextXAlignment = Enum.TextXAlignment.Left
-                nameLabel.TextWrapped = true
-                nameLabel.Parent = itemFrame
-                
-                local descLabel = Instance.new("TextLabel")
-                descLabel.Size = UDim2.new(0.7, -10, 0.4, 0)
-                descLabel.Position = UDim2.new(0, 10, 0.3, 0)
-                descLabel.BackgroundTransparency = 1
-                descLabel.Text = pet.description or ""
-                descLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
-                descLabel.TextSize = 12
-                descLabel.Font = Enum.Font.Gotham
-                descLabel.TextXAlignment = Enum.TextXAlignment.Left
-                descLabel.TextWrapped = true
-                descLabel.Parent = itemFrame
-                
-                local rarityLabel = Instance.new("TextLabel")
-                rarityLabel.Size = UDim2.new(0.7, -10, 0.3, 0)
-                rarityLabel.Position = UDim2.new(0, 10, 0.7, 0)
-                rarityLabel.BackgroundTransparency = 1
-                rarityLabel.Text = "Rarity: " .. (pet.rarity or "")
-                rarityLabel.TextColor3 = Color3.fromRGB(255, 215, 0)
-                rarityLabel.TextSize = 14
-                rarityLabel.Font = Enum.Font.Gotham
-                rarityLabel.TextXAlignment = Enum.TextXAlignment.Left
-                rarityLabel.Parent = itemFrame
-                
-                local equipButton = Instance.new("TextButton")
-                equipButton.Size = UDim2.new(0, 100, 0, 30)
-                equipButton.Position = UDim2.new(0.8, -110, 0.5, -15)
-                equipButton.BorderSizePixel = 0
-                equipButton.TextSize = 14
-                equipButton.Font = Enum.Font.GothamBold
-                equipButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-                local equipped = table.find(playerData.equipped_pets, petName) ~= nil
-                equipButton.Text = equipped and "Unequip" or "Equip"
-                equipButton.BackgroundColor3 = equipped and Color3.fromRGB(200, 50, 50) or Color3.fromRGB(50, 200, 100)
-                equipButton.Parent = itemFrame
-
-                local equipCorner = Instance.new("UICorner")
-                equipCorner.CornerRadius = UDim.new(0, 8)
-                equipCorner.Parent = equipButton
-
-                equipButton.MouseButton1Click:Connect(function()
-                    equipped = table.find(playerData.equipped_pets, petName) ~= nil
-                    if equipped then
-                        for i, v in ipairs(playerData.equipped_pets) do
-                            if v == petName then
-                                table.remove(playerData.equipped_pets, i)
-                                break
-                            end
-                        end
-                        if playerData.pet_tasks[petName] then
-                            task.cancel(playerData.pet_tasks[petName])
-                            playerData.pet_tasks[petName] = nil
-                        end
-                        equipButton.Text = "Equip"
-                        equipButton.BackgroundColor3 = Color3.fromRGB(50, 200, 100)
-                    else
-                        table.insert(playerData.equipped_pets, petName)
-                        playerData.pet_tasks[petName] = task.spawn(pet_abilities[petName])
-                        equipButton.Text = "Unequip"
-                        equipButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
-                    end
-                end)
-                
-                yOffset = yOffset + 95
-            end
-        end
-        
-        scroll.CanvasSize = UDim2.new(0, 0, 0, yOffset)
     end
 end
 
@@ -1335,7 +1249,7 @@ local function updateShopDisplay()
     local yOffset = 0
     for _, item in ipairs(shopItems) do
         local itemFrame = Instance.new("Frame")
-        itemFrame.Size = UDim2.new(1, -10, 0, 90)
+        itemFrame.Size = UDim2.new(1, -10, 0, 60)
         itemFrame.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
         itemFrame.BorderSizePixel = 0
         itemFrame.Parent = shopScrollFrame
@@ -1345,7 +1259,7 @@ local function updateShopDisplay()
         itemCorner.Parent = itemFrame
         
         local nameLabel = Instance.new("TextLabel")
-        nameLabel.Size = UDim2.new(0.7, -10, 0.3, 0)
+        nameLabel.Size = UDim2.new(0.7, -10, 0.5, 0)
         nameLabel.Position = UDim2.new(0, 10, 0, 0)
         nameLabel.BackgroundTransparency = 1
         nameLabel.Text = item.name
@@ -1357,8 +1271,8 @@ local function updateShopDisplay()
         nameLabel.Parent = itemFrame
         
         local costLabel = Instance.new("TextLabel")
-        costLabel.Size = UDim2.new(0.7, -10, 0.3, 0)
-        costLabel.Position = UDim2.new(0, 10, 0.3, 0)
+        costLabel.Size = UDim2.new(0.7, -10, 0.5, 0)
+        costLabel.Position = UDim2.new(0, 10, 0.5, 0)
         costLabel.BackgroundTransparency = 1
         costLabel.Text = "Cost: " .. item.cost .. " Money"
         costLabel.TextColor3 = Color3.fromRGB(255, 215, 0)
@@ -1366,18 +1280,6 @@ local function updateShopDisplay()
         costLabel.Font = Enum.Font.Gotham
         costLabel.TextXAlignment = Enum.TextXAlignment.Left
         costLabel.Parent = itemFrame
-        
-        local descLabel = Instance.new("TextLabel")
-        descLabel.Size = UDim2.new(0.7, -10, 0.4, 0)
-        descLabel.Position = UDim2.new(0, 10, 0.6, 0)
-        descLabel.BackgroundTransparency = 1
-        descLabel.Text = item.description or ""
-        descLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
-        descLabel.TextSize = 12
-        descLabel.Font = Enum.Font.Gotham
-        descLabel.TextXAlignment = Enum.TextXAlignment.Left
-        descLabel.TextWrapped = true
-        descLabel.Parent = itemFrame
         
         local buyButton = Instance.new("TextButton")
         buyButton.Size = UDim2.new(0, 80, 0, 30)
@@ -1402,7 +1304,7 @@ local function updateShopDisplay()
             end
         end)
         
-        yOffset = yOffset + 95
+        yOffset = yOffset + 65
     end
     
     shopScrollFrame.CanvasSize = UDim2.new(0, 0, 0, yOffset)
@@ -1443,9 +1345,6 @@ local function rollWeapon()
             table.insert(availableWeapons, weapon)
             local baseWeight = 1 / weapon.rarity
             local weight = math.pow(baseWeight, gunExp)
-            if table.find(playerData.equipped_pets, "Druid") and weapon.name == "Druid Vine" then
-                weight = weight * 10
-            end
             totalWeight = totalWeight + weight
         end
     end
@@ -1457,9 +1356,6 @@ local function rollWeapon()
     for _, weapon in ipairs(availableWeapons) do
         local baseWeight = 1 / weapon.rarity
         local weight = math.pow(baseWeight, gunExp)
-        if table.find(playerData.equipped_pets, "Druid") and weapon.name = "Druid Vine" then
-            weight = weight * 10
-        end
         current = current + weight
         if roll <= current then
             selectedWeapon = weapon
@@ -1488,25 +1384,6 @@ local function rollWeapon()
             local adjustedProb = math.pow(baseProb, mutationExp)
             if math.random() < adjustedProb then
                 table.insert(mutationsList, m.name)
-            end
-        end
-        
-        -- Special for Pumpkin Head Deer
-        if table.find(playerData.equipped_pets, "Pumpkin Head Deer") and playerData.currentBiome == "Pumpkin Wrath" then
-            for _, m in ipairs(possibleMutations) do
-                if m.name == "Pumpkinized" then
-                    local baseProb = 1 / 5
-                    local adjustedProb = math.pow(baseProb, mutationExp)
-                    if math.random() < adjustedProb then
-                        table.insert(mutationsList, m.name)
-                    end
-                elseif m.name == "SoulFlamed" then
-                    local baseProb = 1 / 7
-                    local adjustedProb = math.pow(baseProb, mutationExp)
-                    if math.random() < adjustedProb then
-                        table.insert(mutationsList, m.name)
-                    end
-                end
             end
         end
         
