@@ -1078,7 +1078,7 @@ local function updateInventoryDisplay(tab)
         
         local yOffset = 0
         for key, amount in pairs(count) do
-            local baseName, mutsStr = string.match(key, "([^:]+):(.+)")
+            local baseName, mutsStr = key:match("([^:]+):(.*)")
             local mutations = {}
             if mutsStr and mutsStr ~= "" then
                 mutations = string.split(mutsStr, ":")
@@ -1665,7 +1665,7 @@ task.spawn(function()
                 if math.random(1, math.floor(effectiveRar)) == 1 then
                     table.insert(candidates, b)
                 end
-            end
+            }
             local selected = nil
             if #candidates > 0 then
                 table.sort(candidates, function(a, b) return a.rarity > b.rarity end)
