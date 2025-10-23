@@ -67,7 +67,7 @@ local weapons = {
     {name = "LX6", rarity = 15000000, biome = "Default"},
     {name = "Poison Generator", rarity = 17600009, biome = "Default"},
     {name = "Outburster", rarity = 19000000, biome = "Default"},
-    {name = "Plasma Gun", rarity = 19999999, biome = "Alien Invasion"},
+    {name = "Plasma Gun", rarity = 19999999, biome = "Robot Invasion"},
     {name = "Warrior's Skull", rarity = 20001000, biome = "Pumpkin Wrath"},
     {name = "Frosting Scythe", rarity = 27500000, biome = "Default"},
     {name = "Math Gatling", rarity = 30000000, biome = "Default"},
@@ -1055,8 +1055,10 @@ local function updateInventoryDisplay(tab)
     if tab == "Guns" then
         local count = {}
         for _, gun in ipairs(playerData.inventory) do
-            local muts = table.concat(table.sort(table.clone(gun.mutations)), ":")
-            local key = gun.baseName .. ":" .. muts
+            local sortedMuts = table.clone(gun.mutations)
+            table.sort(sortedMuts)
+            local mutsStr = table.concat(sortedMuts, ":")
+            local key = gun.baseName .. ":" .. mutsStr
             count[key] = (count[key] or 0) + 1
             gun.key = key -- for reference
         end
@@ -1078,7 +1080,7 @@ local function updateInventoryDisplay(tab)
         for key, amount in pairs(count) do
             local baseName, mutsStr = string.match(key, "([^:]+):(.+)")
             local mutations = {}
-            if mutsStr ~= "" then
+            if mutsStr and mutsStr ~= "" then
                 mutations = string.split(mutsStr, ":")
             end
             
@@ -1635,7 +1637,7 @@ closeShopButton.MouseButton1Click:Connect(function()
     shopFrame.Visible = false
 end)
 
-local biomes = {"Default", "Pumpkin Wrath", "Robot Invasion", "Steampunk", "Night City", "Graveyard", "Alien Invasion"}
+local biomes = {"Default", "Pumpkin Wrath", "Robot Invasion", "Steampunk", "Night City", "Graveyard"}
 local currentBiomeIndex = 1
 
 rerollBiomeButton.MouseButton1Click:Connect(function()
@@ -1655,12 +1657,11 @@ task.spawn(function()
                 {name = "Robot Invasion", rarity = 35, duration = 6 * 60},
                 {name = "Steampunk", rarity = 10, duration = 7 * 60},
                 {name = "Pumpkin Wrath", rarity = 2, duration = 5 * 60},
-                {name = "Graveyard", rarity = 69, duration = 5 * 60},
-                {name = "Alien Invasion", rarity = 100, duration = 6 * 60}
+                {name = "Graveyard", rarity = 69, duration = 5 * 60}
             }
             local candidates = {}
             for _, b in ipairs(specialBiomes) do
-                local effectiveRar = b.rarity / biomeLuckBoost -- Use biomeLuckBoost here
+                local effectiveRar = b.rarity / (1 + biomeLuckBoost)
                 if math.random(1, math.floor(effectiveRar)) == 1 then
                     table.insert(candidates, b)
                 end
