@@ -1078,7 +1078,7 @@ local function updateInventoryDisplay(tab)
         
         local yOffset = 0
         for key, amount in pairs(count) do
-            local baseName, mutsStr = key:match("([^:]+):(.*)")
+            local baseName, mutsStr = string.match(key, "([^:]+):(.*)")
             local mutations = {}
             if mutsStr and mutsStr ~= "" then
                 mutations = string.split(mutsStr, ":")
