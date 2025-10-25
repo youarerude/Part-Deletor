@@ -5,6 +5,23 @@ local player = game.Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 local TweenService = game:GetService("TweenService")
 
+local function clone(t)
+    local new = {}
+    for k, v in pairs(t) do
+        new[k] = v
+    end
+    return new
+end
+
+local function split(str, sep)
+    if str == "" then return {} end
+    local t = {}
+    for part in string.gmatch(str, "[^" .. sep .. "]+") do
+        table.insert(t, part)
+    end
+    return t
+end
+
 -- Weapon data with rarities
 local weapons = {
     {name = "Dessert Eagle", rarity = 2, biome = "Default"},
@@ -1055,7 +1072,7 @@ local function updateInventoryDisplay(tab)
     if tab == "Guns" then
         local count = {}
         for _, gun in ipairs(playerData.inventory) do
-            local sortedMuts = table.clone(gun.mutations)
+            local sortedMuts = clone(gun.mutations)
             table.sort(sortedMuts)
             local mutsStr = table.concat(sortedMuts, ":")
             local key = gun.baseName .. ":" .. mutsStr
@@ -1079,10 +1096,7 @@ local function updateInventoryDisplay(tab)
         local yOffset = 0
         for key, amount in pairs(count) do
             local baseName, mutsStr = string.match(key, "([^:]+):(.*)")
-            local mutations = {}
-            if mutsStr and mutsStr ~= "" then
-                mutations = string.split(mutsStr, ":")
-            end
+            local mutations = split(mutsStr, ":")
             
             local weaponData = nil
             for _, w in ipairs(weapons) do
