@@ -5,9 +5,10 @@
 -- Fixed errors: nil.HP and sub on nil
 -- Added Execute button and Terminator Protocol button
 -- Changed Apocalypse Herald starter mood to 45
--- Updated Terminator Protocol to spawn temporary agents that attack with priority and wipe anomalies
+-- Updated Terminator Protocol to spawn temporary agents that attack with priority and contain anomalies (not wipe)
 -- Added Blooming Blood Tree and Prince of Fame anomalies
 -- Added inanimate anomaly behavior: kill worker at 0 mood instead of breaching
+-- Added horizontal scrolling to top bar
 
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
@@ -490,14 +491,18 @@ local MainGui = CreateInstance("ScreenGui", {
     ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 })
 
--- Top Bar
-local TopBar = CreateInstance("Frame", {
+-- Top Bar (now ScrollingFrame for horizontal scroll)
+local TopBar = CreateInstance("ScrollingFrame", {
     Name = "TopBar",
     Parent = MainGui,
     BackgroundColor3 = Color3.fromRGB(20, 20, 20),
     BorderSizePixel = 0,
     Size = UDim2.new(1, 0, 0, 50),
-    Position = UDim2.new(0, 0, 0, 0)
+    Position = UDim2.new(0, 0, 0, 0),
+    CanvasSize = UDim2.new(0, 1000, 0, 50),  -- Adjust based on content width
+    ScrollBarThickness = 6,
+    VerticalScrollBarEnabled = false,
+    HorizontalScrollBarEnabled = true
 })
 
 local CompanyName = CreateInstance("TextLabel", {
@@ -557,12 +562,12 @@ local CrucibleLabel = CreateInstance("TextLabel", {
     Parent = TopBar,
     BackgroundTransparency = 1,
     Size = UDim2.new(0, 200, 1, 0),
-    Position = UDim2.new(1, -220, 0, 0),
+    Position = UDim2.new(0, 750, 0, 0),  -- Positioned further to the right to avoid overlap
     Text = "Crucible: 100",
     Font = Enum.Font.GothamBold,
     TextSize = 20,
     TextColor3 = Color3.fromRGB(255, 215, 0),
-    TextXAlignment = Enum.TextXAlignment.Right
+    TextXAlignment = Enum.TextXAlignment.Left
 })
 
 -- Employee Shop GUI
@@ -2119,7 +2124,7 @@ function StartBreachLoop(anomalyInstance)
                     end
                     
                     if anomalyInstance.BreachHP <= 0 then
-                        local wipe = GameData.TerminatorActive or anomalyInstance.ToBeExecuted
+                        local wipe = anomalyInstance.ToBeExecuted
                         if wipe then
                             CreateNotification(anomalyInstance.Name .. " has been wiped forever!", Color3.fromRGB(255, 0, 0))
                             for i = #GameData.OwnedAnomalies, 1, -1 do
@@ -2205,20 +2210,17 @@ spawn(function()
                     target.BreachHP = math.max(0, target.BreachHP - damage)
                     CreateNotification(agent.Name .. " attacked " .. target.Data.BreachForm.Name .. " for " .. damage, Color3.fromRGB(50, 200, 50))
                     if target.BreachHP <= 0 then
-                        CreateNotification(target.Data.BreachForm.Name .. " wiped!", Color3.fromRGB(255, 0, 0))
+                        CreateNotification(target.Data.BreachForm.Name .. " contained!", Color3.fromRGB(50, 200, 50))
+                        target.IsBreached = false
+                        target.CurrentMood = target.Data.BaseMood / 2
+                        target.BreachHP = nil
                         for i = #GameData.BreachedAnomalies, 1, -1 do
                             if GameData.BreachedAnomalies[i].Instance == target then
                                 table.remove(GameData.BreachedAnomalies, i)
                                 break
                             end
                         end
-                        for i = #GameData.OwnedAnomalies, 1, -1 do
-                            if GameData.OwnedAnomalies[i] == target then
-                                table.remove(GameData.OwnedAnomalies, i)
-                                break
-                            end
-                        end
-                        target.RoomFrame:Destroy()
+                        UpdateRoomDisplay(target)
                         UpdateBreachAlert()
                         UpdateCoreDisplay()
                         if #GameData.BreachedAnomalies == 0 then
