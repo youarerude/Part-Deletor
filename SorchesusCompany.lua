@@ -685,7 +685,8 @@ local employees = {
     {name = "Weak Guard", cost = 900, hp = 120, damage = 25, type = "Guard"},
     {name = "Normal Guard", cost = 1500, hp = 175, damage = 40, type = "Guard"},
     {name = "Strong Guard", cost = 2500, hp = 299, damage = 75, type = "Guard"},
-    {name = "Tanky Guard", cost = 5000, hp = 500, damage = 100, type = "Guard"}
+    {name = "Tanky Guard", cost = 5000, hp = 500, damage = 100, type = "Guard"},
+    {name = "Super Guard", cost = 6599, hp = 850, damage = 275, type = "Guard"}
 }
 
 for i, emp in ipairs(employees) do
