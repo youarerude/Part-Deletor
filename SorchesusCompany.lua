@@ -5,10 +5,11 @@
 -- Fixed errors: nil.HP and sub on nil
 -- Added Execute button and Terminator Protocol button
 -- Changed Apocalypse Herald starter mood to 45
--- Updated Terminator Protocol to spawn temporary agents that attack with priority and contain anomalies (not wipe)
+-- Updated Terminator Protocol to spawn temporary agents that attack with priority and wipe anomalies
 -- Added Blooming Blood Tree and Prince of Fame anomalies
 -- Added inanimate anomaly behavior: kill worker at 0 mood instead of breaching
--- Added horizontal scrolling to top bar
+-- Modified Terminator Protocol to contain instead of permanently kill
+-- Added horizontal scroll to top bar
 
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
@@ -491,18 +492,26 @@ local MainGui = CreateInstance("ScreenGui", {
     ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 })
 
--- Top Bar (now ScrollingFrame for horizontal scroll)
+-- Top Bar
 local TopBar = CreateInstance("ScrollingFrame", {
     Name = "TopBar",
     Parent = MainGui,
     BackgroundColor3 = Color3.fromRGB(20, 20, 20),
     BorderSizePixel = 0,
     Size = UDim2.new(1, 0, 0, 50),
-    Position = UDim2.new(0, 0, 0, 0),
-    CanvasSize = UDim2.new(0, 1000, 0, 50),  -- Adjust based on content width
-    ScrollBarThickness = 6,
-    VerticalScrollBarEnabled = false,
-    HorizontalScrollBarEnabled = true
+    CanvasSize = UDim2.new(0, 1000, 0, 50),
+    ScrollingDirection = Enum.ScrollingDirection.X,
+    ScrollBarThickness = 5,
+    VerticalScrollBarPosition = Enum.VerticalScrollBarPosition.Left
+})
+
+local TopLayout = CreateInstance("UIListLayout", {
+    Parent = TopBar,
+    FillDirection = Enum.FillDirection.Horizontal,
+    HorizontalAlignment = Enum.HorizontalAlignment.Left,
+    VerticalAlignment = Enum.VerticalAlignment.Center,
+    Padding = UDim.new(0, 20),
+    SortOrder = Enum.SortOrder.LayoutOrder
 })
 
 local CompanyName = CreateInstance("TextLabel", {
@@ -510,12 +519,12 @@ local CompanyName = CreateInstance("TextLabel", {
     Parent = TopBar,
     BackgroundTransparency = 1,
     Size = UDim2.new(0, 300, 1, 0),
-    Position = UDim2.new(0, 20, 0, 0),
     Text = "SORCHESUS COMPANY",
     Font = Enum.Font.GothamBold,
     TextSize = 24,
     TextColor3 = Color3.fromRGB(200, 50, 50),
-    TextXAlignment = Enum.TextXAlignment.Left
+    TextXAlignment = Enum.TextXAlignment.Left,
+    LayoutOrder = 1
 })
 
 local EmployeeButton = CreateInstance("TextButton", {
@@ -523,12 +532,12 @@ local EmployeeButton = CreateInstance("TextButton", {
     Parent = TopBar,
     BackgroundTransparency = 1,
     Size = UDim2.new(0, 120, 1, 0),
-    Position = UDim2.new(0, 340, 0, 0),
     Text = "Employees",
     Font = Enum.Font.GothamBold,
     TextSize = 20,
     TextColor3 = Color3.fromRGB(255, 255, 255),
-    TextXAlignment = Enum.TextXAlignment.Left
+    TextXAlignment = Enum.TextXAlignment.Left,
+    LayoutOrder = 2
 })
 
 local OuterGuardButton = CreateInstance("TextButton", {
@@ -536,12 +545,12 @@ local OuterGuardButton = CreateInstance("TextButton", {
     Parent = TopBar,
     BackgroundTransparency = 1,
     Size = UDim2.new(0, 120, 1, 0),
-    Position = UDim2.new(0, 460, 0, 0),
     Text = "Outer Guard",
     Font = Enum.Font.GothamBold,
     TextSize = 20,
     TextColor3 = Color3.fromRGB(255, 255, 255),
-    TextXAlignment = Enum.TextXAlignment.Left
+    TextXAlignment = Enum.TextXAlignment.Left,
+    LayoutOrder = 3
 })
 
 local TerminatorButton = CreateInstance("TextButton", {
@@ -549,12 +558,20 @@ local TerminatorButton = CreateInstance("TextButton", {
     Parent = TopBar,
     BackgroundTransparency = 1,
     Size = UDim2.new(0, 150, 1, 0),
-    Position = UDim2.new(0, 580, 0, 0),
     Text = "Terminator Protocol",
     Font = Enum.Font.GothamBold,
     TextSize = 20,
     TextColor3 = Color3.fromRGB(255, 255, 255),
-    TextXAlignment = Enum.TextXAlignment.Left
+    TextXAlignment = Enum.TextXAlignment.Left,
+    LayoutOrder = 4
+})
+
+local Spacer = CreateInstance("Frame", {
+    Name = "Spacer",
+    Parent = TopBar,
+    BackgroundTransparency = 1,
+    Size = UDim2.new(1, -890, 1, 0),
+    LayoutOrder = 5
 })
 
 local CrucibleLabel = CreateInstance("TextLabel", {
@@ -562,12 +579,12 @@ local CrucibleLabel = CreateInstance("TextLabel", {
     Parent = TopBar,
     BackgroundTransparency = 1,
     Size = UDim2.new(0, 200, 1, 0),
-    Position = UDim2.new(0, 750, 0, 0),  -- Positioned further to the right to avoid overlap
     Text = "Crucible: 100",
     Font = Enum.Font.GothamBold,
     TextSize = 20,
     TextColor3 = Color3.fromRGB(255, 215, 0),
-    TextXAlignment = Enum.TextXAlignment.Left
+    TextXAlignment = Enum.TextXAlignment.Right,
+    LayoutOrder = 6
 })
 
 -- Employee Shop GUI
@@ -2124,7 +2141,7 @@ function StartBreachLoop(anomalyInstance)
                     end
                     
                     if anomalyInstance.BreachHP <= 0 then
-                        local wipe = anomalyInstance.ToBeExecuted
+                        local wipe = GameData.TerminatorActive or anomalyInstance.ToBeExecuted
                         if wipe then
                             CreateNotification(anomalyInstance.Name .. " has been wiped forever!", Color3.fromRGB(255, 0, 0))
                             for i = #GameData.OwnedAnomalies, 1, -1 do
