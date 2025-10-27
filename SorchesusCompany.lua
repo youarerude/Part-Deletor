@@ -5,11 +5,12 @@
 -- Fixed errors: nil.HP and sub on nil
 -- Added Execute button and Terminator Protocol button
 -- Changed Apocalypse Herald starter mood to 45
--- Updated Terminator Protocol to spawn temporary agents that attack with priority and wipe anomalies
+-- Updated Terminator Protocol to spawn temporary agents that attack with priority and contain anomalies
 -- Added Blooming Blood Tree and Prince of Fame anomalies
 -- Added inanimate anomaly behavior: kill worker at 0 mood instead of breaching
 -- Modified Terminator Protocol to contain instead of permanently kill
 -- Added horizontal scroll to top bar
+-- Added paywall for anomaly info
 
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
@@ -56,7 +57,9 @@ local AnomalyDatabase = {
             Health = 35,
             M1Damage = 5,
             Abilities = {}
-        }
+        },
+        Costs = {Stat = 100, Knowledge = 50, Social = 75, Hunt = 45, Passive = 60, BreachForm = 250},
+        ManagementTips = {}
     },
     ["Whispering Shadow"] = {
         Description = "It knows your secrets, and it will tell them all.",
@@ -74,7 +77,9 @@ local AnomalyDatabase = {
             Health = 80,
             M1Damage = 12,
             Abilities = {"Invisibility", "Whisper Madness"}
-        }
+        },
+        Costs = {Stat = 300, Knowledge = 120, Social = 60, Hunt = 80, Passive = 100, BreachForm = 500},
+        ManagementTips = {}
     },
     ["Clockwork Heart"] = {
         Description = "Tick tock, your time is running out.",
@@ -92,7 +97,9 @@ local AnomalyDatabase = {
             Health = 120,
             M1Damage = 15,
             Abilities = {"Time Stop", "Rapid Strikes"}
-        }
+        },
+        Costs = {Stat = 275, Knowledge = 145, Social = 120, Hunt = 75, Passive = 80, BreachForm = 510},
+        ManagementTips = {}
     },
     ["Smiling Coffin"] = {
         Description = "Rest eternal, rest with a smile.",
@@ -110,7 +117,9 @@ local AnomalyDatabase = {
             Health = 200,
             M1Damage = 25,
             Abilities = {"Death Touch", "Fear Aura", "Coffin Trap"}
-        }
+        },
+        Costs = {Stat = 660, Knowledge = 150, Social = 135, Hunt = 166, Passive = 121, BreachForm = 850},
+        ManagementTips = {}
     },
     ["Crimson Orchestra"] = {
         Description = "A symphony written in blood and screams.",
@@ -128,7 +137,9 @@ local AnomalyDatabase = {
             Health = 180,
             M1Damage = 20,
             Abilities = {"Sound Wave", "Hypnotic Melody", "Crescendo Blast"}
-        }
+        },
+        Costs = {Stat = 650, Knowledge = 175, Social = 190, Hunt = 145, Passive = 160, BreachForm = 900},
+        ManagementTips = {}
     },
     ["The Void Gazer"] = {
         Description = "Stare into the abyss, and it stares back with hunger.",
@@ -146,7 +157,9 @@ local AnomalyDatabase = {
             Health = 350,
             M1Damage = 35,
             Abilities = {"Void Pull", "Reality Tear", "Existence Drain", "Darkness Burst"}
-        }
+        },
+        Costs = {Stat = 980, Knowledge = 260, Social = 210, Hunt = 298, Passive = 250, BreachForm = 5200},
+        ManagementTips = {}
     },
     ["Eternal Flame Child"] = {
         Description = "Born from ashes, longing for warmth it can never feel.",
@@ -164,7 +177,9 @@ local AnomalyDatabase = {
             Health = 280,
             M1Damage = 30,
             Abilities = {"Fire Burst", "Immolation", "Flame Trail", "Phoenix Rebirth"}
-        }
+        },
+        Costs = {Stat = 1000, Knowledge = 260, Social = 285, Hunt = 243, Passive = 255, BreachForm = 5500},
+        ManagementTips = {}
     },
     ["Apocalypse Herald"] = {
         Description = "The end is nigh, and it comes with a twisted smile.",
@@ -182,7 +197,9 @@ local AnomalyDatabase = {
             Health = 600,
             M1Damage = 50,
             Abilities = {"Apocalypse Wave", "Reality Collapse", "Instant Kill", "Summon Minions", "World Ender"}
-        }
+        },
+        Costs = {Stat = 5700, Knowledge = 534, Social = 511, Hunt = 544, Passive = 520, BreachForm = 9975},
+        ManagementTips = {}
     },
     ["Yin"] = {
         Description = "The dark side of the equilibrium. The aggressive nature makes it terrifying.",
@@ -201,7 +218,9 @@ local AnomalyDatabase = {
             M1Damage = 75,
             Abilities = {"Shadow Strike", "Dark Vortex"}
         },
-        LinkedAnomaly = "Yang"
+        LinkedAnomaly = "Yang",
+        Costs = {Stat = 500, Knowledge = 175, Social = 120, Hunt = 180, Passive = 111, BreachForm = 900, Management = {900, 950}},
+        ManagementTips = {"It hates Yang. Very Much. It Will attack him if he breaches.", "If Yin breaches so aswell Yang."}
     },
     ["Yang"] = {
         Description = "The Bright side of the Equilibrium. Its Passive Nature what makes it Loved.",
@@ -222,7 +241,9 @@ local AnomalyDatabase = {
             Abilities = {"Light Heal", "Balance Restoration"}
         },
         LinkedAnomaly = "Yin",
-        BreachOnLinkedBreach = true
+        BreachOnLinkedBreach = true,
+        Costs = {Stat = 750, Knowledge = 100, Social = 100, Hunt = 5, Passive = 100, BreachForm = 1750, Management = {1500, 1750, 1900}},
+        ManagementTips = {"It hates Yin very much.", "Whenever Yin tries to Breach it will also breach.", "It's role is as an Protector or a Hero. It will attack Yin ONLY not other anomaly."}
     },
     ["ERROR"] = {
         Description = "ERROR 404 FILE NOT FOUND.",
@@ -241,7 +262,9 @@ local AnomalyDatabase = {
             Health = 15000,
             M1Damage = 500,
             Abilities = {"System Corruption", "Data Wipe", "Reality Glitch", "Fatal Exception"}
-        }
+        },
+        Costs = {Stat = 7500, Knowledge = 500, Social = 500, Hunt = 500, Passive = 500, BreachForm = 17500},
+        ManagementTips = {}
     },
     ["DISHEVELED MEAT MESS"] = {
         Description = "LET ME WEAR YOUR SKIN.",
@@ -260,7 +283,9 @@ local AnomalyDatabase = {
             M1Damage = 450,
             Abilities = {"Flesh Assimilation", "Chaotic Reassembly"}
         },
-        Special = "MeatMess"
+        Special = "MeatMess",
+        Costs = {Stat = 5300, Knowledge = 530, Social = 555, Hunt = 580, Passive = 475, BreachForm = 13500, Management = {10000}},
+        ManagementTips = {"Everytime it kills a worker during work, It will increase it's health."}
     },
     ["Skeleton King"] = {
         Description = "The one who rules countless Skeleton, The one who's trapped here for decades after accidentally trusting the illusions. Would you join the force mortal and become my army?",
@@ -279,7 +304,9 @@ local AnomalyDatabase = {
             M1Damage = 100,
             Abilities = {"Army Summon", "Bone Command"}
         },
-        Special = "SkeletonKing"
+        Special = "SkeletonKing",
+        Costs = {Stat = 1200, Knowledge = 260, Social = 250, Hunt = 260, Passive = 230, BreachForm = 5200, Management = {7500}},
+        ManagementTips = {"During Breach, Every 30 seconds a guard or worker will turn into a skeleton and join the army."}
     },
     ["Old Wilted Radio"] = {
         Description = "This is the recording we must never forget and ever.",
@@ -298,7 +325,10 @@ local AnomalyDatabase = {
             M1Damage = 80,
             Abilities = {"Frequency Overload", "Signal Distortion"}
         },
-        Special = "Radio"
+        Special = "Radio",
+        Costs = {Stat = 510, Knowledge = 140, Social = 125, Hunt = 163, Passive = 105, BreachForm = 1100, Enemies = 800, Management = {1300, 1750}},
+        ManagementTips = {"When breached it will spawn 3 of its minions attacking the guards.", "GHz 7500 also known as Old Wilted Radio is the commander for the Army."},
+        EnemyInfo = "Enemy Army: kHz 1750, Health: 100, M1 Damage: 10"
     },
     ["Theres Eyes in the Wall"] = {
         Description = "STOP STARING AT ME CREEPILY",
@@ -317,7 +347,9 @@ local AnomalyDatabase = {
             M1Damage = 50,
             Abilities = {"Eye Proliferation", "Whisper Network"}
         },
-        Special = "Eyes"
+        Special = "Eyes",
+        Costs = {Stat = 523, Knowledge = 133, Social = 144, Hunt = 155, Passive = 111, BreachForm = 1015, Management = {1750}},
+        ManagementTips = {"When breach every 10 seconds a New eye appeared each of them has a health of 10."}
     },
     ["Jar of Blood"] = {
         Description = "This Jar contains all the Grudge in the world.",
@@ -333,7 +365,9 @@ local AnomalyDatabase = {
         BreachForm = nil,
         NoBreach = true,
         Special = "JarOfBlood",
-        IsInanimate = true
+        IsInanimate = true,
+        Costs = {Stat = 125, Knowledge = 70, Social = 50, Hunt = 30, Passive = 50, Management = {188, 200, 250}},
+        ManagementTips = {"It can't escape as it is an Inanimate Object.", "Every finished Work it will damage the core based on the mood. The more lower it gets, The more damage it deals, But the more higher it gets the more lower the damage deals.", "If its a worker working it, it will damage The worker. Same logic."}
     },
     ["Blooming Blood Tree"] = {
         Description = "Look how beautiful it blooms! And the Leafes are Burning through my Skin and i Love it!",
@@ -349,7 +383,9 @@ local AnomalyDatabase = {
         BreachForm = nil,
         NoBreach = true,
         IsInanimate = true,
-        Special = "BloomingBloodTree"
+        Special = "BloomingBloodTree",
+        Costs = {Stat = 555, Knowledge = 189, Social = 140, Hunt = 140, Passive = 135, Management = {999, 1500}},
+        ManagementTips = {"Be careful with successful works; after 5, the worker dies and turns into a flower.", "As a tree, it cannot breach, but low mood kills workers."}
     },
     ["Prince of Fame"] = {
         Description = "In the name of Justice! All evilness will be Punished!",
@@ -368,7 +404,9 @@ local AnomalyDatabase = {
             M1Damage = 275,
             Abilities = {"Justice Strike"}
         },
-        Special = "PrinceOfFame"
+        Special = "PrinceOfFame",
+        Costs = {Stat = 1205, Knowledge = 350, Social = 377, Hunt = 328, Passive = 301, BreachForm = 5410, Management = {5550, 5900, 6230}},
+        ManagementTips = {"Assists in containing other breaches by attacking them.", "If no breaches for 10 minutes, mood drains twice as fast and works always fail.", "At 0 mood, enters bored mode with 100 mood; at 0 in bored mode, breaches."}
     }
 }
 
@@ -417,6 +455,8 @@ local function UpdateRoomDisplay(anomalyInstance)
     local roomFrame = anomalyInstance.RoomFrame
     if not roomFrame then return end
 
+    local unlocked = anomalyInstance.Unlocked
+
     local moodLabel = roomFrame:FindFirstChild("MoodLabel")
     local moodBar = roomFrame:FindFirstChild("MoodBar")
     if moodLabel then
@@ -459,11 +499,16 @@ local function UpdateRoomDisplay(anomalyInstance)
     if nameLabel then
         if anomalyInstance.IsBreached then
             nameLabel.BackgroundColor3 = Color3.fromRGB(100, 20, 20)
-            nameLabel.Text = anomalyInstance.Name .. " [BREACHED]"
+            nameLabel.Text = (unlocked.Stat and anomalyInstance.Name or "[Unclassified]") .. " [BREACHED]"
         else
             nameLabel.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
-            nameLabel.Text = anomalyInstance.Name
+            nameLabel.Text = unlocked.Stat and anomalyInstance.Name or "[Unclassified]"
         end
+    end
+
+    local dangerLabel = roomFrame:FindFirstChild("TextLabel", true) -- assuming it's the danger label
+    if dangerLabel and dangerLabel.Text:match("Danger Class") then
+        dangerLabel.Text = unlocked.Stat and "Danger Class: " .. anomalyInstance.Data.DangerClass or "Danger Class: ???"
     end
 
     for _, child in pairs(roomFrame:GetChildren()) do
@@ -1346,7 +1391,7 @@ local function StartWorkerLoop(worker, anomalyInstance)
 end
 
 local function PopulateAssignGui(anomalyInstance)
-    AssignTitle.Text = "ASSIGN TO " .. anomalyInstance.Name:upper()
+    AssignTitle.Text = "ASSIGN TO " .. (anomalyInstance.Unlocked.Stat and anomalyInstance.Name or "[Unclassified]"):upper()
     
     for _, child in pairs(WorkerSection:GetChildren()) do
         if child.Name ~= "UIListLayout" and child.Name ~= "TextLabel" then
@@ -1487,8 +1532,22 @@ local function CreateAnomalyRoom(anomalyName)
         ToBeExecuted = false,
         SuccessfulWorkerWorks = 0,
         IsBored = false,
-        IsHelping = false
+        IsHelping = false,
+        Unlocked = {
+            Stat = false,
+            Knowledge = false,
+            Social = false,
+            Hunt = false,
+            Passive = false,
+            BreachForm = anomalyData.BreachForm == nil,
+            Enemies = anomalyData.Costs.Enemies == nil,
+            Management = {}
+        }
     }
+    
+    for i = 1, #anomalyData.ManagementTips or 0 do
+        anomalyInstance.Unlocked.Management[i] = false
+    end
     
     if anomalyInstance.Data.Special == "PrinceOfFame" then
         anomalyInstance.IsBored = false
@@ -1508,11 +1567,12 @@ local function CreateAnomalyRoom(anomalyName)
     CreateInstance("UICorner", {Parent = roomFrame, CornerRadius = UDim.new(0, 10)})
     
     local nameLabel = CreateInstance("TextLabel", {
+        Name = "TextLabel",
         Parent = roomFrame,
         BackgroundColor3 = Color3.fromRGB(40, 40, 50),
         BorderSizePixel = 0,
         Size = UDim2.new(1, 0, 0, 35),
-        Text = anomalyName,
+        Text = "[Unclassified]",
         Font = Enum.Font.GothamBold,
         TextSize = 14,
         TextColor3 = Color3.fromRGB(255, 200, 100),
@@ -1524,7 +1584,7 @@ local function CreateAnomalyRoom(anomalyName)
         BackgroundTransparency = 1,
         Size = UDim2.new(1, -10, 0, 25),
         Position = UDim2.new(0, 5, 0, 40),
-        Text = "Danger Class: " .. anomalyData.DangerClass,
+        Text = "Danger Class: ???",
         Font = Enum.Font.GothamBold,
         TextSize = 13,
         TextColor3 = Color3.fromRGB(255, 100, 100),
@@ -2141,7 +2201,7 @@ function StartBreachLoop(anomalyInstance)
                     end
                     
                     if anomalyInstance.BreachHP <= 0 then
-                        local wipe = GameData.TerminatorActive or anomalyInstance.ToBeExecuted
+                        local wipe = anomalyInstance.ToBeExecuted  -- removed GameData.TerminatorActive from wipe condition
                         if wipe then
                             CreateNotification(anomalyInstance.Name .. " has been wiped forever!", Color3.fromRGB(255, 0, 0))
                             for i = #GameData.OwnedAnomalies, 1, -1 do
@@ -2413,6 +2473,10 @@ function CompanyDestroyed()
 end
 
 function ShowAnomalyInfo(anomalyInstance)
+    local data = anomalyInstance.Data
+    local unlocked = anomalyInstance.Unlocked
+    local costs = data.Costs
+
     local infoGui = CreateInstance("Frame", {
         Name = "InfoPopup",
         Parent = MainGui,
@@ -2424,44 +2488,116 @@ function ShowAnomalyInfo(anomalyInstance)
         ZIndex = 10
     })
     
-    CreateInstance("TextLabel", {
+    local title = CreateInstance("TextLabel", {
         Parent = infoGui,
         BackgroundColor3 = Color3.fromRGB(30, 30, 30),
         Size = UDim2.new(1, 0, 0, 40),
-        Text = anomalyInstance.Name,
+        Text = unlocked.Stat and anomalyInstance.Name or "[Unclassified]",
         Font = Enum.Font.GothamBold,
         TextSize = 18,
         TextColor3 = Color3.fromRGB(255, 200, 100)
     })
     
-    local breachInfo = anomalyInstance.Data.BreachForm and string.format(
-        "\n\nBreach Form: %s\nHealth: %d\nDamage: %d\n\nAbilities: %s",
-        anomalyInstance.Data.BreachForm.Name,
-        anomalyInstance.Data.BreachForm.Health,
-        anomalyInstance.Data.BreachForm.M1Damage,
-        #anomalyInstance.Data.BreachForm.Abilities > 0 and table.concat(anomalyInstance.Data.BreachForm.Abilities, ", ") or "None"
-    ) or "\n\nNo Breach Form"
-    
-    local infoText = string.format(
-        "Description: %s\n\nDanger Class: %s%s",
-        anomalyInstance.Data.Description,
-        anomalyInstance.Data.DangerClass,
-        breachInfo
-    )
-    
-    CreateInstance("TextLabel", {
+    local contentScroll = CreateInstance("ScrollingFrame", {
         Parent = infoGui,
         BackgroundTransparency = 1,
         Size = UDim2.new(1, -40, 1, -100),
         Position = UDim2.new(0, 20, 0, 50),
-        Text = infoText,
-        Font = Enum.Font.Gotham,
-        TextSize = 14,
-        TextColor3 = Color3.fromRGB(200, 200, 200),
-        TextXAlignment = Enum.TextXAlignment.Left,
-        TextYAlignment = Enum.TextYAlignment.Top,
-        TextWrapped = true
+        CanvasSize = UDim2.new(0, 0, 0, 0),
+        ScrollBarThickness = 6
     })
+    
+    local contentLayout = CreateInstance("UIListLayout", {
+        Parent = contentScroll,
+        Padding = UDim.new(0, 10),
+        SortOrder = Enum.SortOrder.LayoutOrder
+    })
+    
+    local function addSection(sectionName, text, isUnlocked, buyFunc, cost)
+        if isUnlocked then
+            local label = CreateInstance("TextLabel", {
+                Parent = contentScroll,
+                BackgroundTransparency = 1,
+                Size = UDim2.new(1, 0, 0, 0),
+                Text = text,
+                Font = Enum.Font.Gotham,
+                TextSize = 14,
+                TextColor3 = Color3.fromRGB(200, 200, 200),
+                TextXAlignment = Enum.TextXAlignment.Left,
+                TextYAlignment = Enum.TextYAlignment.Top,
+                TextWrapped = true,
+                AutomaticSize = Enum.AutomaticSize.Y
+            })
+        else
+            local btn = CreateInstance("TextButton", {
+                Parent = contentScroll,
+                BackgroundColor3 = Color3.fromRGB(50, 150, 50),
+                Size = UDim2.new(1, 0, 0, 35),
+                Text = "Buy " .. sectionName .. " (" .. cost .. " Crucible)",
+                Font = Enum.Font.GothamBold,
+                TextSize = 16,
+                TextColor3 = Color3.fromRGB(255, 255, 255)
+            })
+            CreateInstance("UICorner", {Parent = btn})
+            btn.MouseButton1Click:Connect(function()
+                if GameData.Crucible >= cost then
+                    UpdateCrucible(-cost)
+                    RefreshCrucibleDisplay()
+                    buyFunc()
+                    infoGui:Destroy()
+                    ShowAnomalyInfo(anomalyInstance)
+                else
+                    CreateNotification("Not enough Crucible!", Color3.fromRGB(200, 50, 50))
+                end
+            end)
+        end
+        contentScroll.CanvasSize = UDim2.new(0, 0, 0, contentLayout.AbsoluteContentSize.Y + 20)
+    end
+    
+    if unlocked.Stat then
+        addSection("Description", "Description: " .. data.Description, true)
+        addSection("Danger Class", "Danger Class: " .. data.DangerClass, true)
+    else
+        addSection("Stat Info", "", false, function() unlocked.Stat = true UpdateRoomDisplay(anomalyInstance) end, costs.Stat)
+    end
+    
+    for _, wt in ipairs({"Knowledge", "Social", "Hunt", "Passive"}) do
+        if unlocked[wt] then
+            local res = data.WorkResults[wt]
+            local info = wt .. " Work Info:\nSuccess: " .. (res.Success * 100) .. "%\nUnsuccess: " .. ((1 - res.Success) * 100) .. "%"
+            addSection(wt .. " Work Info", info, true)
+        else
+            addSection(wt .. " Work Info", "", false, function() unlocked[wt] = true end, costs[wt])
+        end
+    end
+    
+    if data.BreachForm then
+        if unlocked.BreachForm then
+            local bf = data.BreachForm
+            local info = "Breach Form: " .. bf.Name .. "\nHealth: " .. bf.Health .. "\nM1 Damage: " .. bf.M1Damage .. "\nAbilities: " .. ( #bf.Abilities > 0 and table.concat(bf.Abilities, ", ") or "None" )
+            addSection("Breach Form", info, true)
+        else
+            addSection("Breach Form", "", false, function() unlocked.BreachForm = true end, costs.BreachForm)
+        end
+    end
+    
+    if costs.Enemies then
+        if unlocked.Enemies then
+            addSection("Enemy's Stat", data.EnemyInfo, true)
+        else
+            addSection("Enemy's Stat", "", false, function() unlocked.Enemies = true end, costs.Enemies)
+        end
+    end
+    
+    if data.ManagementTips then
+        for i, tip in ipairs(data.ManagementTips) do
+            if unlocked.Management[i] then
+                addSection("Management Tip " .. i, "Management Tip " .. i .. ": " .. tip, true)
+            else
+                addSection("Management Tip " .. i, "", false, function() unlocked.Management[i] = true end, costs.Management[i])
+            end
+        end
+    end
     
     local closeBtn = CreateInstance("TextButton", {
         Parent = infoGui,
