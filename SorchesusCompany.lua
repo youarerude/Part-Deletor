@@ -1794,6 +1794,7 @@ local function StartWorkerLoop(worker, anomalyInstance)
             if success then
                 UpdateCrucible(20)
                 RefreshCrucibleDisplay()
+                UpdateQuotaDisplay()
                 RollForMXGift(anomalyInstance)
                 if anomalyInstance.Name == "Blooming Blood Tree" then
                     anomalyInstance.SuccessfulWorkerWorks = (anomalyInstance.SuccessfulWorkerWorks or 0) + 1
@@ -2240,6 +2241,7 @@ function PerformWork(anomalyInstance, workType, roomFrame)
     if anomalyInstance.Data.NoMoodMeter then
         UpdateCrucible(workResult.Crucible)
         RefreshCrucibleDisplay()
+        UpdateQuotaDisplay()
         CreateNotification("Work Success! +" .. workResult.Crucible .. " Crucible", Color3.fromRGB(50, 200, 50))
         return
     end
@@ -2253,6 +2255,7 @@ function PerformWork(anomalyInstance, workType, roomFrame)
     if success then
         UpdateCrucible(workResult.Crucible)
         RefreshCrucibleDisplay()
+        UpdateQuotaDisplay()
         RollForMXGift(anomalyInstance)
         moodChange = workResult.MoodChange
     else
@@ -3478,7 +3481,11 @@ RerollButton.MouseButton1Click:Connect(function()
     end
 end)
 
-EndDayButton.MouseButton1Click:Connect(ShowEndDayScreen)
+EndDayButton.MouseButton1Click:Connect(function()
+    local quota = GameData.CurrentDay <= #Quotas and Quotas[GameData.CurrentDay] or Quotas[#Quotas]
+    if GameData.DailyCrucible < quota then return end
+    ShowEndDayScreen()
+end)
 
 -- Initialize Game
 wait(0.5)
