@@ -924,7 +924,7 @@ for i, emp in ipairs(employees) do
                 MaxHP = emp.hp,
                 AssignedTo = nil
             }
-            if emp.type =="Worker" then
+            if emp.type == "Worker" then
                 employee.SuccessChance = emp.success
                 table.insert(GameData.OwnedWorkers, employee)
             else
@@ -1848,9 +1848,9 @@ local function RollForMXGift(anomalyInstance)
 end
 
 local function StartWorkerLoop(worker, anomalyInstance)
-    task.spawn(function()
+    spawn(function()
         while worker.AssignedTo == anomalyInstance and worker.HP > 0 and not anomalyInstance.IsBreached do
-            task.wait(5)
+            wait(5)
             local oldMood = anomalyInstance.CurrentMood
             local success = math.random() < worker.SuccessChance
             local moodChange = success and 15 or -10
@@ -2284,7 +2284,7 @@ local function CreateAnomalyRoom(anomalyName)
         end
     end
     
-    task.wait(0.1)
+    wait(0.1)
     UpdateCanvasSize()
     
     local layout = AnomalyContainer:FindFirstChildOfClass("UIGridLayout")
@@ -2311,7 +2311,7 @@ function PerformWork(anomalyInstance, workType, roomFrame)
     end
     
     local success = math.random() < workResult.Success
-    if anomalyInstance.Data.Special == "PrinceOfFame" and DateTime.now().UnixTimestamp - GameData.LastGlobalBreachTime > 600 then
+    if anomalyInstance.Data.Special == "PrinceOfFame" and os.time() - GameData.LastGlobalBreachTime > 600 then
         success = false
     end
     local moodChange = 0
@@ -2404,13 +2404,13 @@ function TriggerBreach(anomalyInstance, roomFrame)
         return
     end
     
-    GameData.LastGlobalBreachTime = DateTime.now().UnixTimestamp
+    GameData.LastGlobalBreachTime = os.time()
     GameData.TotalBreaches = GameData.TotalBreaches + 1
     
     local breachData = anomalyInstance.Data.BreachForm
     anomalyInstance.IsBreached = true
     anomalyInstance.BreachHP = breachData.Health + (anomalyInstance.BonusBreachHealth or 0)
-    anomalyInstance.BreachTime = DateTime.now().UnixTimestamp
+    anomalyInstance.BreachTime = os.time()
     
     table.insert(GameData.BreachedAnomalies, {
         Instance = anomalyInstance,
@@ -2444,7 +2444,7 @@ function TriggerBreach(anomalyInstance, roomFrame)
 end
 
 function StartBreachLoop(anomalyInstance)
-    task.spawn(function()
+    spawn(function()
         local breachData = anomalyInstance.Data.BreachForm
         local isYang = anomalyInstance.Name == "Yang"
         local yinInstance = nil
@@ -2475,7 +2475,7 @@ function StartBreachLoop(anomalyInstance)
         end
         
         while anomalyInstance.IsBreached do
-            task.wait(2)
+            wait(2)
             elapsed = elapsed + 2
             
             if anomalyInstance.Data.Special == "SkeletonKing" and elapsed % 30 == 0 then
@@ -2811,9 +2811,9 @@ function StartBreachLoop(anomalyInstance)
 end
 
 -- Outer Guards Loop
-task.spawn(function()
+spawn(function()
     while true do
-        task.wait(2)
+        wait(2)
         if #GameData.BreachedAnomalies > 0 then
             for _, guard in ipairs(GameData.OuterGuards) do
                 if guard.HP > 0 then
@@ -2868,9 +2868,9 @@ task.spawn(function()
 end)
 
 -- Terminator Attack Loop
-task.spawn(function()
+spawn(function()
     while true do
-        task.wait(2)
+        wait(2)
         if GameData.TerminatorActive and #GameData.TerminatorAgents > 0 then
             if #GameData.BreachedAnomalies > 0 then
                 local sorted = {}
@@ -2940,9 +2940,9 @@ task.spawn(function()
 end)
 
 -- Raid Attack Loop
-task.spawn(function()
+spawn(function()
     while true do
-        task.wait(2)
+        wait(2)
         if #GameData.RaidEntities > 0 then
             for _, entity in ipairs(GameData.RaidEntities) do
                 if entity.hp > 0 then
@@ -2976,9 +2976,9 @@ task.spawn(function()
 end)
 
 -- Global Mood Decrease Loop
-task.spawn(function()
+spawn(function()
     while true do
-        task.wait(30)
+        wait(30)
         for _, anomaly in ipairs(GameData.OwnedAnomalies) do
             if not anomaly.IsBreached and not anomaly.Data.NoMoodMeter and not anomaly.Data.NoBreach then
                 local decrease = 0
@@ -2991,7 +2991,7 @@ task.spawn(function()
                     decrease = 15
                 end
                 if anomaly.Name == "Prince of Fame" then
-                    local timeSinceLastBreach = DateTime.now().UnixTimestamp - GameData.LastGlobalBreachTime
+                    local timeSinceLastBreach = os.time() - GameData.LastGlobalBreachTime
                     if timeSinceLastBreach > 600 then
                         decrease = decrease * 2
                     end
@@ -3063,13 +3063,13 @@ function UpdateBreachAlert()
         
         CreateInstance("UICorner", {Parent = alertLabel, CornerRadius = UDim.new(0, 8)})
         
-        task.spawn(function()
+        spawn(function()
             while alertLabel.Parent do
                 alertLabel.BackgroundColor3 = Color3.fromRGB(150, 20, 20)
-                task.wait(0.5)
+                wait(0.5)
                 if alertLabel.Parent then
                     alertLabel.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
-                    task.wait(0.5)
+                    wait(0.5)
                 end
             end
         end)
@@ -3325,9 +3325,9 @@ function CreateNotification(message, color)
     
     TweenService:Create(notif, TweenInfo.new(0.3), {Position = UDim2.new(0.5, -200, 0, 10)}):Play()
     
-    task.wait(3)
+    wait(3)
     TweenService:Create(notif, TweenInfo.new(0.3), {Position = UDim2.new(0.5, -200, 0, -70)}):Play()
-    task.wait(0.3)
+    wait(0.3)
     notif:Destroy()
 end
 
@@ -3358,12 +3358,12 @@ local function StartWhiteTrain()
     
     CreateNotification("The White Train has arrived!", Color3.fromRGB(100, 100, 200))
     
-    task.spawn(function()
+    spawn(function()
         while GameData.TrainTimer > 0 and GameData.WhiteTrainActive do
             local minutes = math.floor(GameData.TrainTimer / 60)
             local seconds = GameData.TrainTimer % 60
             TrainTimer.Text = string.format("Train leaving in %02d:%02d", minutes, seconds)
-            task.wait(1)
+            wait(1)
             GameData.TrainTimer = GameData.TrainTimer - 1
         end
         
@@ -3384,13 +3384,13 @@ local function EndWhiteTrain()
     
     CreateNotification("The White Train has departed.", Color3.fromRGB(100, 100, 100))
     
-    task.spawn(function()
+    spawn(function()
         GameData.TrainTimer = 1200
         while GameData.TrainTimer > 0 do
             local minutes = math.floor(GameData.TrainTimer / 60)
             local seconds = GameData.TrainTimer % 60
             TrainStatus.Text = string.format("Arriving in %02d:%02d", minutes, seconds)
-            task.wait(1)
+            wait(1)
             GameData.TrainTimer = GameData.TrainTimer - 1
         end
         StartWhiteTrain()
@@ -3401,7 +3401,7 @@ end
 local function StartRaid(sphere)
     local raids = RaidDatabase[sphere]
     if not raids or #raids == 0 then return end
-    local picked = raids[math.random(#raids)]
+    local picked = raids[math.random(1, #raids)]
     GameData.CurrentRaid = picked
     GameData.CurrentRaid.sphere = sphere
     GameData.RaidEntities = {}
@@ -3445,10 +3445,10 @@ local function ShowRaidGUI(raid, isStart)
     })
     local tweenInfo = TweenInfo.new(0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
     TweenService:Create(gui, tweenInfo, {Position = UDim2.new(0.25, 0, 0.4, 0)}):Play()
-    task.wait(5)
+    wait(5)
     tweenInfo = TweenInfo.new(0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.In)
     TweenService:Create(gui, tweenInfo, {Position = UDim2.new(-0.5, 0, 0.4, 0)}):Play()
-    task.wait(0.5)
+    wait(0.5)
     gui:Destroy()
 end
 
@@ -3531,7 +3531,7 @@ local function ShowEndDayScreen()
         endScreen:Destroy()
         local raidDays = {[5] = "Troposphere", [10] = "Stratosphere", [25] = "Mesosphere", [50] = "Thermosphere", [75] = "Exosphere"}
         local sphere = raidDays[GameData.CurrentDay]
-        if sphere and sphere == "Troposphere" then
+        if sphere and RaidDatabase[sphere] and #RaidDatabase[sphere] > 0 then
             StartRaid(sphere)
         end
     end)
@@ -3708,11 +3708,11 @@ EndDayButton.MouseButton1Click:Connect(function()
 end)
 
 -- Initialize Game
-task.wait(0.5)
+wait(0.5)
 CreateNotification("Welcome to Sorchesus Company!", Color3.fromRGB(200, 50, 50))
-task.wait(2)
+wait(2)
 
-task.wait(3)
+wait(3)
 StartWhiteTrain()
 
 UpdateQuotaDisplay()
