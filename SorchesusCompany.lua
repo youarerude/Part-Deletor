@@ -12,6 +12,8 @@
 -- Added horizontal scroll to top bar
 -- Added paywall for anomaly info
 -- Added anomaly weapon gifts (MX weapons and armors)
+-- Fixed errors: concatenation nil with string, comparison nil <= number
+-- Added close button to info gui
 
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
@@ -42,7 +44,7 @@ local GameData = {
     OwnedMXArmors = {}
 }
 
--- Guard Level Map
+-- Guard Levels
 local GuardLevels = {
     ["Weak Guard"] = 1,
     ["Normal Guard"] = 2,
@@ -572,7 +574,7 @@ local TopBar = CreateInstance("ScrollingFrame", {
     BackgroundColor3 = Color3.fromRGB(20, 20, 20),
     BorderSizePixel = 0,
     Size = UDim2.new(1, 0, 0, 50),
-    CanvasSize = UDim2.new(0, 1200, 0, 50),
+    CanvasSize = UDim2.new(0, 1000, 0, 50),
     ScrollingDirection = Enum.ScrollingDirection.X,
     ScrollBarThickness = 5,
     VerticalScrollBarPosition = Enum.VerticalScrollBarPosition.Left
@@ -639,25 +641,12 @@ local TerminatorButton = CreateInstance("TextButton", {
     LayoutOrder = 4
 })
 
-local InventoryButton = CreateInstance("TextButton", {
-    Name = "InventoryButton",
-    Parent = TopBar,
-    BackgroundTransparency = 1,
-    Size = UDim2.new(0, 100, 1, 0),
-    Text = "Inventory",
-    Font = Enum.Font.GothamBold,
-    TextSize = 20,
-    TextColor3 = Color3.fromRGB(255, 255, 255),
-    TextXAlignment = Enum.TextXAlignment.Left,
-    LayoutOrder = 5
-})
-
 local Spacer = CreateInstance("Frame", {
     Name = "Spacer",
     Parent = TopBar,
     BackgroundTransparency = 1,
-    Size = UDim2.new(1, -990, 1, 0),
-    LayoutOrder = 6
+    Size = UDim2.new(1, -890, 1, 0),
+    LayoutOrder = 5
 })
 
 local CrucibleLabel = CreateInstance("TextLabel", {
@@ -670,7 +659,7 @@ local CrucibleLabel = CreateInstance("TextLabel", {
     TextSize = 20,
     TextColor3 = Color3.fromRGB(255, 215, 0),
     TextXAlignment = Enum.TextXAlignment.Right,
-    LayoutOrder = 7
+    LayoutOrder = 6
 })
 
 -- Employee Shop GUI
@@ -828,326 +817,6 @@ local CloseShopButton = CreateInstance("TextButton", {
 })
 CreateInstance("UICorner", {Parent = CloseShopButton, CornerRadius = UDim.new(0, 6)})
 
--- Inventory GUI
-local InventoryGui = CreateInstance("Frame", {
-    Name = "InventoryGui",
-    Parent = MainGui,
-    BackgroundColor3 = Color3.fromRGB(20, 20, 20),
-    BorderSizePixel = 3,
-    BorderColor3 = Color3.fromRGB(100, 100, 100),
-    Size = isMobile and UDim2.new(0.95, 0, 0.95, 0) or UDim2.new(0, 700, 0, 550),
-    Position = isMobile and UDim2.new(0.025, 0, 0.025, 0) or UDim2.new(0.5, -350, 0.5, -275),
-    Visible = false,
-    ZIndex = 10
-})
-
-local InvTitle = CreateInstance("TextLabel", {
-    Name = "InvTitle",
-    Parent = InventoryGui,
-    BackgroundColor3 = Color3.fromRGB(30, 30, 30),
-    BorderSizePixel = 0,
-    Size = UDim2.new(1, 0, 0, 40),
-    Text = "INVENTORY",
-    Font = Enum.Font.GothamBold,
-    TextSize = 18,
-    TextColor3 = Color3.fromRGB(255, 255, 255)
-})
-
-local CloseInvButton = CreateInstance("TextButton", {
-    Name = "CloseButton",
-    Parent = InventoryGui,
-    BackgroundColor3 = Color3.fromRGB(150, 50, 50),
-    Size = UDim2.new(0, 30, 0, 30),
-    Position = UDim2.new(1, -35, 0, 5),
-    Text = "X",
-    Font = Enum.Font.GothamBold,
-    TextSize = 20,
-    TextColor3 = Color3.fromRGB(255, 255, 255)
-})
-CreateInstance("UICorner", {Parent = CloseInvButton, CornerRadius = UDim.new(0, 6)})
-
-local WeaponSection = CreateInstance("ScrollingFrame", {
-    Name = "WeaponSection",
-    Parent = InventoryGui,
-    BackgroundColor3 = Color3.fromRGB(30, 30, 30),
-    Size = UDim2.new(0.45, 0, 0.45, 0),
-    Position = UDim2.new(0.02, 0, 0, 50),
-    CanvasSize = UDim2.new(0, 0, 0, 0),
-    ScrollBarThickness = 6
-})
-
-local WeaponTitle = CreateInstance("TextLabel", {
-    Parent = WeaponSection,
-    BackgroundTransparency = 1,
-    Size = UDim2.new(1, 0, 0, 30),
-    Text = "MX Weapons",
-    Font = Enum.Font.GothamBold,
-    TextSize = 16,
-    TextColor3 = Color3.fromRGB(255, 255, 255)
-})
-
-local weaponList = CreateInstance("UIListLayout", {
-    Parent = WeaponSection,
-    Padding = UDim.new(0, 10),
-    SortOrder = Enum.SortOrder.LayoutOrder
-})
-
-local ArmorSection = CreateInstance("ScrollingFrame", {
-    Name = "ArmorSection",
-    Parent = InventoryGui,
-    BackgroundColor3 = Color3.fromRGB(30, 30, 30),
-    Size = UDim2.new(0.45, 0, 0.45, 0),
-    Position = UDim2.new(0.02, 0, 0.5, 0),
-    CanvasSize = UDim2.new(0, 0, 0, 0),
-    ScrollBarThickness = 6
-})
-
-local ArmorTitle = CreateInstance("TextLabel", {
-    Parent = ArmorSection,
-    BackgroundTransparency = 1,
-    Size = UDim2.new(1, 0, 0, 30),
-    Text = "MX Armors",
-    Font = Enum.Font.GothamBold,
-    TextSize = 16,
-    TextColor3 = Color3.fromRGB(255, 255, 255)
-})
-
-local armorList = CreateInstance("UIListLayout", {
-    Parent = ArmorSection,
-    Padding = UDim.new(0, 10),
-    SortOrder = Enum.SortOrder.LayoutOrder
-})
-
-local GuardSection = CreateInstance("ScrollingFrame", {
-    Name = "GuardSection",
-    Parent = InventoryGui,
-    BackgroundColor3 = Color3.fromRGB(30, 30, 30),
-    Size = UDim2.new(0.45, 0, 0.9, 0),
-    Position = UDim2.new(0.53, 0, 0, 50),
-    CanvasSize = UDim2.new(0, 0, 0, 0),
-    ScrollBarThickness = 6
-})
-
-local GuardTitleInv = CreateInstance("TextLabel", {
-    Parent = GuardSection,
-    BackgroundTransparency = 1,
-    Size = UDim2.new(1, 0, 0, 30),
-    Text = "Guards",
-    Font = Enum.Font.GothamBold,
-    TextSize = 16,
-    TextColor3 = Color3.fromRGB(255, 255, 255)
-})
-
-local guardListInv = CreateInstance("UIListLayout", {
-    Parent = GuardSection,
-    Padding = UDim.new(0, 10),
-    SortOrder = Enum.SortOrder.LayoutOrder
-})
-
-local EquipButton = CreateInstance("TextButton", {
-    Name = "EquipButton",
-    Parent = InventoryGui,
-    BackgroundColor3 = Color3.fromRGB(50, 150, 50),
-    Size = UDim2.new(0, 100, 0, 35),
-    Position = UDim2.new(0.4, -50, 1, -50),
-    Text = "Equip",
-    Font = Enum.Font.GothamBold,
-    TextSize = 14,
-    TextColor3 = Color3.fromRGB(255, 255, 255)
-})
-CreateInstance("UICorner", {Parent = EquipButton, CornerRadius = UDim.new(0, 6)})
-
-local UnequipButton = CreateInstance("TextButton", {
-    Name = "UnequipButton",
-    Parent = InventoryGui,
-    BackgroundColor3 = Color3.fromRGB(150, 50, 50),
-    Size = UDim2.new(0, 100, 0, 35),
-    Position = UDim2.new(0.6, -50, 1, -50),
-    Text = "Unequip",
-    Font = Enum.Font.GothamBold,
-    TextSize = 14,
-    TextColor3 = Color3.fromRGB(255, 255, 255)
-})
-CreateInstance("UICorner", {Parent = UnequipButton, CornerRadius = UDim.new(0, 6)})
-
-local selectedWeapon = nil
-local selectedArmor = nil
-local selectedGuard = nil
-
-local function PopulateInventory()
-    for _, child in pairs(WeaponSection:GetChildren()) do
-        if child:IsA("TextButton") then
-            child:Destroy()
-        end
-    end
-    for _, item in ipairs(GameData.OwnedMXWeapons) do
-        local btn = CreateInstance("TextButton", {
-            Parent = WeaponSection,
-            BackgroundColor3 = Color3.fromRGB(60, 60, 80),
-            Size = UDim2.new(1, -10, 0, 40),
-            Text = item.Name .. " (Lvl " .. item.MinLevel .. "-" .. item.MaxLevel .. ") Dmg: +" .. item.Damage .. (item.EquippedTo and " (Equipped by " .. item.EquippedTo.Name .. ")" or ""),
-            Font = Enum.Font.Gotham,
-            TextSize = 14,
-            TextColor3 = Color3.fromRGB(255, 255, 255),
-            TextWrapped = true
-        })
-        CreateInstance("UICorner", {Parent = btn})
-        btn.MouseButton1Click:Connect(function()
-            selectedWeapon = item
-        end)
-    end
-    WeaponSection.CanvasSize = UDim2.new(0, 0, 0, weaponList.AbsoluteContentSize.Y + 50)
-
-    for _, child in pairs(ArmorSection:GetChildren()) do
-        if child:IsA("TextButton") then
-            child:Destroy()
-        end
-    end
-    for _, item in ipairs(GameData.OwnedMXArmors) do
-        local btn = CreateInstance("TextButton", {
-            Parent = ArmorSection,
-            BackgroundColor3 = Color3.fromRGB(60, 60, 80),
-            Size = UDim2.new(1, -10, 0, 40),
-            Text = item.Name .. " (Lvl " .. item.MinLevel .. "-" .. item.MaxLevel .. ") Health: +" .. item.Health .. (item.EquippedTo and " (Equipped by " .. item.EquippedTo.Name .. ")" or ""),
-            Font = Enum.Font.Gotham,
-            TextSize = 14,
-            TextColor3 = Color3.fromRGB(255, 255, 255),
-            TextWrapped = true
-        })
-        CreateInstance("UICorner", {Parent = btn})
-        btn.MouseButton1Click:Connect(function()
-            selectedArmor = item
-        end)
-    end
-    ArmorSection.CanvasSize = UDim2.new(0, 0, 0, armorList.AbsoluteContentSize.Y + 50)
-
-    for _, child in pairs(GuardSection:GetChildren()) do
-        if child:IsA("TextButton") then
-            child:Destroy()
-        end
-    end
-    for _, guard in ipairs(GameData.OwnedGuards) do
-        local text = guard.Name .. " (" .. guard.Type .. " Lvl " .. guard.Level .. ") Dmg: " .. guard.Damage .. " HP: " .. guard.HP .. "/" .. guard.MaxHP
-        if guard.EquippedWeapon then
-            text = text .. "\nWeapon: " .. guard.EquippedWeapon.Name
-        end
-        if guard.EquippedArmor then
-            text = text .. "\nArmor: " .. guard.EquippedArmor.Name
-        end
-        local btn = CreateInstance("TextButton", {
-            Parent = GuardSection,
-            BackgroundColor3 = Color3.fromRGB(60, 60, 80),
-            Size = UDim2.new(1, -10, 0, 60),
-            Text = text,
-            Font = Enum.Font.Gotham,
-            TextSize = 14,
-            TextColor3 = Color3.fromRGB(255, 255, 255),
-            TextWrapped = true
-        })
-        CreateInstance("UICorner", {Parent = btn})
-        btn.MouseButton1Click:Connect(function()
-            selectedGuard = guard
-        end)
-    end
-    GuardSection.CanvasSize = UDim2.new(0, 0, 0, guardListInv.AbsoluteContentSize.Y + 50)
-end
-
-EquipButton.MouseButton1Click:Connect(function()
-    if not selectedGuard then
-        CreateNotification("Select a guard!", Color3.fromRGB(200, 50, 50))
-        return
-    end
-    local equippedSomething = false
-    if selectedWeapon then
-        if selectedWeapon.EquippedTo == selectedGuard then
-            CreateNotification("Weapon already equipped!", Color3.fromRGB(200, 50, 50))
-        else
-            if selectedGuard.Level < selectedWeapon.MinLevel or selectedGuard.Level > selectedWeapon.MaxLevel then
-                CreateNotification("Guard level not compatible! Requires level " .. selectedWeapon.MinLevel .. " to " .. selectedWeapon.MaxLevel, Color3.fromRGB(200, 50, 50))
-            else
-                -- Unequip from old guard if any
-                if selectedWeapon.EquippedTo then
-                    local oldGuard = selectedWeapon.EquippedTo
-                    oldGuard.Damage = oldGuard.BaseDamage
-                    oldGuard.EquippedWeapon = nil
-                    selectedWeapon.EquippedTo = nil
-                end
-                -- Unequip old weapon from guard if any
-                if selectedGuard.EquippedWeapon then
-                    selectedGuard.EquippedWeapon.EquippedTo = nil
-                    selectedGuard.Damage = selectedGuard.BaseDamage
-                    selectedGuard.EquippedWeapon = nil
-                end
-                -- Equip new
-                selectedGuard.EquippedWeapon = selectedWeapon
-                selectedWeapon.EquippedTo = selectedGuard
-                selectedGuard.Damage = selectedGuard.BaseDamage + selectedWeapon.Damage
-                equippedSomething = true
-            end
-        end
-    end
-    if selectedArmor then
-        if selectedArmor.EquippedTo == selectedGuard then
-            CreateNotification("Armor already equipped!", Color3.fromRGB(200, 50, 50))
-        else
-            if selectedGuard.Level < selectedArmor.MinLevel or selectedGuard.Level > selectedArmor.MaxLevel then
-                CreateNotification("Guard level not compatible! Requires level " .. selectedArmor.MinLevel .. " to " .. selectedArmor.MaxLevel, Color3.fromRGB(200, 50, 50))
-            else
-                -- Unequip from old guard if any
-                if selectedArmor.EquippedTo then
-                    local oldGuard = selectedArmor.EquippedTo
-                    oldGuard.MaxHP = oldGuard.BaseHP
-                    oldGuard.HP = math.min(oldGuard.HP, oldGuard.MaxHP)
-                    oldGuard.EquippedArmor = nil
-                    selectedArmor.EquippedTo = nil
-                end
-                -- Unequip old armor from guard if any
-                if selectedGuard.EquippedArmor then
-                    selectedGuard.EquippedArmor.EquippedTo = nil
-                    selectedGuard.MaxHP = selectedGuard.BaseHP
-                    selectedGuard.HP = math.min(selectedGuard.HP, selectedGuard.MaxHP)
-                    selectedGuard.EquippedArmor = nil
-                end
-                -- Equip new
-                selectedGuard.EquippedArmor = selectedArmor
-                selectedArmor.EquippedTo = selectedGuard
-                selectedGuard.MaxHP = selectedGuard.BaseHP + selectedArmor.Health
-                selectedGuard.HP = math.min(selectedGuard.HP, selectedGuard.MaxHP)
-                equippedSomething = true
-            end
-        end
-    end
-    if equippedSomething then
-        CreateNotification("Equipped items to " .. selectedGuard.Name, Color3.fromRGB(50, 200, 50))
-        PopulateInventory()
-    end
-end)
-
-UnequipButton.MouseButton1Click:Connect(function()
-    if not selectedGuard then
-        CreateNotification("Select a guard!", Color3.fromRGB(200, 50, 50))
-        return
-    end
-    local unequippedSomething = false
-    if selectedGuard.EquippedWeapon then
-        selectedGuard.EquippedWeapon.EquippedTo = nil
-        selectedGuard.Damage = selectedGuard.BaseDamage
-        selectedGuard.EquippedWeapon = nil
-        unequippedSomething = true
-    end
-    if selectedGuard.EquippedArmor then
-        selectedGuard.EquippedArmor.EquippedTo = nil
-        selectedGuard.MaxHP = selectedGuard.BaseHP
-        selectedGuard.HP = math.min(selectedGuard.HP, selectedGuard.MaxHP)
-        selectedGuard.EquippedArmor = nil
-        unequippedSomething = true
-    end
-    if unequippedSomething then
-        CreateNotification("Unequipped items from " .. selectedGuard.Name, Color3.fromRGB(50, 200, 50))
-        PopulateInventory()
-    end
-end)
-
 -- Assign GUI
 local AssignGui = CreateInstance("Frame", {
     Name = "AssignGui",
@@ -1213,7 +882,7 @@ local WorkerTitle = CreateInstance("TextLabel", {
     TextColor3 = Color3.fromRGB(255, 255, 255)
 })
 
-local GuardSectionAssign = CreateInstance("ScrollingFrame", {
+local GuardSection = CreateInstance("ScrollingFrame", {
     Name = "GuardSection",
     Parent = AssignGui,
     BackgroundColor3 = Color3.fromRGB(30, 30, 30),
@@ -1223,14 +892,14 @@ local GuardSectionAssign = CreateInstance("ScrollingFrame", {
     ScrollBarThickness = 6
 })
 
-local guardListAssign = CreateInstance("UIListLayout", {
-    Parent = GuardSectionAssign,
+local guardList = CreateInstance("UIListLayout", {
+    Parent = GuardSection,
     Padding = UDim.new(0, 10),
     SortOrder = Enum.SortOrder.LayoutOrder
 })
 
 local GuardTitle = CreateInstance("TextLabel", {
-    Parent = GuardSectionAssign,
+    Parent = GuardSection,
     BackgroundTransparency = 1,
     Size = UDim2.new(1, 0, 0, 30),
     Text = "Available Guards",
@@ -1679,8 +1348,8 @@ local function RollForMXGift(anomalyInstance)
         local item = {
             Name = data.MXWeapon.Name,
             Damage = data.MXWeapon.Damage,
-            MinLevel = data.MXWeapon.MinLevel,
-            MaxLevel = data.MXWeapon.MaxLevel,
+            MinLevel = data.MXWeapon.MinLevel or 1,
+            MaxLevel = data.MXWeapon.MaxLevel or 5,
             Type = "Weapon",
             Anomaly = anomalyInstance.Name,
             EquippedTo = nil
@@ -1692,8 +1361,8 @@ local function RollForMXGift(anomalyInstance)
         local item = {
             Name = data.MXArmor.Name,
             Health = data.MXArmor.Health,
-            MinLevel = data.MXArmor.MinLevel,
-            MaxLevel = data.MXArmor.MaxLevel,
+            MinLevel = data.MXArmor.MinLevel or 1,
+            MaxLevel = data.MXArmor.MaxLevel or 5,
             Type = "Armor",
             Anomaly = anomalyInstance.Name,
             EquippedTo = nil
@@ -1796,7 +1465,7 @@ local function PopulateAssignGui(anomalyInstance)
             child:Destroy()
         end
     end
-    for _, child in pairs(GuardSectionAssign:GetChildren()) do
+    for _, child in pairs(GuardSection:GetChildren()) do
         if child.Name ~= "UIListLayout" and child.Name ~= "TextLabel" then
             child:Destroy()
         end
@@ -1808,7 +1477,7 @@ local function PopulateAssignGui(anomalyInstance)
                 Parent = WorkerSection,
                 BackgroundColor3 = Color3.fromRGB(60, 60, 80),
                 Size = UDim2.new(1, -10, 0, 40),
-                Text = worker.Name .. " (" .. worker.Type .. ") HP: " .. worker.HP .. "/" .. worker.MaxHP,
+                Text = worker.Name .. " (" .. worker.Type .. ") HP: " .. worker.HP,
                 Font = Enum.Font.Gotham,
                 TextSize = 14,
                 TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -1832,10 +1501,10 @@ local function PopulateAssignGui(anomalyInstance)
     for _, guard in ipairs(GameData.OwnedGuards) do
         if guard.HP > 0 and guard.AssignedTo == nil then
             local btn = CreateInstance("TextButton", {
-                Parent = GuardSectionAssign,
+                Parent = GuardSection,
                 BackgroundColor3 = Color3.fromRGB(60, 60, 80),
                 Size = UDim2.new(1, -10, 0, 40),
-                Text = guard.Name .. " (" .. guard.Type .. ") HP: " .. guard.HP .. "/" .. guard.MaxHP .. " Dmg: " .. guard.Damage,
+                Text = guard.Name .. " (" .. guard.Type .. ") HP: " .. guard.HP,
                 Font = Enum.Font.Gotham,
                 TextSize = 14,
                 TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -1853,7 +1522,7 @@ local function PopulateAssignGui(anomalyInstance)
             end)
         end
     end
-    GuardSectionAssign.CanvasSize = UDim2.new(0, 0, 0, guardListAssign.AbsoluteContentSize.Y + 50)
+    GuardSection.CanvasSize = UDim2.new(0, 0, 0, guardList.AbsoluteContentSize.Y + 50)
 end
 
 local function PopulateOuterGui()
@@ -1874,7 +1543,7 @@ local function PopulateOuterGui()
                 Parent = AvailableOuterGuardSection,
                 BackgroundColor3 = Color3.fromRGB(60, 60, 80),
                 Size = UDim2.new(1, -10, 0, 40),
-                Text = guard.Name .. " (" .. guard.Type .. ") HP: " .. guard.HP .. "/" .. guard.MaxHP .. " Dmg: " .. guard.Damage,
+                Text = guard.Name .. " (" .. guard.Type .. ") HP: " .. guard.HP,
                 Font = Enum.Font.Gotham,
                 TextSize = 14,
                 TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -1884,7 +1553,7 @@ local function PopulateOuterGui()
                 table.insert(GameData.OuterGuards, guard)
                 guard.AssignedTo = "Outer"
                 PopulateOuterGui()
-            end)
+            end
         end
     end
     AvailableOuterGuardSection.CanvasSize = UDim2.new(0, 0, 0, availableOuterList.AbsoluteContentSize.Y + 50)
@@ -1894,7 +1563,7 @@ local function PopulateOuterGui()
             Parent = CurrentOuterGuardSection,
             BackgroundColor3 = Color3.fromRGB(60, 60, 80),
             Size = UDim2.new(1, -10, 0, 40),
-            Text = guard.Name .. " (" .. guard.Type .. ") HP: " .. guard.HP .. "/" .. guard.MaxHP .. " Dmg: " .. guard.Damage .. " (Assigned)",
+            Text = guard.Name .. " (" .. guard.Type .. ") HP: " .. guard.HP .. " (Assigned)",
             Font = Enum.Font.Gotham,
             TextSize = 14,
             TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -1918,26 +1587,6 @@ local function CreateAnomalyRoom(anomalyName)
     local anomalyData = AnomalyDatabase[anomalyName]
     if not anomalyData then return end
     
-    local unlocked = {
-        Stat = false,
-        Knowledge = false,
-        Social = false,
-        Hunt = false,
-        Passive = false,
-        BreachForm = anomalyData.BreachForm == nil,
-        Enemies = anomalyData.Costs.Enemies == nil,
-        Management = {}
-    }
-    if anomalyData.MXWeapon then
-        unlocked.MXWeapon = false
-    end
-    if anomalyData.MXArmor then
-        unlocked.MXArmor = false
-    end
-    for i = 1, #anomalyData.ManagementTips or 0 do
-        unlocked.Management[i] = false
-    end
-    
     local anomalyInstance = {
         Name = anomalyName,
         CurrentMood = anomalyData.BaseMood,
@@ -1951,8 +1600,21 @@ local function CreateAnomalyRoom(anomalyName)
         SuccessfulWorkerWorks = 0,
         IsBored = false,
         IsHelping = false,
-        Unlocked = unlocked
+        Unlocked = {
+            Stat = false,
+            Knowledge = false,
+            Social = false,
+            Hunt = false,
+            Passive = false,
+            BreachForm = anomalyData.BreachForm == nil,
+            Enemies = anomalyData.Costs.Enemies == nil,
+            Management = {}
+        }
     }
+    
+    for i = 1, #anomalyData.ManagementTips or 0 do
+        anomalyInstance.Unlocked.Management[i] = false
+    end
     
     if anomalyInstance.Data.Special == "PrinceOfFame" then
         anomalyInstance.IsBored = false
@@ -2168,7 +1830,6 @@ function PerformWork(anomalyInstance, workType, roomFrame)
     if success then
         UpdateCrucible(workResult.Crucible)
         RefreshCrucibleDisplay()
-        RollForMXGift(anomalyInstance)
         moodChange = workResult.MoodChange
     else
         if workResult.AttackOnFail and anomalyInstance.AssignedWorker then
@@ -2755,7 +2416,7 @@ spawn(function()
                                 anomaly.AssignedWorker.HP = 0
                                 CreateNotification(anomaly.Name .. " killed the worker!", Color3.fromRGB(200, 50, 50))
                                 anomaly.AssignedWorker = nil
-                                anomaly.CurrentMood = anomaly.Data.BaseMood / 2
+                                anomaly.CurrentMood = anomalyInstance.Data.BaseMood / 2
                                 UpdateRoomDisplay(anomaly)
                             end
                         else
@@ -2920,6 +2581,11 @@ function ShowAnomalyInfo(anomalyInstance)
     })
     
     local function addSection(sectionName, text, isUnlocked, buyFunc, cost)
+        if not isUnlocked then
+            if not cost then
+                return
+            end
+        end
         if isUnlocked then
             local label = CreateInstance("TextLabel", {
                 Parent = contentScroll,
@@ -3201,15 +2867,6 @@ TerminatorButton.MouseButton1Click:Connect(function()
     GameData.TerminatorAgents = agents
     GameData.TerminatorActive = true
     CreateNotification("Terminator Protocol activated!", Color3.fromRGB(255, 0, 0))
-end)
-
-InventoryButton.MouseButton1Click:Connect(function()
-    PopulateInventory()
-    InventoryGui.Visible = true
-end)
-
-CloseInvButton.MouseButton1Click:Connect(function()
-    InventoryGui.Visible = false
 end)
 
 CloseWGButton.MouseButton1Click:Connect(function()
