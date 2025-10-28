@@ -12,6 +12,7 @@
 -- Added horizontal scroll to top bar
 -- Added paywall for anomaly info
 -- Added anomaly weapon gifts (MX weapons and armors)
+-- Added days, quota, end day button, reroll button, day counter, end day screen, quota counter
 
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
@@ -19,6 +20,9 @@ local UserInputService = game:GetService("UserInputService")
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 local isMobile = UserInputService.TouchEnabled
+
+-- Quotas
+local Quotas = {750, 1000, 2500, 5000, 9000, 17500, 30000, 55555, 83000, 100000}
 
 -- Game Data
 local GameData = {
@@ -39,7 +43,13 @@ local GameData = {
     TerminatorActive = false,
     LastGlobalBreachTime = 0,
     OwnedMXWeapons = {},
-    OwnedMXArmors = {}
+    OwnedMXArmors = {},
+    CurrentDay = 1,
+    DailyCrucible = 0,
+    AnomaliesAcceptedToday = 0,
+    TotalBreaches = 0,
+    WorkersDied = 0,
+    GuardsDied = 0
 }
 
 -- Guard Level Map
@@ -460,11 +470,28 @@ end
 
 local function UpdateCrucible(amount)
     GameData.Crucible = GameData.Crucible + amount
+    if amount > 0 then
+        GameData.DailyCrucible = GameData.DailyCrucible + amount
+    end
 end
 
 local function RefreshCrucibleDisplay()
     if CrucibleLabel then
         CrucibleLabel.Text = "Crucible: " .. GameData.Crucible
+    end
+end
+
+local function UpdateQuotaDisplay()
+    if QuotaLabel then
+        local quota = GameData.CurrentDay <= #Quotas and Quotas[GameData.CurrentDay] or Quotas[#Quotas]
+        QuotaLabel.Text = "Quota: " .. GameData.DailyCrucible .. " / " .. quota
+        if GameData.DailyCrucible >= quota then
+            EndDayButton.Active = true
+            EndDayButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+        else
+            EndDayButton.Active = false
+            EndDayButton.TextColor3 = Color3.fromRGB(100, 100, 100)
+        end
     end
 end
 
@@ -572,7 +599,7 @@ local TopBar = CreateInstance("ScrollingFrame", {
     BackgroundColor3 = Color3.fromRGB(20, 20, 20),
     BorderSizePixel = 0,
     Size = UDim2.new(1, 0, 0, 50),
-    CanvasSize = UDim2.new(0, 1200, 0, 50),
+    CanvasSize = UDim2.new(0, 1500, 0, 50),
     ScrollingDirection = Enum.ScrollingDirection.X,
     ScrollBarThickness = 5,
     VerticalScrollBarPosition = Enum.VerticalScrollBarPosition.Left
@@ -652,12 +679,26 @@ local InventoryButton = CreateInstance("TextButton", {
     LayoutOrder = 5
 })
 
+local EndDayButton = CreateInstance("TextButton", {
+    Name = "EndDayButton",
+    Parent = TopBar,
+    BackgroundTransparency = 1,
+    Size = UDim2.new(0, 120, 1, 0),
+    Text = "End Day",
+    Font = Enum.Font.GothamBold,
+    TextSize = 20,
+    TextColor3 = Color3.fromRGB(100, 100, 100),
+    TextXAlignment = Enum.TextXAlignment.Left,
+    LayoutOrder = 6,
+    Active = false
+})
+
 local Spacer = CreateInstance("Frame", {
     Name = "Spacer",
     Parent = TopBar,
     BackgroundTransparency = 1,
-    Size = UDim2.new(1, -990, 1, 0),
-    LayoutOrder = 6
+    Size = UDim2.new(1, -1350, 1, 0),
+    LayoutOrder = 7
 })
 
 local CrucibleLabel = CreateInstance("TextLabel", {
@@ -670,7 +711,33 @@ local CrucibleLabel = CreateInstance("TextLabel", {
     TextSize = 20,
     TextColor3 = Color3.fromRGB(255, 215, 0),
     TextXAlignment = Enum.TextXAlignment.Right,
-    LayoutOrder = 7
+    LayoutOrder = 8
+})
+
+local DayLabel = CreateInstance("TextLabel", {
+    Name = "DayLabel",
+    Parent = TopBar,
+    BackgroundTransparency = 1,
+    Size = UDim2.new(0, 100, 1, 0),
+    Text = "Day: 1",
+    Font = Enum.Font.GothamBold,
+    TextSize = 20,
+    TextColor3 = Color3.fromRGB(255, 255, 255),
+    TextXAlignment = Enum.TextXAlignment.Right,
+    LayoutOrder = 9
+})
+
+local QuotaLabel = CreateInstance("TextLabel", {
+    Name = "QuotaLabel",
+    Parent = TopBar,
+    BackgroundTransparency = 1,
+    Size = UDim2.new(0, 200, 1, 0),
+    Text = "Quota: 0 / 750",
+    Font = Enum.Font.GothamBold,
+    TextSize = 20,
+    TextColor3 = Color3.fromRGB(255, 215, 0),
+    TextXAlignment = Enum.TextXAlignment.Right,
+    LayoutOrder = 10
 })
 
 -- Employee Shop GUI
@@ -1672,6 +1739,19 @@ local CloseDocButton = CreateInstance("TextButton", {
 })
 CreateInstance("UICorner", {Parent = CloseDocButton, CornerRadius = UDim.new(0, 6)})
 
+local RerollButton = CreateInstance("TextButton", {
+    Name = "RerollButton",
+    Parent = DocumentGui,
+    BackgroundColor3 = Color3.fromRGB(100,100,150),
+    Size = UDim2.new(0,100,0,35),
+    Position = UDim2.new(0.5,60,1,-50),
+    Text = "Reroll (100)",
+    Font = Enum.Font.GothamBold,
+    TextSize = 14,
+    TextColor3 = Color3.fromRGB(255,255,255)
+})
+CreateInstance("UICorner", {Parent = RerollButton})
+
 -- Functions
 local function RollForMXGift(anomalyInstance)
     local data = anomalyInstance.Data
@@ -1719,6 +1799,7 @@ local function StartWorkerLoop(worker, anomalyInstance)
                     anomalyInstance.SuccessfulWorkerWorks = (anomalyInstance.SuccessfulWorkerWorks or 0) + 1
                     if anomalyInstance.SuccessfulWorkerWorks >= 5 then
                         worker.HP = 0
+                        GameData.WorkersDied = GameData.WorkersDied + 1
                         CreateNotification(worker.Name .. " bloomed into a blood tainted flower and died!", Color3.fromRGB(200, 50, 50))
                         anomalyInstance.AssignedWorker = nil
                         worker.AssignedTo = nil
@@ -1740,6 +1821,7 @@ local function StartWorkerLoop(worker, anomalyInstance)
                     worker.HP = math.max(0, worker.HP - damage)
                     CreateNotification(anomalyInstance.Name .. " damaged " .. worker.Name .. " for " .. damage, Color3.fromRGB(200, 50, 50))
                     if worker.HP <= 0 then
+                        GameData.WorkersDied = GameData.WorkersDied + 1
                         CreateNotification(worker.Name .. " was killed!", Color3.fromRGB(200, 50, 50))
                         anomalyInstance.AssignedWorker = nil
                         worker.AssignedTo = nil
@@ -1751,6 +1833,7 @@ local function StartWorkerLoop(worker, anomalyInstance)
             if anomalyInstance.Data.Special == "MeatMess" and anomalyInstance.CurrentMood < 30 and math.random() < 0.3 then
                 if anomalyInstance.AssignedWorker then
                     anomalyInstance.AssignedWorker.HP = 0
+                    GameData.WorkersDied = GameData.WorkersDied + 1
                     CreateNotification(anomalyInstance.Name .. " killed and ate " .. anomalyInstance.AssignedWorker.Name, Color3.fromRGB(200, 50, 50))
                     anomalyInstance.BonusBreachHealth = (anomalyInstance.BonusBreachHealth or 0) + 10
                     anomalyInstance.AssignedWorker = nil
@@ -1761,6 +1844,7 @@ local function StartWorkerLoop(worker, anomalyInstance)
                 if anomalyInstance.Data.IsInanimate then
                     if anomalyInstance.AssignedWorker then
                         anomalyInstance.AssignedWorker.HP = 0
+                        GameData.WorkersDied = GameData.WorkersDied + 1
                         CreateNotification(anomalyInstance.Name .. " killed the worker!", Color3.fromRGB(200, 50, 50))
                         anomalyInstance.AssignedWorker = nil
                         worker.AssignedTo = nil
@@ -1777,6 +1861,7 @@ local function StartWorkerLoop(worker, anomalyInstance)
                 worker.HP = math.max(0, worker.HP - damage)
                 CreateNotification(anomalyInstance.Name .. " attacked " .. worker.Name .. " for " .. damage, Color3.fromRGB(200, 50, 50))
                 if worker.HP <= 0 then
+                    GameData.WorkersDied = GameData.WorkersDied + 1
                     CreateNotification(worker.Name .. " was killed!", Color3.fromRGB(200, 50, 50))
                     anomalyInstance.AssignedWorker = nil
                     worker.AssignedTo = nil
@@ -2177,6 +2262,7 @@ function PerformWork(anomalyInstance, workType, roomFrame)
             CreateNotification(anomalyInstance.Name .. " attacked " .. anomalyInstance.AssignedWorker.Name .. " for " .. damage, Color3.fromRGB(200, 50, 50))
             
             if anomalyInstance.AssignedWorker.HP <= 0 then
+                GameData.WorkersDied = GameData.WorkersDied + 1
                 CreateNotification(anomalyInstance.AssignedWorker.Name .. " was killed!", Color3.fromRGB(200, 50, 50))
                 anomalyInstance.AssignedWorker = nil
                 UpdateRoomDisplay(anomalyInstance)
@@ -2204,6 +2290,7 @@ function PerformWork(anomalyInstance, workType, roomFrame)
     if anomalyInstance.Data.Special == "MeatMess" and anomalyInstance.CurrentMood < 30 and math.random() < 0.3 then
         if anomalyInstance.AssignedWorker then
             anomalyInstance.AssignedWorker.HP = 0
+            GameData.WorkersDied = GameData.WorkersDied + 1
             CreateNotification(anomalyInstance.Name .. " killed and ate " .. anomalyInstance.AssignedWorker.Name, Color3.fromRGB(200, 50, 50))
             anomalyInstance.BonusBreachHealth = (anomalyInstance.BonusBreachHealth or 0) + 10
             anomalyInstance.AssignedWorker = nil
@@ -2215,6 +2302,7 @@ function PerformWork(anomalyInstance, workType, roomFrame)
         if anomalyInstance.Data.IsInanimate then
             if anomalyInstance.AssignedWorker then
                 anomalyInstance.AssignedWorker.HP = 0
+                GameData.WorkersDied = GameData.WorkersDied + 1
                 CreateNotification(anomalyInstance.Name .. " killed the worker!", Color3.fromRGB(200, 50, 50))
                 anomalyInstance.AssignedWorker = nil
                 anomalyInstance.CurrentMood = anomalyInstance.Data.BaseMood / 2
@@ -2250,6 +2338,7 @@ function TriggerBreach(anomalyInstance, roomFrame)
     end
     
     GameData.LastGlobalBreachTime = os.time()
+    GameData.TotalBreaches = GameData.TotalBreaches + 1
     
     local breachData = anomalyInstance.Data.BreachForm
     anomalyInstance.IsBreached = true
@@ -2333,6 +2422,11 @@ function StartBreachLoop(anomalyInstance)
                 if #allEmployees > 0 then
                     local target = allEmployees[math.random(#allEmployees)]
                     target.HP = 0
+                    if target.SuccessChance then
+                        GameData.WorkersDied = GameData.WorkersDied + 1
+                    else
+                        GameData.GuardsDied = GameData.GuardsDied + 1
+                    end
                     CreateNotification(target.Name .. " joined the skeleton army!", Color3.fromRGB(200, 50, 50))
                     if target.AssignedTo then
                         if target.AssignedTo == "Outer" then
@@ -2399,6 +2493,11 @@ function StartBreachLoop(anomalyInstance)
                     target.HP = math.max(0, target.HP - extraDamage)
                     CreateNotification(anomalyInstance.Name .. " minions attacked " .. target.Name .. " for " .. extraDamage, Color3.fromRGB(200, 50, 50))
                     if target.HP <= 0 then
+                        if target == anomalyInstance.AssignedWorker then
+                            GameData.WorkersDied = GameData.WorkersDied + 1
+                        else
+                            GameData.GuardsDied = GameData.GuardsDied + 1
+                        end
                         CreateNotification(target.Name .. " was killed!", Color3.fromRGB(200, 50, 50))
                         if target == anomalyInstance.AssignedWorker then
                             anomalyInstance.AssignedWorker = nil
@@ -2471,7 +2570,6 @@ function StartBreachLoop(anomalyInstance)
                             CreateNotification(target.Data.BreachForm.Name .. " has been contained by The Fame Seeker!", Color3.fromRGB(50, 200, 50))
                             target.IsBreached = false
                             target.CurrentMood = target.Data.BaseMood / 2
-                            target.BreachHP = nil
                             for i, b in ipairs(GameData.BreachedAnomalies) do
                                 if b.Instance == target then
                                     table.remove(GameData.BreachedAnomalies, i)
@@ -2535,6 +2633,11 @@ function StartBreachLoop(anomalyInstance)
                         CreateNotification(breachData.Name .. " attacked " .. target.Name .. " for " .. damage, Color3.fromRGB(200, 50, 50))
                         
                         if target.HP <= 0 then
+                            if target.SuccessChance then
+                                GameData.WorkersDied = GameData.WorkersDied + 1
+                            else
+                                GameData.GuardsDied = GameData.GuardsDied + 1
+                            end
                             CreateNotification(target.Name .. " was killed!", Color3.fromRGB(200, 50, 50))
                             if target == anomalyInstance.AssignedWorker then
                                 anomalyInstance.AssignedWorker = nil
@@ -2753,6 +2856,7 @@ spawn(function()
                         if anomaly.Data.IsInanimate then
                             if anomaly.AssignedWorker then
                                 anomaly.AssignedWorker.HP = 0
+                                GameData.WorkersDied = GameData.WorkersDied + 1
                                 CreateNotification(anomaly.Name .. " killed the worker!", Color3.fromRGB(200, 50, 50))
                                 anomaly.AssignedWorker = nil
                                 anomaly.CurrentMood = anomaly.Data.BaseMood / 2
@@ -3152,6 +3256,72 @@ local function IsTerminatorAvailable()
     return false
 end
 
+local function ShowEndDayScreen()
+    local endScreen = CreateInstance("Frame", {
+        Name = "EndDayScreen",
+        Parent = MainGui,
+        BackgroundColor3 = Color3.fromRGB(0,0,0),
+        BackgroundTransparency = 0.5,
+        Size = UDim2.new(1,0,1,0),
+        ZIndex = 50
+    })
+
+    local mobileFrame = CreateInstance("Frame", {
+        Parent = endScreen,
+        BackgroundColor3 = Color3.fromRGB(0,0,0),
+        BorderSizePixel = 5,
+        BorderColor3 = Color3.fromRGB(255,0,0),
+        Size = UDim2.new(0.4,0,0.6,0),
+        Position = UDim2.new(0.3,0,0.2,0),
+        ZIndex = 51
+    })
+
+    local scoresLayout = CreateInstance("UIListLayout", {
+        Parent = mobileFrame,
+        Padding = UDim.new(0,10),
+        HorizontalAlignment = Enum.HorizontalAlignment.Center,
+        VerticalAlignment = Enum.VerticalAlignment.Center
+    })
+
+    local function addScore(text)
+        CreateInstance("TextLabel", {
+            Parent = mobileFrame,
+            BackgroundTransparency = 1,
+            Size = UDim2.new(1,0,0,30),
+            Text = text,
+            Font = Enum.Font.GothamBold,
+            TextSize = 18,
+            TextColor3 = Color3.fromRGB(255,255,255)
+        })
+    end
+
+    addScore("Day: " .. GameData.CurrentDay)
+    addScore("Anomaly Breached: " .. GameData.TotalBreaches)
+    addScore("Workers Died: " .. GameData.WorkersDied)
+    addScore("Guard Died: " .. GameData.GuardsDied)
+    addScore("Money: " .. GameData.Crucible)
+
+    local continueBtn = CreateInstance("TextButton", {
+        Parent = mobileFrame,
+        BackgroundColor3 = Color3.fromRGB(50,150,50),
+        Size = UDim2.new(0.8,0,0,50),
+        Text = "Continue to next Day",
+        Font = Enum.Font.GothamBold,
+        TextSize = 20,
+        TextColor3 = Color3.fromRGB(255,255,255)
+    })
+    CreateInstance("UICorner", {Parent = continueBtn})
+
+    continueBtn.MouseButton1Click:Connect(function()
+        GameData.CurrentDay = GameData.CurrentDay + 1
+        GameData.DailyCrucible = 0
+        GameData.AnomaliesAcceptedToday = 0
+        DayLabel.Text = "Day: " .. GameData.CurrentDay
+        UpdateQuotaDisplay()
+        endScreen:Destroy()
+    end)
+end
+
 -- Button Connections
 EmployeeButton.MouseButton1Click:Connect(function()
     EmployeeShop.Visible = true
@@ -3260,7 +3430,12 @@ end
 
 AcceptButton.MouseButton1Click:Connect(function()
     if GameData.SelectedDocument then
+        if GameData.AnomaliesAcceptedToday >= 1 then
+            CreateNotification("Only 1 anomaly per day!", Color3.fromRGB(200, 50, 50))
+            return
+        end
         CreateAnomalyRoom(GameData.SelectedDocument)
+        GameData.AnomaliesAcceptedToday = GameData.AnomaliesAcceptedToday + 1
         CreateNotification("Anomaly accepted: " .. GameData.SelectedDocument, Color3.fromRGB(50, 200, 50))
         DocumentGui.Visible = false
         AnomalyInfo.Visible = false
@@ -3285,6 +3460,26 @@ CloseDocButton.MouseButton1Click:Connect(function()
     GameData.SelectedDocument = nil
 end)
 
+RerollButton.MouseButton1Click:Connect(function()
+    if GameData.Crucible >= 100 then
+        UpdateCrucible(-100)
+        RefreshCrucibleDisplay()
+        GameData.CurrentDocuments = GenerateRandomDocuments()
+        AnomalyInfo.Visible = false
+        GameData.SelectedDocument = nil
+        for i=1,3 do
+            local btn = DocContainer:FindFirstChild("Document" .. i)
+            btn.BorderSizePixel = 2
+            btn.BorderColor3 = Color3.fromRGB(100,100,120)
+        end
+        CreateNotification("Documents rerolled!", Color3.fromRGB(100,200,100))
+    else
+        CreateNotification("Not enough Crucible!", Color3.fromRGB(200,50,50))
+    end
+end)
+
+EndDayButton.MouseButton1Click:Connect(ShowEndDayScreen)
+
 -- Initialize Game
 wait(0.5)
 CreateNotification("Welcome to Sorchesus Company!", Color3.fromRGB(200, 50, 50))
@@ -3292,5 +3487,7 @@ wait(2)
 
 wait(3)
 StartWhiteTrain()
+
+UpdateQuotaDisplay()
 
 print("Sorchesus Company GUI Loaded Successfully!")
