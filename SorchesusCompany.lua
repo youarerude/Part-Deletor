@@ -13,6 +13,7 @@
 -- Added paywall for anomaly info
 -- Added anomaly weapon gifts (MX weapons and armors)
 -- Added days, quota, end day button, reroll button, day counter, end day screen, quota counter
+-- Added raiders
 
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
@@ -23,6 +24,66 @@ local isMobile = UserInputService.TouchEnabled
 
 -- Quotas
 local Quotas = {750, 1000, 2500, 5000, 9000, 17500, 30000, 55555, 83000, 100000}
+
+-- Raid Database
+local RaidDatabase = {
+    Troposphere = {
+        {
+            name = "Green",
+            quote = "They hunger for what they've lost",
+            lostQuote = "Join Us",
+            color = Color3.fromRGB(0, 255, 0),
+            anomalies = {
+                {name = "Weakling Zombie", count = 10, hp = 250, dmg = 35},
+                {name = "Normal Zombie", count = 3, hp = 750, dmg = 75}
+            }
+        },
+        {
+            name = "Violet",
+            quote = "The ritual has only just begun",
+            lostQuote = "The spell is cast",
+            color = Color3.fromRGB(148, 0, 211),
+            anomalies = {
+                {name = "Black Magicians", count = 5, hp = 175, dmg = 100},
+                {name = "Shadow Stalker", count = 10, hp = 245, dmg = 50}
+            }
+        },
+        {
+            name = "Red",
+            quote = "The perfect Food",
+            lostQuote = "Congratulations",
+            color = Color3.fromRGB(255, 0, 0),
+            anomalies = {
+                {name = "Meat Fluid", count = 7, hp = 200, dmg = 80},
+                {name = "Smiling Snails", count = 8, hp = 125, dmg = 75}
+            }
+        },
+        {
+            name = "Blue",
+            quote = "The tide is rising",
+            lostQuote = "The surface fades away",
+            color = Color3.fromRGB(0, 0, 255),
+            anomalies = {
+                {name = "Jade Koi Fish", count = 5, hp = 175, dmg = 50},
+                {name = "Monster Shark", count = 5, hp = 210, dmg = 80}
+            }
+        },
+        {
+            name = "Orange",
+            quote = "A single spark ignites",
+            lostQuote = "Smoke rises from your defeat",
+            color = Color3.fromRGB(255, 165, 0),
+            anomalies = {
+                {name = "Fire Golem", count = 7, hp = 150, dmg = 40},
+                {name = "Blazer", count = 5, hp = 200, dmg = 65}
+            }
+        }
+    },
+    Stratosphere = {},
+    Mesosphere = {},
+    Thermosphere = {},
+    Exosphere = {}
+}
 
 -- Game Data
 local GameData = {
@@ -47,9 +108,12 @@ local GameData = {
     CurrentDay = 1,
     DailyCrucible = 0,
     AnomaliesAcceptedToday = 0,
+    DocumentsPurchasedToday = false,
     TotalBreaches = 0,
     WorkersDied = 0,
-    GuardsDied = 0
+    GuardsDied = 0,
+    CurrentRaid = nil,
+    RaidEntities = {}
 }
 
 -- Guard Level Map
@@ -2776,6 +2840,29 @@ spawn(function()
                     end
                 end
             end
+        elseif #GameData.RaidEntities > 0 then
+            for _, guard in ipairs(GameData.OuterGuards) do
+                if guard.HP > 0 then
+                    local target = GameData.RaidEntities[math.random(#GameData.RaidEntities)]
+                    local damage = guard.Damage
+                    target.hp = math.max(0, target.hp - damage)
+                    CreateNotification(guard.Name .. " (Outer) attacked " .. target.name .. " for " .. damage, Color3.fromRGB(50, 200, 50))
+                    if target.hp <= 0 then
+                        CreateNotification(target.name .. " defeated!", Color3.fromRGB(50, 200, 50))
+                        for i = #GameData.RaidEntities, 1, -1 do
+                            if GameData.RaidEntities[i] == target then
+                                table.remove(GameData.RaidEntities, i)
+                                break
+                            end
+                        end
+                        if #GameData.RaidEntities == 0 then
+                            ShowRaidGUI(GameData.CurrentRaid, false)
+                            CreateNotification("Raid defeated!", Color3.fromRGB(50, 200, 50))
+                            GameData.CurrentRaid = nil
+                        end
+                    end
+                end
+            end
         end
     end
 end)
@@ -2784,38 +2871,102 @@ end)
 spawn(function()
     while true do
         wait(2)
-        if GameData.TerminatorActive and #GameData.TerminatorAgents > 0 and #GameData.BreachedAnomalies > 0 then
-            local sorted = {}
-            for _, b in ipairs(GameData.BreachedAnomalies) do
-                table.insert(sorted, b)
-            end
-            table.sort(sorted, function(a, b)
-                return getDangerLevel(a.Instance.Data.DangerClass) > getDangerLevel(b.Instance.Data.DangerClass)
-            end)
-            local target = sorted[1].Instance
-            for _, agent in ipairs(GameData.TerminatorAgents) do
-                if agent.HP > 0 then
-                    local damage = agent.Damage
-                    target.BreachHP = math.max(0, target.BreachHP - damage)
-                    CreateNotification(agent.Name .. " attacked " .. target.Data.BreachForm.Name .. " for " .. damage, Color3.fromRGB(50, 200, 50))
-                    if target.BreachHP <= 0 then
-                        CreateNotification(target.Data.BreachForm.Name .. " contained!", Color3.fromRGB(50, 200, 50))
-                        target.IsBreached = false
-                        target.CurrentMood = target.Data.BaseMood / 2
-                        target.BreachHP = nil
-                        for i = #GameData.BreachedAnomalies, 1, -1 do
-                            if GameData.BreachedAnomalies[i].Instance == target then
-                                table.remove(GameData.BreachedAnomalies, i)
-                                break
+        if GameData.TerminatorActive and #GameData.TerminatorAgents > 0 then
+            if #GameData.BreachedAnomalies > 0 then
+                local sorted = {}
+                for _, b in ipairs(GameData.BreachedAnomalies) do
+                    table.insert(sorted, b)
+                end
+                table.sort(sorted, function(a, b)
+                    return getDangerLevel(a.Instance.Data.DangerClass) > getDangerLevel(b.Instance.Data.DangerClass)
+                end)
+                local target = sorted[1].Instance
+                for _, agent in ipairs(GameData.TerminatorAgents) do
+                    if agent.HP > 0 then
+                        local damage = agent.Damage
+                        target.BreachHP = math.max(0, target.BreachHP - damage)
+                        CreateNotification(agent.Name .. " attacked " .. target.Data.BreachForm.Name .. " for " .. damage, Color3.fromRGB(50, 200, 50))
+                        if target.BreachHP <= 0 then
+                            CreateNotification(target.Data.BreachForm.Name .. " contained!", Color3.fromRGB(50, 200, 50))
+                            target.IsBreached = false
+                            target.CurrentMood = target.Data.BaseMood / 2
+                            target.BreachHP = nil
+                            for i = #GameData.BreachedAnomalies, 1, -1 do
+                                if GameData.BreachedAnomalies[i].Instance == target then
+                                    table.remove(GameData.BreachedAnomalies, i)
+                                    break
+                                end
+                            end
+                            UpdateRoomDisplay(target)
+                            UpdateBreachAlert()
+                            UpdateCoreDisplay()
+                            if #GameData.BreachedAnomalies == 0 and #GameData.RaidEntities == 0 then
+                                GameData.TerminatorActive = false
+                                GameData.TerminatorAgents = {}
+                                CreateNotification("Terminator agents returning.", Color3.fromRGB(100, 100, 255))
                             end
                         end
-                        UpdateRoomDisplay(target)
-                        UpdateBreachAlert()
+                    end
+                end
+            elseif #GameData.RaidEntities > 0 then
+                local target = GameData.RaidEntities[1]
+                for _, agent in ipairs(GameData.TerminatorAgents) do
+                    if agent.HP > 0 then
+                        local damage = agent.Damage
+                        target.hp = math.max(0, target.hp - damage)
+                        CreateNotification(agent.Name .. " attacked " .. target.name .. " for " .. damage, Color3.fromRGB(50, 200, 50))
+                        if target.hp <= 0 then
+                            CreateNotification(target.name .. " defeated!", Color3.fromRGB(50, 200, 50))
+                            for i = #GameData.RaidEntities, 1, -1 do
+                                if GameData.RaidEntities[i] == target then
+                                    table.remove(GameData.RaidEntities, i)
+                                    break
+                                end
+                            end
+                            if #GameData.RaidEntities == 0 then
+                                ShowRaidGUI(GameData.CurrentRaid, false)
+                                CreateNotification("Raid defeated!", Color3.fromRGB(50, 200, 50))
+                                GameData.CurrentRaid = nil
+                                GameData.TerminatorActive = false
+                                GameData.TerminatorAgents = {}
+                                CreateNotification("Terminator agents returning.", Color3.fromRGB(100, 100, 255))
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+end)
+
+-- Raid Attack Loop
+spawn(function()
+    while true do
+        wait(2)
+        if #GameData.RaidEntities > 0 then
+            for _, entity in ipairs(GameData.RaidEntities) do
+                if entity.hp > 0 then
+                    local damage = entity.dmg
+                    if GameData.TerminatorActive and #GameData.TerminatorAgents > 0 then
+                        local agent = GameData.TerminatorAgents[math.random(#GameData.TerminatorAgents)]
+                        agent.HP = math.max(0, agent.HP - damage)
+                        CreateNotification(entity.name .. " attacked " .. agent.Name .. " for " .. damage, Color3.fromRGB(200, 50, 50))
+                        if agent.HP <= 0 then
+                            CreateNotification(agent.Name .. " is down!", Color3.fromRGB(200, 50, 50))
+                            for i = #GameData.TerminatorAgents, 1, -1 do
+                                if GameData.TerminatorAgents[i] == agent then
+                                    table.remove(GameData.TerminatorAgents, i)
+                                    break
+                                end
+                            end
+                        end
+                    else
+                        GameData.CosmicShardCoreHealth = math.max(0, GameData.CosmicShardCoreHealth - damage)
+                        CreateNotification(entity.name .. " attacked Core for " .. damage, Color3.fromRGB(200, 50, 50))
                         UpdateCoreDisplay()
-                        if #GameData.BreachedAnomalies == 0 then
-                            GameData.TerminatorActive = false
-                            GameData.TerminatorAgents = {}
-                            CreateNotification("Terminator agents returning.", Color3.fromRGB(100, 100, 255))
+                        if GameData.CosmicShardCoreHealth <= 0 then
+                            CompanyDestroyed()
+                            break
                         end
                     end
                 end
@@ -3246,6 +3397,61 @@ local function EndWhiteTrain()
     end)
 end
 
+-- Raid Functions
+local function StartRaid(sphere)
+    local raids = RaidDatabase[sphere]
+    if not raids or #raids == 0 then return end
+    local picked = raids[math.random(#raids)]
+    GameData.CurrentRaid = picked
+    GameData.CurrentRaid.sphere = sphere
+    GameData.RaidEntities = {}
+    for _, ano in ipairs(picked.anomalies) do
+        for i = 1, ano.count do
+            table.insert(GameData.RaidEntities, {name = ano.name, hp = ano.hp, maxHp = ano.hp, dmg = ano.dmg})
+        end
+    end
+    ShowRaidGUI(picked, true)
+    CreateNotification(sphere .. " Raid Started: " .. picked.name, picked.color)
+end
+
+local function ShowRaidGUI(raid, isStart)
+    local gui = CreateInstance("Frame", {
+        Parent = MainGui,
+        BackgroundColor3 = raid.color,
+        Size = UDim2.new(0.5, 0, 0.2, 0),
+        Position = UDim2.new(1.5, 0, 0.4, 0),
+        ZIndex = 20
+    })
+    CreateInstance("UICorner", {Parent = gui})
+    local topText = CreateInstance("TextLabel", {
+        Parent = gui,
+        BackgroundTransparency = 1,
+        Size = UDim2.new(1, 0, 0.3, 0),
+        Text = raid.name .. " " .. raid.sphere,
+        Font = Enum.Font.Gotham,
+        TextSize = 14,
+        TextColor3 = Color3.fromRGB(255, 255, 255)
+    })
+    local mainText = CreateInstance("TextLabel", {
+        Parent = gui,
+        BackgroundTransparency = 1,
+        Size = UDim2.new(1, 0, 0.7, 0),
+        Position = UDim2.new(0, 0, 0.3, 0),
+        Text = isStart and raid.quote or raid.lostQuote,
+        Font = Enum.Font.GothamBold,
+        TextSize = 24,
+        TextColor3 = Color3.fromRGB(255, 255, 255),
+        TextWrapped = true
+    })
+    local tweenInfo = TweenInfo.new(0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+    TweenService:Create(gui, tweenInfo, {Position = UDim2.new(0.25, 0, 0.4, 0)}):Play()
+    wait(5)
+    tweenInfo = TweenInfo.new(0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.In)
+    TweenService:Create(gui, tweenInfo, {Position = UDim2.new(-0.5, 0, 0.4, 0)}):Play()
+    wait(0.5)
+    gui:Destroy()
+end
+
 -- Terminator Protocol Function
 local function IsTerminatorAvailable()
     if #GameData.BreachedAnomalies >= 5 then
@@ -3319,9 +3525,15 @@ local function ShowEndDayScreen()
         GameData.CurrentDay = GameData.CurrentDay + 1
         GameData.DailyCrucible = 0
         GameData.AnomaliesAcceptedToday = 0
+        GameData.DocumentsPurchasedToday = false
         DayLabel.Text = "Day: " .. GameData.CurrentDay
         UpdateQuotaDisplay()
         endScreen:Destroy()
+        local raidDays = {[5] = "Troposphere", [10] = "Stratosphere", [25] = "Mesosphere", [50] = "Thermosphere", [75] = "Exosphere"}
+        local sphere = raidDays[GameData.CurrentDay]
+        if sphere and sphere == "Troposphere" then
+            StartRaid(sphere)
+        end
     end)
 end
 
@@ -3394,6 +3606,10 @@ CloseAssignButtonBottom.MouseButton1Click:Connect(function()
 end)
 
 BuyDocButton.MouseButton1Click:Connect(function()
+    if GameData.DocumentsPurchasedToday then
+        CreateNotification("Already purchased today!", Color3.fromRGB(200, 50, 50))
+        return
+    end
     if GameData.Crucible >= 100 then
         UpdateCrucible(-100)
         RefreshCrucibleDisplay()
@@ -3401,6 +3617,7 @@ BuyDocButton.MouseButton1Click:Connect(function()
         GameData.CurrentDocuments = GenerateRandomDocuments()
         DocumentGui.Visible = true
         AnomalyInfo.Visible = false
+        GameData.DocumentsPurchasedToday = true
         
         CreateNotification("Documents purchased!", Color3.fromRGB(100, 200, 100))
     else
@@ -3483,7 +3700,10 @@ end)
 
 EndDayButton.MouseButton1Click:Connect(function()
     local quota = GameData.CurrentDay <= #Quotas and Quotas[GameData.CurrentDay] or Quotas[#Quotas]
-    if GameData.DailyCrucible < quota then return end
+    if GameData.DailyCrucible < quota then
+        CreateNotification("Quota not Reached!", Color3.fromRGB(200,50,50))
+        return
+    end
     ShowEndDayScreen()
 end)
 
