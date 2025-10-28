@@ -260,7 +260,7 @@ local AnomalyDatabase = {
         },
         LinkedAnomaly = "Yin",
         BreachOnLinkedBreach = true,
-        Costs = {Stat = 750, Knowledge = 100, Social = 100, Hunt = 5, Passive = 100, BreachForm = 1750, Management = {1500, 1750, 1900}},
+        Costs = {Stat = 750, Knowledge = 100, Social = 100, Hunt = 5, Passive = 100, BreachForm = 1750, Management = {1500, 1750, 1900}, MXWeapon = 4500, MXArmor = 4950},
         ManagementTips = {"It hates Yin very much.", "Whenever Yin tries to Breach it will also breach.", "It's role is as an Protector or a Hero. It will attack Yin ONLY not other anomaly."},
         MXWeapon = {Name = "Peacemaker", Damage = 1500, Chance = 0.01, MinLevel = 4, MaxLevel = 5},
         MXArmor = {Name = "White Divine", Health = 5599, Chance = 0.005, MinLevel = 4, MaxLevel = 5}
