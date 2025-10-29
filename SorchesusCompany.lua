@@ -619,7 +619,7 @@ local AnomalyDatabase = {
             M1Damage = 50,
             Abilities = {}
         },
-        Costs = {Stat = 570, Knowledge = 150, Social = 150, Hunt = 150, Passive = 150, BreachForm = 800},
+        Costs = {Stat = 570, BlessCurse = 200, BreachForm = 800},
         ManagementTips = {"Replaces work buttons with Use button. Use once per day to buff/debuff an employee."},
         Special = "FateDecides"
     }
@@ -2013,7 +2013,7 @@ CreateInstance("UICorner", {Parent = DecideButton, CornerRadius = UDim.new(0, 6)
 
 local selectedEmployee = nil
 
-local function PopulateFateGui()
+local function PopulateFateGui(anomaly)
     for _, child in pairs(EmployeeSection:GetChildren()) do
         if child:IsA("TextButton") then
             child:Destroy()
@@ -2059,7 +2059,7 @@ local function PopulateFateGui()
 end
 
 function ShowFateGUI(anomaly)
-    PopulateFateGui()
+    PopulateFateGui(anomaly)
     FateGui.Visible = true
 end
 
@@ -2073,13 +2073,13 @@ DecideButton.MouseButton1Click:Connect(function()
         end
         local total = 0
         for _, eff in ipairs(possible) do
-            total += eff.chance
+            total = total + eff.chance
         end
         local rand = math.random(total)
         local cum = 0
         local chosen = nil
         for _, eff in ipairs(possible) do
-            cum += eff.chance
+            cum = cum + eff.chance
             if rand <= cum then
                 chosen = eff
                 break
@@ -2089,7 +2089,11 @@ DecideButton.MouseButton1Click:Connect(function()
             chosen.effect(selectedEmployee)
             selectedEmployee.BuffDebuff = chosen.name
             local typeStr = chosen.type == "buff" and "Bless" or "Curse"
-            CreateNotification(selectedEmployee.Name .. " Has achieved " .. typeStr .. " of " .. chosen.name .. "!", Color3.fromRGB(255, 255, 255))
+            local bgColor = chosen.type == "buff" and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 0, 0)
+            local textColor = chosen.type == "buff" and Color3.fromRGB(0, 0, 0) or Color3.fromRGB(255, 255, 255)
+            CreateNotification(selectedEmployee.Name .. " Has achieved " .. typeStr .. " of " .. chosen.name .. "!", bgColor, textColor)
+            anomalyInstance.CurrentMood = math.clamp(anomalyInstance.CurrentMood + (chosen.type == "buff" and 50 or -25), 0, 100)
+            UpdateRoomDisplay(anomalyInstance)
             GameData.FateUsedToday = true
             FateGui.Visible = false
         end
@@ -2360,6 +2364,7 @@ local function CreateAnomalyRoom(anomalyName)
         Passive = false,
         BreachForm = anomalyData.BreachForm == nil,
         Enemies = anomalyData.Costs.Enemies == nil,
+        BlessCurse = false,
         Management = {}
     }
     if anomalyData.MXWeapon then
@@ -2584,6 +2589,20 @@ local function CreateAnomalyRoom(anomalyName)
     
     anomalyInstance.RoomFrame = roomFrame
     UpdateRoomDisplay(anomalyInstance)
+    
+    if anomalyData.Special == "FateDecides" then
+        spawn(function()
+            while not anomalyInstance.IsBreached do
+                wait(60)
+                anomalyInstance.CurrentMood = math.clamp(anomalyInstance.CurrentMood - 5, 0, 100)
+                UpdateRoomDisplay(anomalyInstance)
+                if anomalyInstance.CurrentMood <= 0 then
+                    TriggerBreach(anomalyInstance, roomFrame)
+                    break
+                end
+            end
+        end)
+    end
     
     local function UpdateCanvasSize()
         local layout = AnomalyContainer:FindFirstChildOfClass("UIGridLayout")
@@ -3551,13 +3570,15 @@ function ShowAnomalyInfo(anomalyInstance)
         addSection("Stat Info", "", false, function() unlocked.Stat = true UpdateRoomDisplay(anomalyInstance) end, costs.Stat)
     end
     
-    for _, wt in ipairs({"Knowledge", "Social", "Hunt", "Passive"}) do
-        if unlocked[wt] then
-            local res = data.WorkResults[wt]
-            local info = wt .. " Work Info:\nSuccess: " .. (res.Success * 100) .. "%\nUnsuccess: " .. ((1 - res.Success) * 100) .. "%"
-            addSection(wt .. " Work Info", info, true)
-        else
-            addSection(wt .. " Work Info", "", false, function() unlocked[wt] = true end, costs[wt])
+    if data.Special ~= "FateDecides" then
+        for _, wt in ipairs({"Knowledge", "Social", "Hunt", "Passive"}) do
+            if unlocked[wt] then
+                local res = data.WorkResults[wt]
+                local info = wt .. " Work Info:\nSuccess: " .. (res.Success * 100) .. "%\nUnsuccess: " .. ((1 - res.Success) * 100) .. "%"
+                addSection(wt .. " Work Info", info, true)
+            else
+                addSection(wt .. " Work Info", "", false, function() unlocked[wt] = true end, costs[wt])
+            end
         end
     end
     
@@ -3599,6 +3620,18 @@ function ShowAnomalyInfo(anomalyInstance)
         end
     end
     
+    if data.Special == "FateDecides" then
+        if unlocked.BlessCurse then
+            local info = "Bless and Curse Info:\n"
+            for _, eff in ipairs(FateEffects) do
+                info = info .. eff.name .. " (" .. eff.type .. ", " .. eff.employee .. ", Chance: " .. eff.chance .. "%)\n"
+            end
+            addSection("Bless and Curse Info", info, true)
+        else
+            addSection("Bless and Curse Info", "", false, function() unlocked.BlessCurse = true end, costs.BlessCurse)
+        end
+    end
+    
     if data.ManagementTips then
         for i, tip in ipairs(data.ManagementTips) do
             if unlocked.Management[i] then
@@ -3626,18 +3659,18 @@ function ShowAnomalyInfo(anomalyInstance)
     end)
 end
 
-function CreateNotification(message, color)
+function CreateNotification(message, bgColor, textColor)
     local notif = CreateInstance("Frame", {
         Name = "Notification",
         Parent = MainGui,
-        BackgroundColor3 = color,
+        BackgroundColor3 = bgColor,
         BorderSizePixel = 0,
         Size = UDim2.new(0, 400, 0, 60),
         Position = UDim2.new(0.5, -200, 0, -70)
     })
     CreateInstance("UICorner", {Parent = notif, CornerRadius = UDim.new(0, 10)})
     
-    CreateInstance("TextLabel", {
+    local textLabel = CreateInstance("TextLabel", {
         Parent = notif,
         BackgroundTransparency = 1,
         Size = UDim2.new(1, -20, 1, 0),
@@ -3645,7 +3678,7 @@ function CreateNotification(message, color)
         Text = message,
         Font = Enum.Font.GothamBold,
         TextSize = 16,
-        TextColor3 = Color3.fromRGB(255, 255, 255),
+        TextColor3 = textColor or Color3.fromRGB(255, 255, 255),
         TextWrapped = true
     })
     
