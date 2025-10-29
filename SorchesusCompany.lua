@@ -14,6 +14,7 @@
 -- Added anomaly weapon gifts (MX weapons and armors)
 -- Added days, quota, end day button, reroll button, day counter, end day screen, quota counter
 -- Added raiders
+-- Fixed errors preventing raid animations by populating all sphere raid databases with scaled difficulties
 
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
@@ -25,64 +26,91 @@ local isMobile = UserInputService.TouchEnabled
 -- Quotas
 local Quotas = {750, 1000, 2500, 5000, 9000, 17500, 30000, 55555, 83000, 100000}
 
--- Raid Database
-local RaidDatabase = {
-    Troposphere = {
-        {
-            name = "Green",
-            quote = "They hunger for what they've lost",
-            lostQuote = "Join Us",
-            color = Color3.fromRGB(0, 255, 0),
-            anomalies = {
-                {name = "Weakling Zombie", count = 10, hp = 250, dmg = 35},
-                {name = "Normal Zombie", count = 3, hp = 750, dmg = 75}
-            }
-        },
-        {
-            name = "Violet",
-            quote = "The ritual has only just begun",
-            lostQuote = "The spell is cast",
-            color = Color3.fromRGB(148, 0, 211),
-            anomalies = {
-                {name = "Black Magicians", count = 5, hp = 175, dmg = 100},
-                {name = "Shadow Stalker", count = 10, hp = 245, dmg = 50}
-            }
-        },
-        {
-            name = "Red",
-            quote = "The perfect Food",
-            lostQuote = "Congratulations",
-            color = Color3.fromRGB(255, 0, 0),
-            anomalies = {
-                {name = "Meat Fluid", count = 7, hp = 200, dmg = 80},
-                {name = "Smiling Snails", count = 8, hp = 125, dmg = 75}
-            }
-        },
-        {
-            name = "Blue",
-            quote = "The tide is rising",
-            lostQuote = "The surface fades away",
-            color = Color3.fromRGB(0, 0, 255),
-            anomalies = {
-                {name = "Jade Koi Fish", count = 5, hp = 175, dmg = 50},
-                {name = "Monster Shark", count = 5, hp = 210, dmg = 80}
-            }
-        },
-        {
-            name = "Orange",
-            quote = "A single spark ignites",
-            lostQuote = "Smoke rises from your defeat",
-            color = Color3.fromRGB(255, 165, 0),
-            anomalies = {
-                {name = "Fire Golem", count = 7, hp = 150, dmg = 40},
-                {name = "Blazer", count = 5, hp = 200, dmg = 65}
-            }
+-- Base Raid Data
+local BaseRaids = {
+    {
+        name = "Green",
+        quote = "They hunger for what they've lost",
+        lostQuote = "Join Us",
+        color = Color3.fromRGB(0, 255, 0),
+        anomalies = {
+            {name = "Weakling Zombie", count = 10, hp = 250, dmg = 35},
+            {name = "Normal Zombie", count = 3, hp = 750, dmg = 75}
         }
     },
-    Stratosphere = {},
-    Mesosphere = {},
-    Thermosphere = {},
-    Exosphere = {}
+    {
+        name = "Violet",
+        quote = "The ritual has only just begun",
+        lostQuote = "The spell is cast",
+        color = Color3.fromRGB(148, 0, 211),
+        anomalies = {
+            {name = "Black Magicians", count = 5, hp = 175, dmg = 100},
+            {name = "Shadow Stalker", count = 10, hp = 245, dmg = 50}
+        }
+    },
+    {
+        name = "Red",
+        quote = "The perfect Food",
+        lostQuote = "Congratulations",
+        color = Color3.fromRGB(255, 0, 0),
+        anomalies = {
+            {name = "Meat Fluid", count = 7, hp = 200, dmg = 80},
+            {name = "Smiling Snails", count = 8, hp = 125, dmg = 75}
+        }
+    },
+    {
+        name = "Blue",
+        quote = "The tide is rising",
+        lostQuote = "The surface fades away",
+        color = Color3.fromRGB(0, 0, 255),
+        anomalies = {
+            {name = "Jade Koi Fish", count = 5, hp = 175, dmg = 50},
+            {name = "Monster Shark", count = 5, hp = 210, dmg = 80}
+        }
+    },
+    {
+        name = "Orange",
+        quote = "A single spark ignites",
+        lostQuote = "Smoke rises from your defeat",
+        color = Color3.fromRGB(255, 165, 0),
+        anomalies = {
+            {name = "Fire Golem", count = 7, hp = 150, dmg = 40},
+            {name = "Blazer", count = 5, hp = 200, dmg = 65}
+        }
+    }
+}
+
+-- Function to scale raids for higher spheres
+local function ScaleRaids(baseRaids, scaleFactor)
+    local scaled = {}
+    for _, raid in ipairs(baseRaids) do
+        local newRaid = {
+            name = raid.name,
+            quote = raid.quote,
+            lostQuote = raid.lostQuote,
+            color = raid.color,
+            anomalies = {}
+        }
+        for _, ano in ipairs(raid.anomalies) do
+            table.insert(newRaid.anomalies, {
+                name = ano.name,
+                count = ano.count,
+                hp = math.floor(ano.hp * scaleFactor),
+                dmg = math.floor(ano.dmg * scaleFactor)
+            })
+        end
+        table.insert(scaled, newRaid)
+    end
+    return scaled
+end
+
+-- Raid Database with scaled difficulties
+local RaidDatabase = {
+    Troposphere = ScaleRaids(BaseRaids, 1),
+    Stratosphere = ScaleRaids(BaseRaids, 2),
+    Mesosphere = ScaleRaids(BaseRaids, 4),
+    Thermosphere = ScaleRaids(BaseRaids, 8),
+    Exosphere = ScaleRaids(BaseRaids, 16)
 }
 
 -- Game Data
