@@ -14,7 +14,7 @@
 -- Added anomaly weapon gifts (MX weapons and armors)
 -- Added days, quota, end day button, reroll button, day counter, end day screen, quota counter
 -- Added raiders
--- Fixed errors preventing raid animations by populating all sphere raid databases with scaled difficulties
+-- Added new anomaly "May the Fate decides"
 
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
@@ -26,91 +26,159 @@ local isMobile = UserInputService.TouchEnabled
 -- Quotas
 local Quotas = {750, 1000, 2500, 5000, 9000, 17500, 30000, 55555, 83000, 100000}
 
--- Base Raid Data
-local BaseRaids = {
-    {
-        name = "Green",
-        quote = "They hunger for what they've lost",
-        lostQuote = "Join Us",
-        color = Color3.fromRGB(0, 255, 0),
-        anomalies = {
-            {name = "Weakling Zombie", count = 10, hp = 250, dmg = 35},
-            {name = "Normal Zombie", count = 3, hp = 750, dmg = 75}
+-- Raid Database
+local RaidDatabase = {
+    Troposphere = {
+        {
+            name = "Green",
+            quote = "They hunger for what they've lost",
+            lostQuote = "Join Us",
+            color = Color3.fromRGB(0, 255, 0),
+            anomalies = {
+                {name = "Weakling Zombie", count = 10, hp = 250, dmg = 35},
+                {name = "Normal Zombie", count = 3, hp = 750, dmg = 75}
+            }
+        },
+        {
+            name = "Violet",
+            quote = "The ritual has only just begun",
+            lostQuote = "The spell is cast",
+            color = Color3.fromRGB(148, 0, 211),
+            anomalies = {
+                {name = "Black Magicians", count = 5, hp = 175, dmg = 100},
+                {name = "Shadow Stalker", count = 10, hp = 245, dmg = 50}
+            }
+        },
+        {
+            name = "Red",
+            quote = "The perfect Food",
+            lostQuote = "Congratulations",
+            color = Color3.fromRGB(255, 0, 0),
+            anomalies = {
+                {name = "Meat Fluid", count = 7, hp = 200, dmg = 80},
+                {name = "Smiling Snails", count = 8, hp = 125, dmg = 75}
+            }
+        },
+        {
+            name = "Blue",
+            quote = "The tide is rising",
+            lostQuote = "The surface fades away",
+            color = Color3.fromRGB(0, 0, 255),
+            anomalies = {
+                {name = "Jade Koi Fish", count = 5, hp = 175, dmg = 50},
+                {name = "Monster Shark", count = 5, hp = 210, dmg = 80}
+            }
+        },
+        {
+            name = "Orange",
+            quote = "A single spark ignites",
+            lostQuote = "Smoke rises from your defeat",
+            color = Color3.fromRGB(255, 165, 0),
+            anomalies = {
+                {name = "Fire Golem", count = 7, hp = 150, dmg = 40},
+                {name = "Blazer", count = 5, hp = 200, dmg = 65}
+            }
         }
     },
-    {
-        name = "Violet",
-        quote = "The ritual has only just begun",
-        lostQuote = "The spell is cast",
-        color = Color3.fromRGB(148, 0, 211),
-        anomalies = {
-            {name = "Black Magicians", count = 5, hp = 175, dmg = 100},
-            {name = "Shadow Stalker", count = 10, hp = 245, dmg = 50}
-        }
-    },
-    {
-        name = "Red",
-        quote = "The perfect Food",
-        lostQuote = "Congratulations",
-        color = Color3.fromRGB(255, 0, 0),
-        anomalies = {
-            {name = "Meat Fluid", count = 7, hp = 200, dmg = 80},
-            {name = "Smiling Snails", count = 8, hp = 125, dmg = 75}
-        }
-    },
-    {
-        name = "Blue",
-        quote = "The tide is rising",
-        lostQuote = "The surface fades away",
-        color = Color3.fromRGB(0, 0, 255),
-        anomalies = {
-            {name = "Jade Koi Fish", count = 5, hp = 175, dmg = 50},
-            {name = "Monster Shark", count = 5, hp = 210, dmg = 80}
-        }
-    },
-    {
-        name = "Orange",
-        quote = "A single spark ignites",
-        lostQuote = "Smoke rises from your defeat",
-        color = Color3.fromRGB(255, 165, 0),
-        anomalies = {
-            {name = "Fire Golem", count = 7, hp = 150, dmg = 40},
-            {name = "Blazer", count = 5, hp = 200, dmg = 65}
-        }
-    }
+    Stratosphere = {},
+    Mesosphere = {},
+    Thermosphere = {},
+    Exosphere = {}
 }
 
--- Function to scale raids for higher spheres
-local function ScaleRaids(baseRaids, scaleFactor)
-    local scaled = {}
-    for _, raid in ipairs(baseRaids) do
-        local newRaid = {
-            name = raid.name,
-            quote = raid.quote,
-            lostQuote = raid.lostQuote,
-            color = raid.color,
-            anomalies = {}
-        }
-        for _, ano in ipairs(raid.anomalies) do
-            table.insert(newRaid.anomalies, {
-                name = ano.name,
-                count = ano.count,
-                hp = math.floor(ano.hp * scaleFactor),
-                dmg = math.floor(ano.dmg * scaleFactor)
-            })
-        end
-        table.insert(scaled, newRaid)
-    end
-    return scaled
-end
-
--- Raid Database with scaled difficulties
-local RaidDatabase = {
-    Troposphere = ScaleRaids(BaseRaids, 1),
-    Stratosphere = ScaleRaids(BaseRaids, 2),
-    Mesosphere = ScaleRaids(BaseRaids, 4),
-    Thermosphere = ScaleRaids(BaseRaids, 8),
-    Exosphere = ScaleRaids(BaseRaids, 16)
+-- Fate Effects
+local FateEffects = {
+    {
+        name = "The Curse Of Sloth",
+        type = "debuff",
+        employee = "Worker",
+        effect = function(emp) emp.SpeedMultiplier = (emp.SpeedMultiplier or 1) * 0.5 end,
+        chance = 85
+    },
+    {
+        name = "The Curse Of Weakness",
+        type = "debuff",
+        employee = "Guard",
+        effect = function(emp) emp.MaxHP = emp.MaxHP - 100; emp.HP = math.min(emp.HP, emp.MaxHP) end,
+        chance = 85
+    },
+    {
+        name = "The Bless of Motivation",
+        type = "buff",
+        employee = "Worker",
+        effect = function(emp) emp.SpeedMultiplier = (emp.SpeedMultiplier or 1) * 2 end,
+        chance = 70
+    },
+    {
+        name = "The Bless of Strength",
+        type = "buff",
+        employee = "Guard",
+        effect = function(emp) emp.Damage = emp.Damage * 2; emp.MaxHP = emp.MaxHP * 2; emp.HP = emp.HP * 2 end,
+        chance = 67
+    },
+    {
+        name = "The Curse Of Wraith",
+        type = "debuff",
+        employee = "Worker",
+        effect = function(emp) emp.SuccessChance = emp.SuccessChance - 0.1 end,
+        chance = 65
+    },
+    {
+        name = "The Bless of Charisma",
+        type = "buff",
+        employee = "Worker",
+        effect = function(emp) emp.SuccessChance = emp.SuccessChance + 0.1 end,
+        chance = 65
+    },
+    {
+        name = "The Curse Of Dull",
+        type = "debuff",
+        employee = "Guard",
+        effect = function(emp) emp.Damage = emp.Damage - 100 end,
+        chance = 66
+    },
+    {
+        name = "The bless of Reborn",
+        type = "buff",
+        employee = "Guard",
+        effect = function(emp) emp.Revive = true end,
+        chance = 45
+    },
+    {
+        name = "The Bless of Confidence",
+        type = "buff",
+        employee = "Worker",
+        effect = function(emp) emp.SuccessChance = emp.SuccessChance + 0.15; emp.SpeedMultiplier = (emp.SpeedMultiplier or 1) * 2.5 end,
+        chance = 50
+    },
+    {
+        name = "The Curse Of Hopeless",
+        type = "debuff",
+        employee = "Guard",
+        effect = function(emp) emp.MaxHP = 50; emp.HP = 50; emp.Damage = 10 end,
+        chance = 10
+    },
+    {
+        name = "The Curse Of Unfortunate",
+        type = "debuff",
+        employee = "Worker",
+        effect = function(emp) emp.SpeedMultiplier = (emp.SpeedMultiplier or 1) * 0.2; emp.SuccessChance = emp.SuccessChance - 0.5 end,
+        chance = 15
+    },
+    {
+        name = "The Bless of Empowerment",
+        type = "buff",
+        employee = "Guard",
+        effect = function(emp) emp.Damage = emp.Damage * 7; emp.MaxHP = emp.MaxHP * 5; emp.HP = emp.HP * 5 end,
+        chance = 5
+    },
+    {
+        name = "The Bless of the Umbra",
+        type = "debuff",
+        employee = "Worker",
+        effect = function(emp) emp.SpeedMultiplier = (emp.SpeedMultiplier or 1) * 0.5 end,
+        chance = 7
+    }
 }
 
 -- Game Data
@@ -141,7 +209,8 @@ local GameData = {
     WorkersDied = 0,
     GuardsDied = 0,
     CurrentRaid = nil,
-    RaidEntities = {}
+    RaidEntities = {},
+    FateUsedToday = false
 }
 
 -- Guard Level Map
@@ -537,6 +606,22 @@ local AnomalyDatabase = {
         ManagementTips = {"Assists in containing other breaches by attacking them.", "If no breaches for 10 minutes, mood drains twice as fast and works always fail.", "At 0 mood, enters bored mode with 100 mood; at 0 in bored mode, breaches."},
         MXWeapon = {Name = "The Punisher", Damage = 2589, Chance = 0.015, MinLevel = 4, MaxLevel = 5},
         MXArmor = {Name = "Fame Attraction", Health = 5100, Chance = 0.01, MinLevel = 4, MaxLevel = 5}
+    },
+    ["May the Fate decides"] = {
+        Description = "The scales tip, destiny unfolds. Will fortune smile, or will darkness take hold?",
+        DangerClass = "XII",
+        BaseMood = 50,
+        WorkResults = {},
+        BreachChance = 0.02,
+        BreachForm = {
+            Name = "Fate Weaver",
+            Health = 500,
+            M1Damage = 50,
+            Abilities = {}
+        },
+        Costs = {Stat = 570, Knowledge = 150, Social = 150, Hunt = 150, Passive = 150, BreachForm = 800},
+        ManagementTips = {"Replaces work buttons with Use button. Use once per day to buff/debuff an employee."},
+        Special = "FateDecides"
     }
 }
 
@@ -950,10 +1035,12 @@ for i, emp in ipairs(employees) do
                 BaseHP = emp.hp,
                 HP = emp.hp,
                 MaxHP = emp.hp,
-                AssignedTo = nil
+                AssignedTo = nil,
+                BuffDebuff = nil
             }
             if emp.type == "Worker" then
                 employee.SuccessChance = emp.success
+                employee.SpeedMultiplier = 1
                 table.insert(GameData.OwnedWorkers, employee)
             else
                 employee.BaseDamage = emp.damage
@@ -961,6 +1048,7 @@ for i, emp in ipairs(employees) do
                 employee.Level = emp.level
                 employee.EquippedWeapon = nil
                 employee.EquippedArmor = nil
+                employee.Revive = false
                 table.insert(GameData.OwnedGuards, employee)
             end
             CreateNotification("Hired " .. name .. " (" .. emp.name .. ")", Color3.fromRGB(50, 200, 50))
@@ -1844,6 +1932,174 @@ local RerollButton = CreateInstance("TextButton", {
 })
 CreateInstance("UICorner", {Parent = RerollButton})
 
+-- Fate GUI
+local FateGui = CreateInstance("Frame", {
+    Name = "FateGui",
+    Parent = MainGui,
+    BackgroundColor3 = Color3.fromRGB(20, 20, 20),
+    BorderSizePixel = 3,
+    BorderColor3 = Color3.fromRGB(100, 100, 100),
+    Size = isMobile and UDim2.new(0.95, 0, 0.95, 0) or UDim2.new(0, 600, 0, 450),
+    Position = isMobile and UDim2.new(0.025, 0, 0.025, 0) or UDim2.new(0.5, -300, 0.5, -225),
+    Visible = false,
+    ZIndex = 10
+})
+
+local FateTitle = CreateInstance("TextLabel", {
+    Name = "FateTitle",
+    Parent = FateGui,
+    BackgroundColor3 = Color3.fromRGB(30, 30, 30),
+    BorderSizePixel = 0,
+    Size = UDim2.new(1, 0, 0, 40),
+    Text = "SELECT EMPLOYEE FOR FATE",
+    Font = Enum.Font.GothamBold,
+    TextSize = 18,
+    TextColor3 = Color3.fromRGB(255, 255, 255)
+})
+
+local CloseFateButton = CreateInstance("TextButton", {
+    Name = "CloseButton",
+    Parent = FateGui,
+    BackgroundColor3 = Color3.fromRGB(150, 50, 50),
+    Size = UDim2.new(0, 30, 0, 30),
+    Position = UDim2.new(1, -35, 0, 5),
+    Text = "X",
+    Font = Enum.Font.GothamBold,
+    TextSize = 20,
+    TextColor3 = Color3.fromRGB(255, 255, 255),
+    ZIndex = 11
+})
+CreateInstance("UICorner", {Parent = CloseFateButton, CornerRadius = UDim.new(0, 6)})
+
+local EmployeeSection = CreateInstance("ScrollingFrame", {
+    Name = "EmployeeSection",
+    Parent = FateGui,
+    BackgroundColor3 = Color3.fromRGB(30, 30, 30),
+    Size = UDim2.new(1, -20, 1, -100),
+    Position = UDim2.new(0, 10, 0, 50),
+    CanvasSize = UDim2.new(0, 0, 0, 0),
+    ScrollBarThickness = 6
+})
+
+local employeeList = CreateInstance("UIListLayout", {
+    Parent = EmployeeSection,
+    Padding = UDim.new(0, 10),
+    SortOrder = Enum.SortOrder.LayoutOrder
+})
+
+local EmployeeTitle = CreateInstance("TextLabel", {
+    Parent = EmployeeSection,
+    BackgroundTransparency = 1,
+    Size = UDim2.new(1, 0, 0, 30),
+    Text = "Available Employees",
+    Font = Enum.Font.GothamBold,
+    TextSize = 16,
+    TextColor3 = Color3.fromRGB(255, 255, 255)
+})
+
+local DecideButton = CreateInstance("TextButton", {
+    Name = "DecideButton",
+    Parent = FateGui,
+    BackgroundColor3 = Color3.fromRGB(50, 150, 50),
+    Size = UDim2.new(0, 100, 0, 35),
+    Position = UDim2.new(0.5, -50, 1, -50),
+    Text = "Decide",
+    Font = Enum.Font.GothamBold,
+    TextSize = 14,
+    TextColor3 = Color3.fromRGB(255, 255, 255),
+    Active = false
+})
+CreateInstance("UICorner", {Parent = DecideButton, CornerRadius = UDim.new(0, 6)})
+
+local selectedEmployee = nil
+
+local function PopulateFateGui()
+    for _, child in pairs(EmployeeSection:GetChildren()) do
+        if child:IsA("TextButton") then
+            child:Destroy()
+        end
+    end
+
+    local allEmployees = {}
+    for _, w in ipairs(GameData.OwnedWorkers) do
+        if w.HP > 0 and not w.BuffDebuff then
+            table.insert(allEmployees, w)
+        end
+    end
+    for _, g in ipairs(GameData.OwnedGuards) do
+        if g.HP > 0 and not g.BuffDebuff then
+            table.insert(allEmployees, g)
+        end
+    end
+
+    for _, emp in ipairs(allEmployees) do
+        local text = emp.Name .. " (" .. emp.Type .. ")"
+        local btn = CreateInstance("TextButton", {
+            Parent = EmployeeSection,
+            BackgroundColor3 = Color3.fromRGB(60, 60, 80),
+            Size = UDim2.new(1, -10, 0, 40),
+            Text = text,
+            Font = Enum.Font.Gotham,
+            TextSize = 14,
+            TextColor3 = Color3.fromRGB(255, 255, 255)
+        })
+        CreateInstance("UICorner", {Parent = btn})
+        btn.MouseButton1Click:Connect(function()
+            selectedEmployee = emp
+            DecideButton.Active = true
+            for _, ch in pairs(EmployeeSection:GetChildren()) do
+                if ch:IsA("TextButton") then
+                    ch.BackgroundColor3 = Color3.fromRGB(60, 60, 80)
+                end
+            end
+            btn.BackgroundColor3 = Color3.fromRGB(80, 80, 100)
+        end)
+    end
+    EmployeeSection.CanvasSize = UDim2.new(0, 0, 0, employeeList.AbsoluteContentSize.Y + 50)
+end
+
+function ShowFateGUI(anomaly)
+    PopulateFateGui()
+    FateGui.Visible = true
+end
+
+DecideButton.MouseButton1Click:Connect(function()
+    if selectedEmployee then
+        local possible = {}
+        for _, eff in ipairs(FateEffects) do
+            if eff.employee == (selectedEmployee.SuccessChance and "Worker" or "Guard") then
+                table.insert(possible, eff)
+            end
+        end
+        local total = 0
+        for _, eff in ipairs(possible) do
+            total += eff.chance
+        end
+        local rand = math.random(total)
+        local cum = 0
+        local chosen = nil
+        for _, eff in ipairs(possible) do
+            cum += eff.chance
+            if rand <= cum then
+                chosen = eff
+                break
+            end
+        end
+        if chosen then
+            chosen.effect(selectedEmployee)
+            selectedEmployee.BuffDebuff = chosen.name
+            local typeStr = chosen.type == "buff" and "Bless" or "Curse"
+            CreateNotification(selectedEmployee.Name .. " Has achieved " .. typeStr .. " of " .. chosen.name .. "!", Color3.fromRGB(255, 255, 255))
+            GameData.FateUsedToday = true
+            FateGui.Visible = false
+        end
+    end
+end)
+
+CloseFateButton.MouseButton1Click:Connect(function()
+    FateGui.Visible = false
+end)
+
 -- Functions
 local function RollForMXGift(anomalyInstance)
     local data = anomalyInstance.Data
@@ -1878,7 +2134,7 @@ end
 local function StartWorkerLoop(worker, anomalyInstance)
     spawn(function()
         while worker.AssignedTo == anomalyInstance and worker.HP > 0 and not anomalyInstance.IsBreached do
-            wait(5)
+            wait(5 / (worker.SpeedMultiplier or 1))
             local oldMood = anomalyInstance.CurrentMood
             local success = math.random() < worker.SuccessChance
             local moodChange = success and 15 or -10
@@ -2223,24 +2479,48 @@ local function CreateAnomalyRoom(anomalyName)
         TextXAlignment = Enum.TextXAlignment.Left
     })
     
-    local workTypes = {"Knowledge", "Social", "Hunt", "Passive"}
-    for i, workType in ipairs(workTypes) do
-        local workBtn = CreateInstance("TextButton", {
-            Name = workType .. "Button",
+    if anomalyData.Special ~= "FateDecides" then
+        local workTypes = {"Knowledge", "Social", "Hunt", "Passive"}
+        for i, workType in ipairs(workTypes) do
+            local workBtn = CreateInstance("TextButton", {
+                Name = workType .. "Button",
+                Parent = roomFrame,
+                BackgroundColor3 = Color3.fromRGB(60, 60, 80),
+                BorderSizePixel = 0,
+                Size = UDim2.new(0.45, -5, 0, 35),
+                Position = UDim2.new((i-1) % 2 * 0.5 + 0.025, 0, 0, 150 + math.floor((i-1) / 2) * 45),
+                Text = workType,
+                Font = Enum.Font.GothamBold,
+                TextSize = 12,
+                TextColor3 = Color3.fromRGB(255, 255, 255)
+            })
+            CreateInstance("UICorner", {Parent = workBtn, CornerRadius = UDim.new(0, 6)})
+            
+            workBtn.MouseButton1Click:Connect(function()
+                PerformWork(anomalyInstance, workType, roomFrame)
+            end)
+        end
+    else
+        local useBtn = CreateInstance("TextButton", {
+            Name = "UseButton",
             Parent = roomFrame,
             BackgroundColor3 = Color3.fromRGB(60, 60, 80),
             BorderSizePixel = 0,
-            Size = UDim2.new(0.45, -5, 0, 35),
-            Position = UDim2.new((i-1) % 2 * 0.5 + 0.025, 0, 0, 150 + math.floor((i-1) / 2) * 45),
-            Text = workType,
+            Size = UDim2.new(0.95, 0, 0, 35),
+            Position = UDim2.new(0.025, 0, 0, 150),
+            Text = "Use",
             Font = Enum.Font.GothamBold,
             TextSize = 12,
             TextColor3 = Color3.fromRGB(255, 255, 255)
         })
-        CreateInstance("UICorner", {Parent = workBtn, CornerRadius = UDim.new(0, 6)})
+        CreateInstance("UICorner", {Parent = useBtn, CornerRadius = UDim.new(0, 6)})
         
-        workBtn.MouseButton1Click:Connect(function()
-            PerformWork(anomalyInstance, workType, roomFrame)
+        useBtn.MouseButton1Click:Connect(function()
+            if GameData.FateUsedToday then
+                CreateNotification("Already used today!", Color3.fromRGB(200, 50, 50))
+                return
+            end
+            ShowFateGUI(anomalyInstance)
         end)
     end
     
@@ -2517,43 +2797,49 @@ function StartBreachLoop(anomalyInstance)
                 if #allEmployees > 0 then
                     local target = allEmployees[math.random(#allEmployees)]
                     target.HP = 0
-                    if target.SuccessChance then
-                        GameData.WorkersDied = GameData.WorkersDied + 1
+                    if not target.SuccessChance and target.Revive then
+                        target.HP = target.MaxHP
+                        target.Revive = false
+                        CreateNotification(target.Name .. " revived from skeleton attempt!", Color3.fromRGB(100, 255, 100))
                     else
-                        GameData.GuardsDied = GameData.GuardsDied + 1
-                    end
-                    CreateNotification(target.Name .. " joined the skeleton army!", Color3.fromRGB(200, 50, 50))
-                    if target.AssignedTo then
-                        if target.AssignedTo == "Outer" then
-                            for i = #GameData.OuterGuards, 1, -1 do
-                                if GameData.OuterGuards[i] == target then
-                                    table.remove(GameData.OuterGuards, i)
-                                    break
+                        if target.SuccessChance then
+                            GameData.WorkersDied = GameData.WorkersDied + 1
+                        else
+                            GameData.GuardsDied = GameData.GuardsDied + 1
+                        end
+                        CreateNotification(target.Name .. " joined the skeleton army!", Color3.fromRGB(200, 50, 50))
+                        if target.AssignedTo then
+                            if target.AssignedTo == "Outer" then
+                                for i = #GameData.OuterGuards, 1, -1 do
+                                    if GameData.OuterGuards[i] == target then
+                                        table.remove(GameData.OuterGuards, i)
+                                        break
+                                    end
+                                end
+                            else
+                                if target.AssignedTo.AssignedWorker == target then
+                                    target.AssignedTo.AssignedWorker = nil
+                                end
+                                for i = #target.AssignedTo.AssignedGuards, 1, -1 do
+                                    if target.AssignedTo.AssignedGuards[i] == target then
+                                        table.remove(target.AssignedTo.AssignedGuards, i)
+                                    end
+                                end
+                                UpdateRoomDisplay(target.AssignedTo)
+                            end
+                        end
+                        target.AssignedTo = nil
+                        if target.SuccessChance then
+                            for i = #GameData.OwnedWorkers, 1, -1 do
+                                if GameData.OwnedWorkers[i] == target then
+                                    table.remove(GameData.OwnedWorkers, i)
                                 end
                             end
                         else
-                            if target.AssignedTo.AssignedWorker == target then
-                                target.AssignedTo.AssignedWorker = nil
-                            end
-                            for i = #target.AssignedTo.AssignedGuards, 1, -1 do
-                                if target.AssignedTo.AssignedGuards[i] == target then
-                                    table.remove(target.AssignedTo.AssignedGuards, i)
+                            for i = #GameData.OwnedGuards, 1, -1 do
+                                if GameData.OwnedGuards[i] == target then
+                                    table.remove(GameData.OwnedGuards, i)
                                 end
-                            end
-                            UpdateRoomDisplay(target.AssignedTo)
-                        end
-                    end
-                    target.AssignedTo = nil
-                    if target.SuccessChance then
-                        for i = #GameData.OwnedWorkers, 1, -1 do
-                            if GameData.OwnedWorkers[i] == target then
-                                table.remove(GameData.OwnedWorkers, i)
-                            end
-                        end
-                    else
-                        for i = #GameData.OwnedGuards, 1, -1 do
-                            if GameData.OwnedGuards[i] == target then
-                                table.remove(GameData.OwnedGuards, i)
                             end
                         end
                     end
@@ -2588,24 +2874,30 @@ function StartBreachLoop(anomalyInstance)
                     target.HP = math.max(0, target.HP - extraDamage)
                     CreateNotification(anomalyInstance.Name .. " minions attacked " .. target.Name .. " for " .. extraDamage, Color3.fromRGB(200, 50, 50))
                     if target.HP <= 0 then
-                        if target == anomalyInstance.AssignedWorker then
-                            GameData.WorkersDied = GameData.WorkersDied + 1
+                        if not target.SuccessChance and target.Revive then
+                            target.HP = target.MaxHP
+                            target.Revive = false
+                            CreateNotification(target.Name .. " revived!", Color3.fromRGB(100, 255, 100))
                         else
-                            GameData.GuardsDied = GameData.GuardsDied + 1
-                        end
-                        CreateNotification(target.Name .. " was killed!", Color3.fromRGB(200, 50, 50))
-                        if target == anomalyInstance.AssignedWorker then
-                            anomalyInstance.AssignedWorker = nil
-                        else
-                            for i = #anomalyInstance.AssignedGuards, 1, -1 do
-                                if anomalyInstance.AssignedGuards[i] == target then
-                                    table.remove(anomalyInstance.AssignedGuards, i)
-                                    break
+                            if target == anomalyInstance.AssignedWorker then
+                                GameData.WorkersDied = GameData.WorkersDied + 1
+                            else
+                                GameData.GuardsDied = GameData.GuardsDied + 1
+                            end
+                            CreateNotification(target.Name .. " was killed!", Color3.fromRGB(200, 50, 50))
+                            if target == anomalyInstance.AssignedWorker then
+                                anomalyInstance.AssignedWorker = nil
+                            else
+                                for i = #anomalyInstance.AssignedGuards, 1, -1 do
+                                    if anomalyInstance.AssignedGuards[i] == target then
+                                        table.remove(anomalyInstance.AssignedGuards, i)
+                                        break
+                                    end
                                 end
                             end
+                            target.AssignedTo = nil
+                            UpdateRoomDisplay(anomalyInstance)
                         end
-                        target.AssignedTo = nil
-                        UpdateRoomDisplay(anomalyInstance)
                     end
                 else
                     local damageTarget = GameData.CosmicShardCoreHealth
@@ -2728,24 +3020,30 @@ function StartBreachLoop(anomalyInstance)
                         CreateNotification(breachData.Name .. " attacked " .. target.Name .. " for " .. damage, Color3.fromRGB(200, 50, 50))
                         
                         if target.HP <= 0 then
-                            if target.SuccessChance then
-                                GameData.WorkersDied = GameData.WorkersDied + 1
+                            if not target.SuccessChance and target.Revive then
+                                target.HP = target.MaxHP
+                                target.Revive = false
+                                CreateNotification(target.Name .. " revived!", Color3.fromRGB(100, 255, 100))
                             else
-                                GameData.GuardsDied = GameData.GuardsDied + 1
-                            end
-                            CreateNotification(target.Name .. " was killed!", Color3.fromRGB(200, 50, 50))
-                            if target == anomalyInstance.AssignedWorker then
-                                anomalyInstance.AssignedWorker = nil
-                            else
-                                for i = #anomalyInstance.AssignedGuards, 1, -1 do
-                                    if anomalyInstance.AssignedGuards[i] == target then
-                                        table.remove(anomalyInstance.AssignedGuards, i)
-                                        break
+                                if target.SuccessChance then
+                                    GameData.WorkersDied = GameData.WorkersDied + 1
+                                else
+                                    GameData.GuardsDied = GameData.GuardsDied + 1
+                                end
+                                CreateNotification(target.Name .. " was killed!", Color3.fromRGB(200, 50, 50))
+                                if target == anomalyInstance.AssignedWorker then
+                                    anomalyInstance.AssignedWorker = nil
+                                else
+                                    for i = #anomalyInstance.AssignedGuards, 1, -1 do
+                                        if anomalyInstance.AssignedGuards[i] == target then
+                                            table.remove(anomalyInstance.AssignedGuards, i)
+                                            break
+                                        end
                                     end
                                 end
+                                target.AssignedTo = nil
+                                UpdateRoomDisplay(anomalyInstance)
                             end
-                            target.AssignedTo = nil
-                            UpdateRoomDisplay(anomalyInstance)
                         end
                     else
                         local damage = breachData.M1Damage
@@ -3429,7 +3727,7 @@ end
 local function StartRaid(sphere)
     local raids = RaidDatabase[sphere]
     if not raids or #raids == 0 then return end
-    local picked = raids[math.random(1, #raids)]
+    local picked = raids[math.random(#raids)]
     GameData.CurrentRaid = picked
     GameData.CurrentRaid.sphere = sphere
     GameData.RaidEntities = {}
@@ -3554,6 +3852,7 @@ local function ShowEndDayScreen()
         GameData.DailyCrucible = 0
         GameData.AnomaliesAcceptedToday = 0
         GameData.DocumentsPurchasedToday = false
+        GameData.FateUsedToday = false
         DayLabel.Text = "Day: " .. GameData.CurrentDay
         UpdateQuotaDisplay()
         endScreen:Destroy()
