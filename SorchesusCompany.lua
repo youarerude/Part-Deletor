@@ -2747,6 +2747,14 @@ function TriggerBreach(anomalyInstance, roomFrame)
     
     CreateNotification("BREACH! " .. breachData.Name .. " has escaped!", Color3.fromRGB(255, 0, 0))
     
+    -- Play the sound on breach
+    local breachSound = Instance.new("Sound")
+    breachSound.Name = "BreachSound"
+    breachSound.SoundId = "rbxassetid://91141788235501"
+    breachSound.Parent = playerGui
+    breachSound.Volume = 1  -- Adjust volume as needed
+    breachSound:Play()
+
     UpdateRoomDisplay(anomalyInstance)
     UpdateBreachAlert()
     
@@ -3155,7 +3163,7 @@ function StartBreachLoop(anomalyInstance)
     end)
 end
 
--- Outer Guards Loop
+-- Outer guards Loop
 spawn(function()
     while true do
         wait(2)
