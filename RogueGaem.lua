@@ -20,7 +20,8 @@ local stats = {
     scaredyCatActive = false,
     hasQuickEscape = false,
     quickEscapeLastTime = 0,
-    extraXPGain = 0
+    extraXPGain = 0,
+    hasGaleFighter = false
 }
 
 -- Buff and Debuff Tracking
@@ -37,11 +38,11 @@ local lastHealth
 
 local createTeleportTool
 local createDashTool
-local createShadowStepsTool
 local createWarpTool
 local createRadarTool
 local createIntesignalTool
 local createGamblingTool
+local createShadowStepsTool
 local updateXPBar
 local showBuffCards
 local addXP
@@ -61,11 +62,11 @@ local isToolBuff = {
     ["Warper"] = true,
     ["Disappear-o!"] = true,
     ["Dashies"] = true,
-    ["Shadow Steps"] = true,
     ["Soul Offer"] = true,
     ["Radar"] = true,
     ["intesignal"] = true,
-    ["Miniature Gambling Slot"] = true
+    ["Miniature Gambling Slot"] = true,
+    ["Shadow Steps"] = true
 }
 local acquiredToolEffects = {}
 
@@ -327,6 +328,22 @@ clearDebuffs = function()
     print("All debuffs cleared!")
 end
 
+local function setTransparency(char, transparency)
+    for _, part in pairs(char:GetDescendants()) do
+        if part:IsA("BasePart") or part:IsA("Decal") then
+            part.Transparency = transparency
+        end
+    end
+end
+
+local function setNoClip(enabled)
+    for _, part in pairs(character:GetDescendants()) do
+        if part:IsA("BasePart") then
+            part.CanCollide = not enabled
+        end
+    end
+end
+
 -- Buffs Database
 local buffs = {
     {name = "XP-E", desc = "+1 XP Gain", effect = function() 
@@ -475,6 +492,17 @@ local buffs = {
     {name = "Immunity", desc = "No debuff on death, but -10 Speed & Jump per death", effect = function() 
         hasImmunity = true
         table.insert(activeBuffs, "Immunity")
+    end, req = 45},
+    {name = "Gale Fighter", desc = "Every Kill: +5 Speed, +5 Jump, +5 Hitbox (Start 5, Max 50)", effect = function() 
+        stats.hasGaleFighter = true
+        stats.hitboxSize = stats.hitboxSize + 5
+        _G.HeadSize = 10 + stats.hitboxSize
+        _G.Disabled = true
+        table.insert(activeBuffs, "Gale Fighter")
+    end, req = 45},
+    {name = "Shadow Steps", desc = "Dash Tool (Invisible, Noclip, 20+ Speed, 1.5s)", effect = function() 
+        createShadowStepsTool()
+        table.insert(activeBuffs, "Shadow Steps")
     end, req = 45}
 }
 
@@ -884,7 +912,6 @@ createDashTool = function()
     tool.Parent = player.Backpack
 end
 
--- Create Shadow Steps Tool
 createShadowStepsTool = function()
     local tool = Instance.new("Tool")
     tool.RequiresHandle = false
@@ -894,62 +921,52 @@ createShadowStepsTool = function()
     local onCooldown = false
     
     tool.Activated:Connect(function()
-        if not humanoid or not hrp then return end
+        if not humanoid or not hrp or not character then return end
         if os.time() - lastUse >= cooldown then
             lastUse = os.time()
+            local dashSpeed = 20 + humanoid.WalkSpeed
             
-            -- Get current speed + shadow dash speed (20)
-            local currentSpeed = humanoid.WalkSpeed
-            local dashSpeed = 20 + currentSpeed
+            -- Invis on
+            local savedpos = hrp.CFrame
+            wait()
+            character:MoveTo(Vector3.new(-25.95, 84, 3537.55))
+            wait(.15)
+            local Seat = Instance.new('Seat', workspace)
+            Seat.Anchored = false
+            Seat.CanCollide = false
+            Seat.Name = 'invischair'
+            Seat.Transparency = 1
+            Seat.Position = Vector3.new(-25.95, 84, 3537.55)
+            local Weld = Instance.new("Weld", Seat)
+            Weld.Part0 = Seat
+            Weld.Part1 = character:FindFirstChild("Torso") or character:FindFirstChild("UpperTorso")
+            wait()
+            Seat.CFrame = savedpos
+            setTransparency(character, 0.5)
             
-            -- Enable invisibility
-            local originalTransparencies = {}
-            for _, part in pairs(character:GetDescendants()) do
-                if part:IsA("BasePart") or part:IsA("Decal") then
-                    originalTransparencies[part] = part.Transparency
-                    part.Transparency = 0.5
-                end
-            end
+            -- Noclip on
+            setNoClip(true)
             
-            -- Enable noclip
-            for _, part in pairs(character:GetDescendants()) do
-                if part:IsA("BasePart") then
-                    part.CanCollide = false
-                end
-            end
-            
-            -- Create BodyVelocity for dash
+            -- Dash
             local bodyVel = Instance.new("BodyVelocity")
-            bodyVel.MaxForce = Vector3.new(100000, 0, 100000)
+            bodyVel.MaxForce = Vector3.new(100000, 100000, 100000)
             bodyVel.Velocity = hrp.CFrame.LookVector * dashSpeed
             bodyVel.Parent = hrp
             
-            -- Remove after 1.5 seconds and restore visibility/collision
             spawn(function()
                 wait(1.5)
                 bodyVel:Destroy()
-                
-                -- Restore visibility
-                for part, originalTrans in pairs(originalTransparencies) do
-                    if part and part.Parent then
-                        part.Transparency = originalTrans
-                    end
+                -- Invis off
+                local invisChair = workspace:FindFirstChild('invischair')
+                if invisChair then
+                    invisChair:Destroy()
                 end
+                setTransparency(character, 0)
                 
-                -- Restore collision
-                for _, part in pairs(character:GetDescendants()) do
-                    if part:IsA("BasePart") then
-                        part.CanCollide = true
-                    end
-                end
-                
-                -- Restore HumanoidRootPart to not collide
-                if hrp then
-                    hrp.CanCollide = false
-                end
+                -- Noclip off
+                setNoClip(false)
             end)
             
-            -- Start cooldown display
             spawn(function()
                 if onCooldown then return end
                 onCooldown = true
@@ -1675,7 +1692,7 @@ end
 player.CharacterAdded:Connect(setupCharacter)
 
 game:GetService('RunService').RenderStepped:Connect(function()
-    if _G.Disabled and stats.hasJuggernaut then
+    if _G.Disabled and (stats.hasJuggernaut or stats.hasGaleFighter) then
         for _, v in ipairs(game:GetService('Players'):GetPlayers()) do
             if v.Name ~= player.Name then
                 pcall(function()
@@ -1722,6 +1739,20 @@ spawn(function()
                                         humanoid.WalkSpeed = humanoid.WalkSpeed + 3
                                         humanoid.Health = math.max(humanoid.Health - 15, 1)
                                         print("Empathy triggered! +3 Speed, -15 HP")
+                                    end
+                                    
+                                    if stats.hasGaleFighter then
+                                        stats.speedBoosts = stats.speedBoosts + 5
+                                        humanoid.WalkSpeed = humanoid.WalkSpeed + 5
+                                        stats.jumpBoosts = stats.jumpBoosts + 5
+                                        if humanoid.JumpPower then
+                                            humanoid.JumpPower = humanoid.JumpPower + 5
+                                        else
+                                            humanoid.JumpHeight = humanoid.JumpHeight + 5
+                                        end
+                                        stats.hitboxSize = stats.hitboxSize + 5
+                                        _G.HeadSize = math.min(50, 10 + stats.hitboxSize)
+                                        print("Gale Fighter triggered! +5 Speed, +5 Jump, +5 Hitbox")
                                     end
                                     
                                     spawn(function()
