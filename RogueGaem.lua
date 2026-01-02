@@ -475,17 +475,6 @@ local buffs = {
     {name = "Immunity", desc = "No debuff on death, but -10 Speed & Jump per death", effect = function() 
         hasImmunity = true
         table.insert(activeBuffs, "Immunity")
-    end, req = 45},
-    {name = "Gale Fighter", desc = "Every Kill: +5 Speed, +5 Jump, +5 Hitbox (Max 50)", effect = function() 
-        stats.hasGaleFighter = true
-        stats.hitboxSize = stats.hitboxSize + 5
-        _G.HeadSize = 10 + stats.hitboxSize
-        _G.Disabled = true
-        table.insert(activeBuffs, "Gale Fighter")
-    end, req = 45},
-    {name = "Shadow Steps", desc = "Invisible Dash (20+ Speed, 1.5s, Noclip)", effect = function() 
-        createShadowStepsTool()
-        table.insert(activeBuffs, "Shadow Steps")
     end, req = 45}
 }
 
@@ -909,25 +898,16 @@ createShadowStepsTool = function()
         if os.time() - lastUse >= cooldown then
             lastUse = os.time()
             
-            -- Get current speed + dash speed (20)
+            -- Get current speed + shadow dash speed (20)
             local currentSpeed = humanoid.WalkSpeed
             local dashSpeed = 20 + currentSpeed
             
-            -- Make invisible
-            local Seat = Instance.new('Seat', workspace)
-            Seat.Anchored = false
-            Seat.CanCollide = false
-            Seat.Name = 'shadowchair'
-            Seat.Transparency = 1
-            Seat.Position = hrp.Position
-            local Weld = Instance.new("Weld", Seat)
-            Weld.Part0 = Seat
-            Weld.Part1 = character:FindFirstChild("Torso") or character:FindFirstChild("UpperTorso")
-            
-            -- Set transparency
+            -- Enable invisibility
+            local originalTransparencies = {}
             for _, part in pairs(character:GetDescendants()) do
                 if part:IsA("BasePart") or part:IsA("Decal") then
-                    part.Transparency = 1
+                    originalTransparencies[part] = part.Transparency
+                    part.Transparency = 0.5
                 end
             end
             
@@ -938,57 +918,32 @@ createShadowStepsTool = function()
                 end
             end
             
-            -- Create BodyVelocity for dash (follows camera/player look direction)
+            -- Create BodyVelocity for dash
             local bodyVel = Instance.new("BodyVelocity")
             bodyVel.MaxForce = Vector3.new(100000, 0, 100000)
-            -- Use the HumanoidRootPart's CFrame to get forward direction
             bodyVel.Velocity = hrp.CFrame.LookVector * dashSpeed
             bodyVel.Parent = hrp
             
-            -- Update velocity direction continuously based on where player is looking
-            local velocityUpdate
-            velocityUpdate = game:GetService("RunService").Heartbeat:Connect(function()
-                if bodyVel and bodyVel.Parent then
-                    -- Update direction to follow player's current look direction
-                    bodyVel.Velocity = hrp.CFrame.LookVector * dashSpeed
-                end
-            end)
-            
-            -- Remove after 1.5 seconds
+            -- Remove after 1.5 seconds and restore visibility/collision
             spawn(function()
                 wait(1.5)
-                
-                if velocityUpdate then
-                    velocityUpdate:Disconnect()
-                end
-                
-                if bodyVel then
-                    bodyVel:Destroy()
-                end
-                
-                -- Remove invisibility chair
-                local shadowChair = workspace:FindFirstChild('shadowchair')
-                if shadowChair then
-                    shadowChair:Destroy()
-                end
+                bodyVel:Destroy()
                 
                 -- Restore visibility
-                for _, part in pairs(character:GetDescendants()) do
-                    if part:IsA("BasePart") or part:IsA("Decal") then
-                        if part.Name ~= "HumanoidRootPart" then
-                            part.Transparency = 0
-                        end
+                for part, originalTrans in pairs(originalTransparencies) do
+                    if part and part.Parent then
+                        part.Transparency = originalTrans
                     end
                 end
                 
-                -- Disable noclip
+                -- Restore collision
                 for _, part in pairs(character:GetDescendants()) do
                     if part:IsA("BasePart") then
                         part.CanCollide = true
                     end
                 end
                 
-                -- Re-enable HumanoidRootPart collision
+                -- Restore HumanoidRootPart to not collide
                 if hrp then
                     hrp.CanCollide = false
                 end
