@@ -914,7 +914,6 @@ createShadowStepsTool = function()
             local dashSpeed = 20 + currentSpeed
             
             -- Make invisible
-            local savedpos = hrp.CFrame
             local Seat = Instance.new('Seat', workspace)
             Seat.Anchored = false
             Seat.CanCollide = false
@@ -939,16 +938,33 @@ createShadowStepsTool = function()
                 end
             end
             
-            -- Create BodyVelocity for dash
+            -- Create BodyVelocity for dash (follows camera/player look direction)
             local bodyVel = Instance.new("BodyVelocity")
             bodyVel.MaxForce = Vector3.new(100000, 0, 100000)
+            -- Use the HumanoidRootPart's CFrame to get forward direction
             bodyVel.Velocity = hrp.CFrame.LookVector * dashSpeed
             bodyVel.Parent = hrp
+            
+            -- Update velocity direction continuously based on where player is looking
+            local velocityUpdate
+            velocityUpdate = game:GetService("RunService").Heartbeat:Connect(function()
+                if bodyVel and bodyVel.Parent then
+                    -- Update direction to follow player's current look direction
+                    bodyVel.Velocity = hrp.CFrame.LookVector * dashSpeed
+                end
+            end)
             
             -- Remove after 1.5 seconds
             spawn(function()
                 wait(1.5)
-                bodyVel:Destroy()
+                
+                if velocityUpdate then
+                    velocityUpdate:Disconnect()
+                end
+                
+                if bodyVel then
+                    bodyVel:Destroy()
+                end
                 
                 -- Remove invisibility chair
                 local shadowChair = workspace:FindFirstChild('shadowchair')
