@@ -328,18 +328,11 @@ clearDebuffs = function()
     print("All debuffs cleared!")
 end
 
-local function setTransparency(char, transparency)
-    for _, part in pairs(char:GetDescendants()) do
+-- Transparency Function
+local function setTransparency(character, transparency)
+    for _, part in pairs(character:GetDescendants()) do
         if part:IsA("BasePart") or part:IsA("Decal") then
             part.Transparency = transparency
-        end
-    end
-end
-
-local function setNoClip(enabled)
-    for _, part in pairs(character:GetDescendants()) do
-        if part:IsA("BasePart") then
-            part.CanCollide = not enabled
         end
     end
 end
@@ -500,10 +493,15 @@ local buffs = {
         _G.Disabled = true
         table.insert(activeBuffs, "Gale Fighter")
     end, req = 45},
-    {name = "Shadow Steps", desc = "Dash Tool (Invisible, Noclip, 20+ Speed, 1.5s)", effect = function() 
-        createShadowStepsTool()
-        table.insert(activeBuffs, "Shadow Steps")
-    end, req = 45}
+    {
+        name = "Shadow Steps", 
+        desc = "Dash forward (20+ speed) with invisibility & noclip for 1.5s", 
+        effect = function() 
+            createShadowStepsTool()
+            table.insert(activeBuffs, "Shadow Steps")
+        end, 
+        req = 45
+    }
 }
 
 -- Create GUI
@@ -912,6 +910,9 @@ createDashTool = function()
     tool.Parent = player.Backpack
 end
 
+-- Shadow Steps Tool - Level 45 Buff
+-- Faster dash with invisibility and noclip
+
 createShadowStepsTool = function()
     local tool = Instance.new("Tool")
     tool.RequiresHandle = false
@@ -921,52 +922,66 @@ createShadowStepsTool = function()
     local onCooldown = false
     
     tool.Activated:Connect(function()
-        if not humanoid or not hrp or not character then return end
+        local character = player.Character
+        if not character then return end
+        local humanoid = character:FindFirstChild("Humanoid")
+        local hrp = character:FindFirstChild("HumanoidRootPart")
+        if not humanoid or not hrp then return end
+        
         if os.time() - lastUse >= cooldown then
             lastUse = os.time()
-            local dashSpeed = 20 + humanoid.WalkSpeed
             
-            -- Invis on
-            local savedpos = hrp.CFrame
-            wait()
-            character:MoveTo(Vector3.new(-25.95, 84, 3537.55))
-            wait(.15)
-            local Seat = Instance.new('Seat', workspace)
-            Seat.Anchored = false
-            Seat.CanCollide = false
-            Seat.Name = 'invischair'
-            Seat.Transparency = 1
-            Seat.Position = Vector3.new(-25.95, 84, 3537.55)
-            local Weld = Instance.new("Weld", Seat)
-            Weld.Part0 = Seat
-            Weld.Part1 = character:FindFirstChild("Torso") or character:FindFirstChild("UpperTorso")
-            wait()
-            Seat.CFrame = savedpos
-            setTransparency(character, 0.5)
+            -- Save original state
+            local originalSpeed = humanoid.WalkSpeed
+            local dashSpeed = 20 + originalSpeed
+            local dashDuration = 1.5
             
-            -- Noclip on
-            setNoClip(true)
+            -- Enable invisibility
+            local function setTransparency(char, transparency)
+                for _, part in pairs(char:GetDescendants()) do
+                    if part:IsA("BasePart") then
+                        part.Transparency = transparency
+                    elseif part:IsA("Decal") then
+                        part.Transparency = transparency
+                    end
+                end
+            end
             
-            -- Dash
+            -- Make invisible
+            setTransparency(character, 1)
+            
+            -- Enable noclip
+            for _, part in pairs(character:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    part.CanCollide = false
+                end
+            end
+            
+            -- Apply dash forward
             local bodyVel = Instance.new("BodyVelocity")
-            bodyVel.MaxForce = Vector3.new(100000, 100000, 100000)
+            bodyVel.MaxForce = Vector3.new(100000, 0, 100000)
             bodyVel.Velocity = hrp.CFrame.LookVector * dashSpeed
             bodyVel.Parent = hrp
             
-            spawn(function()
-                wait(1.5)
-                bodyVel:Destroy()
-                -- Invis off
-                local invisChair = workspace:FindFirstChild('invischair')
-                if invisChair then
-                    invisChair:Destroy()
-                end
-                setTransparency(character, 0)
-                
-                -- Noclip off
-                setNoClip(false)
-            end)
+            -- Wait for dash duration
+            wait(dashDuration)
             
+            -- Remove dash
+            if bodyVel and bodyVel.Parent then
+                bodyVel:Destroy()
+            end
+            
+            -- Restore visibility
+            setTransparency(character, 0)
+            
+            -- Restore collision
+            for _, part in pairs(character:GetDescendants()) do
+                if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+                    part.CanCollide = true
+                end
+            end
+            
+            -- Start cooldown display
             spawn(function()
                 if onCooldown then return end
                 onCooldown = true
