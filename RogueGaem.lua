@@ -448,16 +448,6 @@ local buffs = {
         _G.HeadSize = 10 + stats.hitboxSize
         _G.Disabled = true
         table.insert(activeBuffs, "Juggernaut")
-    end, req = 25}, 
-        stats.speedBoosts = stats.speedBoosts - 6
-        if humanoid then
-            humanoid.WalkSpeed = humanoid.WalkSpeed - 6
-        end
-        stats.hasJuggernaut = true
-        stats.hitboxSize = stats.hitboxSize + 10
-        _G.HeadSize = 10 + stats.hitboxSize
-        _G.Disabled = true
-        table.insert(activeBuffs, "Juggernaut")
     end, req = 25},
     {name = "Soul Offer", desc = "Infinite TP, -90 HP per use", effect = function() 
         createTeleportTool(-1)
