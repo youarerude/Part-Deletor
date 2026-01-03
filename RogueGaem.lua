@@ -20,7 +20,9 @@ local stats = {
     hasQuickEscape = false,
     quickEscapeLastTime = 0,
     extraXPGain = 0,
-    hasGaleFighter = false
+    hasGaleFighter = false,
+    hasOblivionAccel = false,
+    hasSchizophrenia = false
 }
 
 -- Buff and Debuff Tracking
@@ -988,6 +990,21 @@ local debuffs = {
             print("Payment debuff cannot be removed!")
         end,
         isPayment = true
+    },
+    {
+        name = "Schizophrenia",
+        desc = "All Player are invisible if they entered the 20 studs area closer to me.",
+        apply = function()
+            stats.hasSchizophrenia = true
+        end,
+        remove = function()
+            stats.hasSchizophrenia = false
+            for _, op in pairs(game.Players:GetPlayers()) do
+                if op ~= player and op.Character then
+                    setTransparency(op.Character, 0)
+                end
+            end
+        end
     }
 }
 
@@ -1288,6 +1305,25 @@ local buffs = {
             createShadowStepsTool()
             table.insert(activeBuffs, "Shadow Steps")
         end, 
+        req = 45
+    },
+    {
+        name = "Oblivion Accel",
+        desc = "Decrease all buff tool's cooldown by 50% and 30+ speed and 30+ jump power",
+        effect = function()
+            stats.hasOblivionAccel = true
+            stats.speedBoosts = stats.speedBoosts + 30
+            stats.jumpBoosts = stats.jumpBoosts + 30
+            if humanoid then
+                humanoid.WalkSpeed = humanoid.WalkSpeed + 30
+                if humanoid.JumpPower then
+                    humanoid.JumpPower = humanoid.JumpPower + 30
+                else
+                    humanoid.JumpHeight = humanoid.JumpHeight + 30
+                end
+            end
+            table.insert(activeBuffs, "Oblivion Accel")
+        end,
         req = 45
     },
     {
@@ -1614,6 +1650,7 @@ createTeleportTool = function(uses)
     end
     
     local cooldown = 10
+    if stats.hasOblivionAccel then cooldown = cooldown / 2 end
     local lastUse = 0
     local onCooldown = false
     
@@ -1657,6 +1694,7 @@ createDashTool = function()
     tool.RequiresHandle = false
     tool.Name = "Dash Tool"
     local cooldown = 10
+    if stats.hasOblivionAccel then cooldown = cooldown / 2 end
     local lastUse = 0
     local onCooldown = false
     
@@ -1698,6 +1736,7 @@ createShadowStepsTool = function()
     tool.RequiresHandle = false
     tool.Name = "Shadow Steps"
     local cooldown = 10
+    if stats.hasOblivionAccel then cooldown = cooldown / 2 end
     local lastUse = 0
     local onCooldown = false
     
@@ -1915,6 +1954,7 @@ createIntesignalTool = function()
     tool.Name = "Intesignal"
     
     local cooldown = 15
+    if stats.hasOblivionAccel then cooldown = cooldown / 2 end
     local lastUse = 0
     local onCooldown = false
     
@@ -1995,6 +2035,7 @@ createGamblingTool = function()
     tool.Name = "Let's Go Gambling!"
     
     local cooldown = 5
+    if stats.hasOblivionAccel then cooldown = cooldown / 2 end
     local lastUse = 0
     local isRolling = false
     
@@ -2321,15 +2362,15 @@ showBuffCards = function()
         cardName.Parent = card
         
         local cardDesc = Instance.new("TextLabel")
-        cardDesc.Size = UDim2.new(1, -20, 1, -60)
-        cardDesc.Position = UDim2.new(0, 10, 0, 50)
-        cardDesc.BackgroundTransparency = 1
-        cardDesc.Text = buff.desc
-        cardDesc.TextColor3 = Color3.fromRGB(200, 200, 200)
-        cardDesc.Font = Enum.Font.Gotham
-        cardDesc.TextSize = 14
-        cardDesc.TextWrapped = true
-        cardDesc.Parent = card
+cardDesc.Size = UDim2.new(1, -20, 1, -60)
+cardDesc.Position = UDim2.new(0, 10, 0, 50)
+cardDesc.BackgroundTransparency = 1
+cardDesc.Text = buff.desc
+cardDesc.TextColor3 = Color3.fromRGB(200, 200, 200)
+cardDesc.Font = Enum.Font.Gotham
+cardDesc.TextSize = 14
+cardDesc.TextWrapped = true
+cardDesc.Parent = card
         
         card.MouseEnter:Connect(function()
             card.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
@@ -2606,6 +2647,15 @@ spawn(function()
                                 if hasMimicry then
                                     print("Mimicry triggered! You died because someone died nearby!")
                                     humanoid.Health = 0
+                                end
+                            end
+                            
+                            -- Schizophrenia logic
+                            if stats.hasSchizophrenia then
+                                if distance <= 20 then
+                                    setTransparency(otherChar, 1)
+                                else
+                                    setTransparency(otherChar, 0)
                                 end
                             end
                         end
