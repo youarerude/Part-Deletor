@@ -1,4 +1,3 @@
--- Rogue Cheat for Fun - Client-Sided Script with Tarot System
 local player = game.Players.LocalPlayer
 local TweenService = game:GetService("TweenService")
 
@@ -49,6 +48,7 @@ local addXP
 local findSafePlatform
 local getAllPlatforms
 local applyRandomDebuff
+local applyRandomBuff
 local clearDebuffs
 local updateBuffDebuffUI
 
@@ -78,7 +78,12 @@ _G.TarotState = _G.TarotState or {
     activeEffects = {},
     permanentSpeedBoost = 0,
     permanentJumpBoost = 0,
-    loversNearbyPlayers = {}
+    loversNearbyPlayers = {},
+    foolSpeedStacks = 0,
+    foolReversedSpeedStacks = 0,
+    foolReversedTimeStacks = 0,
+    respawnBoost = false,
+    respawnCurse = false
 }
 
 -- Forward declarations for tarot functions
@@ -102,7 +107,7 @@ local tarotCards = {
                 while _G.TarotState.currentCard == "Wheel of Fortune" do
                     wait(300)
                     if _G.TarotState.currentCard == "Wheel of Fortune" then
-                        print("Wheel of Fortune: Granting random Level 1-10 buff")
+                        applyRandomBuff(1, 10)
                     end
                 end
             end)
@@ -343,6 +348,36 @@ local tarotCards = {
         end
     },
     {
+        name = "The Fool",
+        reversed = false,
+        description = "Youth walking joyfully.",
+        functionDesc = "• <35HP: Random TP (1m CD)\n• Damaged: +20 Speed 10s (stacks)",
+        apply = function()
+            _G.TarotState.activeEffects.foolQuickEscape = true
+            _G.TarotState.foolSpeedStacks = 0
+        end,
+        remove = function()
+            _G.TarotState.activeEffects.foolQuickEscape = false
+            local humL = player.Character and player.Character:FindFirstChild("Humanoid")
+            if humL and _G.TarotState.foolSpeedStacks > 0 then
+                humL.WalkSpeed = humL.WalkSpeed - (_G.TarotState.foolSpeedStacks * 20)
+                _G.TarotState.foolSpeedStacks = 0
+            end
+        end
+    },
+    {
+        name = "The Hanged Man",
+        reversed = false,
+        description = "Suspended by choice.",
+        functionDesc = "• Death: Draw upright instead\n• Respawn: +30 Speed/Jump, +20 Hitbox 2min",
+        apply = function()
+            _G.TarotState.activeEffects.hangedManActive = true
+        end,
+        remove = function()
+            _G.TarotState.activeEffects.hangedManActive = false
+        end
+    },
+    {
         name = "Wheel of Fortune [REVERSED]",
         reversed = true,
         description = "The books held by the creatures no longer signify accessible wisdom, but obscured knowledge and misinterpretation.",
@@ -353,7 +388,6 @@ local tarotCards = {
                 while _G.TarotState.currentCard == "Wheel of Fortune [REVERSED]" do
                     wait(300)
                     if _G.TarotState.currentCard == "Wheel of Fortune [REVERSED]" then
-                        print("Wheel of Fortune [REVERSED]: Applying random debuff")
                         applyRandomDebuff()
                     end
                 end
@@ -481,6 +515,7 @@ local tarotCards = {
                     local randIdx = math.random(1, #activeDebuffs)
                     table.remove(activeDebuffs, randIdx)
                 end
+                applyRandomBuff()
             end
             updateBuffDebuffUI()
         end,
@@ -505,7 +540,7 @@ local tarotCards = {
         name = "The Star [REVERSED]",
         reversed = true,
         description = "The eight stars above fade or become obscured by clouds, representing lost hope and disillusionment.",
-        functionDesc = "• Next buff becomes a debuff\n• -15 Speed & -10 Jump Power",
+        functionDesc = "• Next buff becomes a debuff\n• -15 Speed, -10 Jump",
         apply = function()
             _G.TarotState.activeEffects.starReversedCurse = true
             local humLocal = player.Character and player.Character:FindFirstChild("Humanoid")
@@ -536,7 +571,7 @@ local tarotCards = {
         name = "The Emperor [REVERSED]",
         reversed = true,
         description = "The Emperor's throne appears unstable, suggesting tyranny or collapsed leadership.",
-        functionDesc = "• -20 Speed & -15 Jump Power\n• Constant knockback vulnerability",
+        functionDesc = "• -20 Speed, -15 Jump Power\n• Constant knockback vulnerability",
         apply = function()
             local humLocal = player.Character and player.Character:FindFirstChild("Humanoid")
             if humLocal then
@@ -592,6 +627,36 @@ local tarotCards = {
         end,
         remove = function()
             _G.TarotState.activeEffects.judgmentReversedCurse = false
+        end
+    },
+    {
+        name = "The Fool [REVERSED]",
+        reversed = true,
+        description = "Youth stumbles recklessly.",
+        functionDesc = "• <50HP: Instant death\n• Damaged: -15 Speed 15s (stacks)",
+        apply = function()
+            _G.TarotState.activeEffects.foolReversedActive = true
+            _G.TarotState.foolReversedSpeedStacks = 0
+        end,
+        remove = function()
+            _G.TarotState.activeEffects.foolReversedActive = false
+            local humL = player.Character and player.Character:FindFirstChild("Humanoid")
+            if humL and _G.TarotState.foolReversedSpeedStacks > 0 then
+                humL.WalkSpeed = humL.WalkSpeed + (_G.TarotState.foolReversedSpeedStacks * 15)
+                _G.TarotState.foolReversedSpeedStacks = 0
+            end
+        end
+    },
+    {
+        name = "The Hanged Man [REVERSED]",
+        reversed = true,
+        description = "Trapped without choice.",
+        functionDesc = "• Death: Reversed + 5 debuffs\n• Respawn: -15 Speed/Jump 2min, lose tools",
+        apply = function()
+            _G.TarotState.activeEffects.hangedManReversedActive = true
+        end,
+        remove = function()
+            _G.TarotState.activeEffects.hangedManReversedActive = false
         end
     }
 }
@@ -699,9 +764,17 @@ drawTarotCard = function(isDeath)
                 end
             end
         end
-        for _, card in ipairs(tarotCards) do
-            if card.reversed and not card.isSpecial then
-                table.insert(availableCards, card)
+        if _G.TarotState.activeEffects.hangedManActive then
+            for _, card in ipairs(tarotCards) do
+                if not card.reversed and not card.isSpecial then
+                    table.insert(availableCards, card)
+                end
+            end
+        else
+            for _, card in ipairs(tarotCards) do
+                if card.reversed and not card.isSpecial then
+                    table.insert(availableCards, card)
+                end
             end
         end
     else
@@ -755,10 +828,11 @@ end
 -- Hook into death detection
 onTarotDeath = function()
     if not _G.TarotState.hasTenthStars then return end
-    local card = drawTarotCard(true)
-    if card then
-        replaceTarotCard(card)
+    if _G.TarotState.activeEffects.hangedManReversedActive then
+        for i = 1, 5 do applyRandomDebuff() end
     end
+    local card = drawTarotCard(true)
+    if card then replaceTarotCard(card) end
 end
 
 -- Initialize The Tenth Stars of Dignity buff
@@ -960,6 +1034,27 @@ applyRandomDebuff = function()
     end
     
     updateBuffDebuffUI()
+end
+
+-- Apply Random Buff
+applyRandomBuff = function(minReq, maxReq)
+    minReq = minReq or 1
+    maxReq = maxReq or 100
+    local availBuffs = {}
+    for _, buff in ipairs(buffs) do
+        if buff.req >= minReq and buff.req <= maxReq then
+            table.insert(availBuffs, buff)
+        end
+    end
+    if #availBuffs > 0 then
+        local randBuff = availBuffs[math.random(1, #availBuffs)]
+        randBuff.effect()
+        if isToolBuff[randBuff.name] then
+            table.insert(acquiredToolEffects, randBuff.effect)
+        end
+        print("Random buff applied: " .. randBuff.name)
+        updateBuffDebuffUI()
+    end
 end
 
 local function applyPaymentDebuff()
@@ -2298,11 +2393,11 @@ local function setupCharacter(newCharacter)
     humanoid = character:WaitForChild("Humanoid")
     hrp = character:WaitForChild("HumanoidRootPart")
     
-    humanoid.WalkSpeed = stats.baseSpeed + stats.speedBoosts
+    humanoid.WalkSpeed = stats.baseSpeed + stats.speedBoosts + _G.TarotState.permanentSpeedBoost
     if humanoid.JumpPower then
-        humanoid.JumpPower = stats.baseJump + stats.jumpBoosts
+        humanoid.JumpPower = stats.baseJump + stats.jumpBoosts + _G.TarotState.permanentJumpBoost
     else
-        humanoid.JumpHeight = stats.baseJump + stats.jumpBoosts
+        humanoid.JumpHeight = stats.baseJump + stats.jumpBoosts + _G.TarotState.permanentJumpBoost
     end
     workspace.Gravity = stats.baseGravity - stats.gravityBoosts
     
@@ -2319,6 +2414,16 @@ local function setupCharacter(newCharacter)
     if not hasEmptyHanded then
         for _, effectFunc in ipairs(acquiredToolEffects) do
             effectFunc()
+        end
+    end
+    
+    -- Apply active debuffs on respawn
+    for _, debuffName in ipairs(activeDebuffs) do
+        for _, debuff in ipairs(debuffs) do
+            if debuff.name == debuffName then
+                debuff.apply()
+                break
+            end
         end
     end
     
@@ -2363,6 +2468,45 @@ local function setupCharacter(newCharacter)
                 local randPart = platforms[math.random(1, #platforms)]
                 hrp.CFrame = CFrame.new(randPart.Position + Vector3.new(0, randPart.Size.Y / 2 + 5, 0))
                 print("Quick Escape activated!")
+            end
+        end
+        if _G.TarotState.activeEffects.foolQuickEscape and health < 35 and os.time() - stats.quickEscapeLastTime >= 60 then
+            stats.quickEscapeLastTime = os.time()
+            local platforms = getAllPlatforms()
+            if #platforms > 0 then
+                local randPart = platforms[math.random(1, #platforms)]
+                hrp.CFrame = CFrame.new(randPart.Position + Vector3.new(0, randPart.Size.Y / 2 + 5, 0))
+                print("The Fool Quick Escape activated!")
+            end
+        end
+        if _G.TarotState.activeEffects.foolReversedActive and health < 50 then
+            humanoid.Health = 0
+            print("The Fool [REVERSED]: Instant death under 50 HP!")
+        end
+        if health < lastHealth then
+            if _G.TarotState.currentCard == "The Fool" then
+                local hum = humanoid
+                hum.WalkSpeed = hum.WalkSpeed + 20
+                _G.TarotState.foolSpeedStacks = _G.TarotState.foolSpeedStacks + 1
+                spawn(function()
+                    wait(10)
+                    if hum then
+                        hum.WalkSpeed = hum.WalkSpeed - 20
+                        _G.TarotState.foolSpeedStacks = _G.TarotState.foolSpeedStacks - 1
+                    end
+                end)
+            end
+            if _G.TarotState.currentCard == "The Fool [REVERSED]" then
+                local hum = humanoid
+                hum.WalkSpeed = math.max(1, hum.WalkSpeed - 15)
+                _G.TarotState.foolReversedSpeedStacks = _G.TarotState.foolReversedSpeedStacks + 1
+                spawn(function()
+                    wait(15)
+                    if hum then
+                        hum.WalkSpeed = hum.WalkSpeed + 15
+                        _G.TarotState.foolReversedSpeedStacks = _G.TarotState.foolReversedSpeedStacks - 1
+                    end
+                end)
             end
         end
         lastHealth = health
