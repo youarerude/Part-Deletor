@@ -1,4 +1,4 @@
--- Rogue Cheat for Fun - Client-Sided Script with Full Tarot System
+-- Rogue Cheat for Fun - Client-Sided Script with Tarot System
 local player = game.Players.LocalPlayer
 local TweenService = game:GetService("TweenService")
 
@@ -78,10 +78,7 @@ _G.TarotState = _G.TarotState or {
     activeEffects = {},
     permanentSpeedBoost = 0,
     permanentJumpBoost = 0,
-    loversNearbyPlayers = {},
-    foolSpeedStacks = 0,
-    foolReversedSpeedStacks = 0,
-    foolReversedTimeStacks = 0
+    loversNearbyPlayers = {}
 }
 
 -- Forward declarations for tarot functions
@@ -346,37 +343,6 @@ local tarotCards = {
         end
     },
     {
-        name = "The Fool",
-        reversed = false,
-        description = "The Fool depicts a youth walking joyfully into the world. He is taking his first steps, and he is exuberant, joyful, excited. He carries nothing with him except a small sack, caring nothing for the possible dangers that lie in his path. The dog at his heels barks at him in warning.",
-        functionDesc = "• Under 35 HP: Random teleport (1m cooldown)\n• When damaged: +20 Speed for 10s (stacks, time doesn't)",
-        apply = function()
-            _G.TarotState.activeEffects.foolQuickEscape = true
-            _G.TarotState.foolSpeedStacks = 0
-        end,
-        remove = function()
-            _G.TarotState.activeEffects.foolQuickEscape = false
-            -- Remove all fool speed stacks
-            local humLocal = player.Character and player.Character:FindFirstChild("Humanoid")
-            if humLocal and _G.TarotState.foolSpeedStacks > 0 then
-                humLocal.WalkSpeed = humLocal.WalkSpeed - (_G.TarotState.foolSpeedStacks * 20)
-                _G.TarotState.foolSpeedStacks = 0
-            end
-        end
-    },
-    {
-        name = "The Hanged Man",
-        reversed = false,
-        description = "A man who is suspended upside-down, and he is hanging by his foot from the living world tree. This tree is rooted deep down in the underworld, and it is known to support the heavens. His wearing of red pants are a representation of the physical body and human's passion.",
-        functionDesc = "• On death: Draw upright card instead of reversed\n• On respawn: +30 Speed, +30 Jump, +20 Hitbox for 2 minutes",
-        apply = function()
-            _G.TarotState.activeEffects.hangedManActive = true
-        end,
-        remove = function()
-            _G.TarotState.activeEffects.hangedManActive = false
-        end
-    },
-    {
         name = "Wheel of Fortune [REVERSED]",
         reversed = true,
         description = "The books held by the creatures no longer signify accessible wisdom, but obscured knowledge and misinterpretation.",
@@ -627,39 +593,6 @@ local tarotCards = {
         remove = function()
             _G.TarotState.activeEffects.judgmentReversedCurse = false
         end
-    },
-    {
-        name = "The Fool [REVERSED]",
-        reversed = true,
-        description = "The youth's joyful momentum is disrupted, suggesting hesitation, recklessness, or a lack of direction. The cliff before him becomes a clearer warning in reversal, emphasizing poor judgment and avoidance of responsibility.",
-        functionDesc = "• Under 50 HP: Instant death\n• When damaged: -15 Speed for 15s (stacks speed AND time)",
-        apply = function()
-            _G.TarotState.activeEffects.foolReversedActive = true
-            _G.TarotState.foolReversedSpeedStacks = 0
-            _G.TarotState.foolReversedTimeStacks = 0
-        end,
-        remove = function()
-            _G.TarotState.activeEffects.foolReversedActive = false
-            -- Remove all fool reversed speed debuffs
-            local humLocal = player.Character and player.Character:FindFirstChild("Humanoid")
-            if humLocal and _G.TarotState.foolReversedSpeedStacks > 0 then
-                humLocal.WalkSpeed = humLocal.WalkSpeed + (_G.TarotState.foolReversedSpeedStacks * 15)
-                _G.TarotState.foolReversedSpeedStacks = 0
-                _G.TarotState.foolReversedTimeStacks = 0
-            end
-        end
-    },
-    {
-        name = "The Hanged Man [REVERSED]",
-        reversed = true,
-        description = "The man's suspension no longer reflects willing sacrifice or enlightened pause, but resistance, stagnation, and discomfort. Though he still hangs from the living world tree, his position now suggests being trapped by circumstance rather than choosing stillness for insight.",
-        functionDesc = "• On death: Reversed card + 5 debuffs\n• On respawn: -15 Speed, -15 Jump for 2 min & lose all tool buffs",
-        apply = function()
-            _G.TarotState.activeEffects.hangedManReversedActive = true
-        end,
-        remove = function()
-            _G.TarotState.activeEffects.hangedManReversedActive = false
-        end
     }
 }
 
@@ -758,22 +691,6 @@ drawTarotCard = function(isDeath)
     local availableCards = {}
     
     if isDeath then
-        -- Check for Hanged Man (draw upright instead of reversed on death)
-        if _G.TarotState.activeEffects.hangedManActive then
-            _G.TarotState.cardCount = (_G.TarotState.cardCount or 0) + 1
-            print("The Hanged Man: Drawing upright card instead of reversed!")
-            -- Draw upright card
-            for _, card in ipairs(tarotCards) do
-                if not card.reversed and not card.isSpecial then
-                    table.insert(availableCards, card)
-                end
-            end
-            if #availableCards > 0 then
-                return availableCards[math.random(1, #availableCards)]
-            end
-            return nil
-        end
-        
         _G.TarotState.cardCount = (_G.TarotState.cardCount or 0) + 1
         if _G.TarotState.cardCount % 10 == 0 then
             for _, card in ipairs(tarotCards) do
@@ -838,15 +755,6 @@ end
 -- Hook into death detection
 onTarotDeath = function()
     if not _G.TarotState.hasTenthStars then return end
-    
-    -- Check for Hanged Man [REVERSED] - apply 5 additional debuffs
-    if _G.TarotState.activeEffects.hangedManReversedActive then
-        print("The Hanged Man [REVERSED]: Applying 5 additional debuffs!")
-        for i = 1, 5 do
-            applyRandomDebuff()
-        end
-    end
-    
     local card = drawTarotCard(true)
     if card then
         replaceTarotCard(card)
@@ -1345,7 +1253,6 @@ xpLabel.Font = Enum.Font.Gotham
 xpLabel.TextSize = 12
 xpLabel.Parent = xpFrame
 
--- Active Buffs/Debuffs Buttons
 local activeBuffsButton = Instance.new("TextButton")
 activeBuffsButton.Size = UDim2.new(0, 70, 0, 25)
 activeBuffsButton.Position = UDim2.new(0, 10, 1, 5)
@@ -1370,7 +1277,6 @@ activeDebuffsButton.Font = Enum.Font.GothamBold
 activeDebuffsButton.TextSize = 12
 activeDebuffsButton.Parent = xpFrame
 
--- Buff/Debuff Dropdowns
 local buffsDropdown = Instance.new("Frame")
 buffsDropdown.Size = UDim2.new(0, 200, 0, 250)
 buffsDropdown.Position = UDim2.new(0, 0, 1, 30)
@@ -1453,7 +1359,6 @@ closeDebuffsButton.Font = Enum.Font.GothamBold
 closeDebuffsButton.TextSize = 12
 closeDebuffsButton.Parent = debuffsDropdown
 
--- Button connections
 activeBuffsButton.MouseButton1Click:Connect(function()
     buffsDropdown.Visible = not buffsDropdown.Visible
     debuffsDropdown.Visible = false
@@ -1472,7 +1377,6 @@ closeDebuffsButton.MouseButton1Click:Connect(function()
     debuffsDropdown.Visible = false
 end)
 
--- Update Buff/Debuff UI
 updateBuffDebuffUI = function()
     for _, child in ipairs(buffsScrollFrame:GetChildren()) do
         if child:IsA("TextLabel") and child.Name == "BuffItem" then
@@ -1523,7 +1427,6 @@ updateBuffDebuffUI = function()
     debuffsScrollFrame.CanvasSize = UDim2.new(0, 0, 0, debuffsListLayout.AbsoluteContentSize.Y)
 end
 
--- Skip Button & Cheat Menu
 local skipButton = Instance.new("TextButton")
 skipButton.Size = UDim2.new(0, 150, 0, 40)
 skipButton.Position = UDim2.new(1, -160, 0, 10)
@@ -1595,7 +1498,630 @@ dropdownButton.MouseButton1Click:Connect(function()
     buffListFrame.Visible = not buffListFrame.Visible
 end)
 
--- Show Buff Cards (Level Up)
+updateXPBar = function()
+    local progress = stats.xp / stats.xpRequired
+    xpBar:TweenSize(UDim2.new(progress, 0, 1, 0), "Out", "Quad", 0.3, true)
+    levelLabel.Text = "Level " .. stats.level
+    xpLabel.Text = stats.xp .. " / " .. stats.xpRequired .. " XP"
+end
+
+createTeleportTool = function(uses)
+    local mouse = player:GetMouse()
+    local tool = Instance.new("Tool")
+    tool.RequiresHandle = false
+    
+    local baseName
+    if uses == -1 then
+        baseName = "Soul Offer TP (Infinite, -90 HP)"
+        tool.Name = baseName
+    else
+        tool.Name = "Teleport Tool (" .. uses .. " Uses)"
+    end
+    
+    local cooldown = 10
+    local lastUse = 0
+    local onCooldown = false
+    
+    tool.Activated:Connect(function()
+        if not humanoid or not hrp then return end
+        if uses == -1 then
+            if os.time() - lastUse >= cooldown then
+                lastUse = os.time()
+                local pos = mouse.Hit + Vector3.new(0, 2.5, 0)
+                pos = CFrame.new(pos.X, pos.Y, pos.Z)
+                hrp.CFrame = pos
+                humanoid.Health = math.max(humanoid.Health - 90, 1)
+                spawn(function()
+                    if onCooldown then return end
+                    onCooldown = true
+                    for i = cooldown, 1, -1 do
+                        tool.Name = "Soul Offer TP (Cooldown: " .. i .. "s)"
+                        wait(1)
+                    end
+                    tool.Name = baseName
+                    onCooldown = false
+                end)
+            end
+        elseif uses > 0 then
+            local pos = mouse.Hit + Vector3.new(0, 2.5, 0)
+            pos = CFrame.new(pos.X, pos.Y, pos.Z)
+            hrp.CFrame = pos
+            uses = uses - 1
+            tool.Name = "Teleport Tool (" .. uses .. " Uses)"
+            if uses <= 0 then
+                tool:Destroy()
+            end
+        end
+    end)
+    
+    tool.Parent = player.Backpack
+end
+
+createDashTool = function()
+    local tool = Instance.new("Tool")
+    tool.RequiresHandle = false
+    tool.Name = "Dash Tool"
+    local cooldown = 10
+    local lastUse = 0
+    local onCooldown = false
+    
+    tool.Activated:Connect(function()
+        if not humanoid or not hrp then return end
+        if os.time() - lastUse >= cooldown then
+            lastUse = os.time()
+            local currentSpeed = humanoid.WalkSpeed
+            local dashSpeed = 15 + currentSpeed
+            
+            local bodyVel = Instance.new("BodyVelocity")
+            bodyVel.MaxForce = Vector3.new(100000, 0, 100000)
+            bodyVel.Velocity = hrp.CFrame.LookVector * dashSpeed
+            bodyVel.Parent = hrp
+            
+            spawn(function()
+                wait(1)
+                bodyVel:Destroy()
+            end)
+            
+            spawn(function()
+                if onCooldown then return end
+                onCooldown = true
+                for i = cooldown, 1, -1 do
+                    tool.Name = "Dash Tool (Cooldown: " .. i .. "s)"
+                    wait(1)
+                end
+                tool.Name = "Dash Tool"
+                onCooldown = false
+            end)
+        end
+    end)
+    
+    tool.Parent = player.Backpack
+end
+
+createShadowStepsTool = function()
+    local tool = Instance.new("Tool")
+    tool.RequiresHandle = false
+    tool.Name = "Shadow Steps"
+    local cooldown = 10
+    local lastUse = 0
+    local onCooldown = false
+    
+    tool.Activated:Connect(function()
+        local character = player.Character
+        if not character then return end
+        local humanoid = character:FindFirstChild("Humanoid")
+        local hrp = character:FindFirstChild("HumanoidRootPart")
+        if not humanoid or not hrp then return end
+        
+        if os.time() - lastUse >= cooldown then
+            lastUse = os.time()
+            local originalSpeed = humanoid.WalkSpeed
+            local dashSpeed = 20 + originalSpeed
+            local dashDuration = 1.5
+            
+            setTransparency(character, 1)
+            
+            for _, part in pairs(character:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    part.CanCollide = false
+                end
+            end
+            
+            local bodyVel = Instance.new("BodyVelocity")
+            bodyVel.MaxForce = Vector3.new(100000, 0, 100000)
+            bodyVel.Velocity = hrp.CFrame.LookVector * dashSpeed
+            bodyVel.Parent = hrp
+            
+            wait(dashDuration)
+            
+            if bodyVel and bodyVel.Parent then
+                bodyVel:Destroy()
+            end
+            
+            setTransparency(character, 0)
+            
+            for _, part in pairs(character:GetDescendants()) do
+                if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+                    part.CanCollide = true
+                end
+            end
+            
+            spawn(function()
+                if onCooldown then return end
+                onCooldown = true
+                for i = cooldown, 1, -1 do
+                    tool.Name = "Shadow Steps (Cooldown: " .. i .. "s)"
+                    wait(1)
+                end
+                tool.Name = "Shadow Steps"
+                onCooldown = false
+            end)
+        end
+    end)
+    
+    tool.Parent = player.Backpack
+end
+
+createWarpTool = function()
+    local tool = Instance.new("Tool")
+    tool.RequiresHandle = false
+    tool.Name = "Warp Tool"
+    
+    tool.Activated:Connect(function()
+        if not hrp then return end
+        local warpGui = Instance.new("ScreenGui")
+        warpGui.Name = "WarpGui"
+        warpGui.Parent = player.PlayerGui
+        
+        local frame = Instance.new("Frame")
+        frame.Size = UDim2.new(0, 300, 0, 150)
+        frame.Position = UDim2.new(0.5, -150, 0.5, -75)
+        frame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+        frame.BorderSizePixel = 2
+        frame.BorderColor3 = Color3.fromRGB(255, 200, 0)
+        frame.Parent = warpGui
+        
+        local title = Instance.new("TextLabel")
+        title.Size = UDim2.new(1, 0, 0, 30)
+        title.BackgroundTransparency = 1
+        title.Text = "Warp to Player"
+        title.TextColor3 = Color3.fromRGB(255, 255, 255)
+        title.Font = Enum.Font.GothamBold
+        title.TextSize = 16
+        title.Parent = frame
+        
+        local textBox = Instance.new("TextBox")
+        textBox.Size = UDim2.new(1, -20, 0, 35)
+        textBox.Position = UDim2.new(0, 10, 0, 40)
+        textBox.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+        textBox.BorderColor3 = Color3.fromRGB(100, 100, 100)
+        textBox.Text = ""
+        textBox.PlaceholderText = "Enter username..."
+        textBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+        textBox.Font = Enum.Font.Gotham
+        textBox.TextSize = 14
+        textBox.Parent = frame
+        
+        local confirmBtn = Instance.new("TextButton")
+        confirmBtn.Size = UDim2.new(0, 130, 0, 35)
+        confirmBtn.Position = UDim2.new(0, 10, 0, 90)
+        confirmBtn.BackgroundColor3 = Color3.fromRGB(0, 200, 0)
+        confirmBtn.BorderSizePixel = 0
+        confirmBtn.Text = "Confirm"
+        confirmBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        confirmBtn.Font = Enum.Font.GothamBold
+        confirmBtn.TextSize = 14
+        confirmBtn.Parent = frame
+        
+        local closeBtn = Instance.new("TextButton")
+        closeBtn.Size = UDim2.new(0, 130, 0, 35)
+        closeBtn.Position = UDim2.new(0, 160, 0, 90)
+        closeBtn.BackgroundColor3 = Color3.fromRGB(200, 0, 0)
+        closeBtn.BorderSizePixel = 0
+        closeBtn.Text = "Close"
+        closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        closeBtn.Font = Enum.Font.GothamBold
+        closeBtn.TextSize = 14
+        closeBtn.Parent = frame
+        
+        confirmBtn.MouseButton1Click:Connect(function()
+            local targetName = textBox.Text
+            local targetPlayer = game.Players:FindFirstChild(targetName)
+            
+            if targetPlayer and targetPlayer.Character then
+                local targetHrp = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
+                if targetHrp then
+                    hrp.CFrame = targetHrp.CFrame + Vector3.new(0, 3, 0)
+                    warpGui:Destroy()
+                    tool:Destroy()
+                end
+            else
+                textBox.Text = ""
+                textBox.PlaceholderText = "Player not found!"
+            end
+        end)
+        
+        closeBtn.MouseButton1Click:Connect(function()
+            warpGui:Destroy()
+        end)
+    end)
+    
+    tool.Parent = player.Backpack
+end
+
+createRadarTool = function()
+    local tool = Instance.new("Tool")
+    tool.RequiresHandle = false
+    tool.Name = "Radar"
+    
+    local esps = {}
+    local used = false
+    
+    local function createESP(plr)
+        if plr == player then return end
+        local char = plr.Character
+        if not char then return end
+        local head = char:FindFirstChild("Head")
+        if not head then return end
+        local bb = Instance.new("BillboardGui")
+        bb.Name = "ESP"
+        bb.Adornee = head
+        bb.Parent = char
+        bb.Size = UDim2.new(0, 100, 0, 50)
+        bb.StudsOffset = Vector3.new(0, 2, 0)
+        bb.AlwaysOnTop = true
+        
+        local nameLabel = Instance.new("TextLabel")
+        nameLabel.Size = UDim2.new(1, 0, 1, 0)
+        nameLabel.BackgroundTransparency = 1
+        nameLabel.Text = plr.Name
+        nameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+        nameLabel.TextStrokeTransparency = 0.5
+        nameLabel.Font = Enum.Font.GothamBold
+        nameLabel.TextSize = 14
+        nameLabel.Parent = bb
+        
+        table.insert(esps, bb)
+    end
+    
+    local function fadeESP()
+        local tweenInfo = TweenInfo.new(3, Enum.EasingStyle.Linear, Enum.EasingDirection.Out)
+        for _, esp in ipairs(esps) do
+            local label = esp:FindFirstChild("TextLabel")
+            if label then
+                local tween = TweenService:Create(label, tweenInfo, {TextTransparency = 1, TextStrokeTransparency = 1})
+                tween:Play()
+                tween.Completed:Connect(function()
+                    esp:Destroy()
+                end)
+            end
+        end
+        esps = {}
+    end
+    
+    tool.Activated:Connect(function()
+        if not used then
+            used = true
+            for _, plr in pairs(game.Players:GetPlayers()) do
+                createESP(plr)
+            end
+            wait(3)
+            fadeESP()
+            tool:Destroy()
+        end
+    end)
+    
+    tool.Parent = player.Backpack
+end
+
+createIntesignalTool = function()
+    local tool = Instance.new("Tool")
+    tool.RequiresHandle = false
+    tool.Name = "Intesignal"
+    
+    local cooldown = 15
+    local lastUse = 0
+    local onCooldown = false
+    
+    local function createESP(plr)
+        if plr == player then return end
+        local char = plr.Character
+        if not char then return end
+        local head = char:FindFirstChild("Head")
+        if not head then return end
+        
+        local bb = Instance.new("BillboardGui")
+        bb.Name = "IntesignalESP"
+        bb.Adornee = head
+        bb.Parent = char
+        bb.Size = UDim2.new(0, 100, 0, 50)
+        bb.StudsOffset = Vector3.new(0, 2, 0)
+        bb.AlwaysOnTop = true
+        
+        local nameLabel = Instance.new("TextLabel")
+        nameLabel.Size = UDim2.new(1, 0, 1, 0)
+        nameLabel.BackgroundTransparency = 1
+        nameLabel.Text = plr.Name
+        nameLabel.TextColor3 = Color3.fromRGB(0, 255, 255)
+        nameLabel.TextStrokeTransparency = 0.5
+        nameLabel.Font = Enum.Font.GothamBold
+        nameLabel.TextSize = 14
+        nameLabel.Parent = bb
+        
+        return bb
+    end
+    
+    local function fadeESP(esps)
+        local tweenInfo = TweenInfo.new(3, Enum.EasingStyle.Linear, Enum.EasingDirection.Out)
+        for _, esp in ipairs(esps) do
+            local label = esp:FindFirstChild("TextLabel")
+            if label then
+                local tween = TweenService:Create(label, tweenInfo, {TextTransparency = 1, TextStrokeTransparency = 1})
+                tween:Play()
+                tween.Completed:Connect(function()
+                    esp:Destroy()
+                end)
+            end
+        end
+    end
+    
+    tool.Activated:Connect(function()
+        if os.time() - lastUse >= cooldown then
+            lastUse = os.time()
+            local esps = {}
+            for _, plr in pairs(game.Players:GetPlayers()) do
+                local esp = createESP(plr)
+                if esp then
+                    table.insert(esps, esp)
+                end
+            end
+            wait(3)
+            fadeESP(esps)
+            
+            spawn(function()
+                if onCooldown then return end
+                onCooldown = true
+                for i = cooldown, 1, -1 do
+                    tool.Name = "Intesignal (Cooldown: " .. i .. "s)"
+                    wait(1)
+                end
+                tool.Name = "Intesignal"
+                onCooldown = false
+            end)
+        end
+    end)
+    
+    tool.Parent = player.Backpack
+end
+
+createGamblingTool = function()
+    local tool = Instance.new("Tool")
+    tool.RequiresHandle = false
+    tool.Name = "Let's Go Gambling!"
+    
+    local cooldown = 5
+    local lastUse = 0
+    local isRolling = false
+    
+    tool.Activated:Connect(function()
+        if isRolling then
+            print("Gambling is already in progress!")
+            return
+        end
+        
+        if os.time() - lastUse < cooldown then
+            local remaining = cooldown - (os.time() - lastUse)
+            print("Gambling on cooldown! Wait " .. remaining .. " more seconds.")
+            return
+        end
+        
+        isRolling = true
+        lastUse = os.time()
+        
+        local slotGui = Instance.new("ScreenGui")
+        slotGui.Name = "SlotMachineGui"
+        slotGui.Parent = player.PlayerGui
+        
+        local frame = Instance.new("Frame")
+        frame.Size = UDim2.new(0, 400, 0, 250)
+        frame.Position = UDim2.new(0.5, -200, 0.5, -125)
+        frame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+        frame.BorderSizePixel = 3
+        frame.BorderColor3 = Color3.fromRGB(255, 200, 0)
+        frame.Parent = slotGui
+        
+        local title = Instance.new("TextLabel")
+        title.Size = UDim2.new(1, 0, 0, 40)
+        title.BackgroundTransparency = 1
+        title.Text = "🎰 GAMBLING TIME! 🎰"
+        title.TextColor3 = Color3.fromRGB(255, 200, 0)
+        title.Font = Enum.Font.GothamBold
+        title.TextSize = 20
+        title.Parent = frame
+        
+        local slots = {}
+        for i = 1, 3 do
+            local slot = Instance.new("TextLabel")
+            slot.Size = UDim2.new(0, 100, 0, 120)
+            slot.Position = UDim2.new(0, 30 + (i - 1) * 120, 0, 60)
+            slot.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+            slot.BorderSizePixel = 2
+            slot.BorderColor3 = Color3.fromRGB(100, 100, 100)
+            slot.Text = "?"
+            slot.TextColor3 = Color3.fromRGB(255, 255, 255)
+            slot.Font = Enum.Font.GothamBold
+            slot.TextSize = 60
+            slot.Parent = frame
+            table.insert(slots, slot)
+        end
+        
+        local resultLabel = Instance.new("TextLabel")
+        resultLabel.Size = UDim2.new(1, 0, 0, 40)
+        resultLabel.Position = UDim2.new(0, 0, 0, 190)
+        resultLabel.BackgroundTransparency = 1
+        resultLabel.Text = "Rolling..."
+        resultLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+        resultLabel.Font = Enum.Font.GothamBold
+        resultLabel.TextSize = 16
+        resultLabel.Parent = frame
+        
+        local symbols = {"🍎", "🍌", "💧", "🔥", "7"}
+        
+        local roll = math.random(1, 75)
+        local finalSymbol
+        
+        if roll <= 37 then
+            finalSymbol = nil
+        elseif roll <= 56 then
+            finalSymbol = "🍎"
+        elseif roll <= 64 then
+            finalSymbol = "🍌"
+        elseif roll <= 67 then
+            finalSymbol = "💧"
+        elseif roll <= 69 then
+            finalSymbol = "🔥"
+        else
+            finalSymbol = "7"
+        end
+        
+        spawn(function()
+            for spin = 1, 20 do
+                for i, slot in ipairs(slots) do
+                    slot.Text = symbols[math.random(1, #symbols)]
+                end
+                wait(0.1)
+            end
+            
+            for spin = 1, 10 do
+                for i, slot in ipairs(slots) do
+                    slot.Text = symbols[math.random(1, #symbols)]
+                end
+                wait(0.2)
+            end
+            
+            if finalSymbol then
+                for i, slot in ipairs(slots) do
+                    slot.Text = finalSymbol
+                end
+                
+                if finalSymbol == "🍎" then
+                    resultLabel.Text = "🍎 APPLE WIN! Random Level 1 Buff!"
+                    resultLabel.TextColor3 = Color3.fromRGB(0, 255, 0)
+                    local level1Buffs = {}
+                    for _, buff in ipairs(buffs) do
+                        if buff.req == 1 and buff.name ~= "Miniature Gambling Slot" then
+                            table.insert(level1Buffs, buff)
+                        end
+                    end
+                    if #level1Buffs > 0 then
+                        local randBuff = level1Buffs[math.random(1, #level1Buffs)]
+                        wait(1)
+                        randBuff.effect()
+                        if isToolBuff[randBuff.name] then
+                            table.insert(acquiredToolEffects, randBuff.effect)
+                        end
+                        updateBuffDebuffUI()
+                    end
+                elseif finalSymbol == "🍌" then
+                    resultLabel.Text = "🍌 BANANA WIN! Random Level 3-5 Buff!"
+                    resultLabel.TextColor3 = Color3.fromRGB(0, 255, 0)
+                    local midBuffs = {}
+                    for _, buff in ipairs(buffs) do
+                        if (buff.req >= 3 and buff.req <= 5) and buff.name ~= "Miniature Gambling Slot" then
+                            table.insert(midBuffs, buff)
+                        end
+                    end
+                    if #midBuffs > 0 then
+                        local randBuff = midBuffs[math.random(1, #midBuffs)]
+                        wait(1)
+                        randBuff.effect()
+                        if isToolBuff[randBuff.name] then
+                            table.insert(acquiredToolEffects, randBuff.effect)
+                        end
+                        updateBuffDebuffUI()
+                    end
+                elseif finalSymbol == "💧" then
+                    resultLabel.Text = "💧 WATER DROP WIN! Random Level 10 Buff!"
+                    resultLabel.TextColor3 = Color3.fromRGB(0, 255, 0)
+                    local lv10Buffs = {}
+                    for _, buff in ipairs(buffs) do
+                        if buff.req == 10 and buff.name ~= "Miniature Gambling Slot" then
+                            table.insert(lv10Buffs, buff)
+                        end
+                    end
+                    if #lv10Buffs > 0 then
+                        local randBuff = lv10Buffs[math.random(1, #lv10Buffs)]
+                        wait(1)
+                        randBuff.effect()
+                        if isToolBuff[randBuff.name] then
+                            table.insert(acquiredToolEffects, randBuff.effect)
+                        end
+                        updateBuffDebuffUI()
+                    end
+                elseif finalSymbol == "🔥" then
+                    resultLabel.Text = "🔥 FLAME WIN! Random Level 25-45 Buff!"
+                    resultLabel.TextColor3 = Color3.fromRGB(255, 215, 0)
+                    local highBuffs = {}
+                    for _, buff in ipairs(buffs) do
+                        if (buff.req >= 25 and buff.req <= 45) and buff.name ~= "Miniature Gambling Slot" then
+                            table.insert(highBuffs, buff)
+                        end
+                    end
+                    if #highBuffs > 0 then
+                        local randBuff = highBuffs[math.random(1, #highBuffs)]
+                        wait(1)
+                        randBuff.effect()
+                        if isToolBuff[randBuff.name] then
+                            table.insert(acquiredToolEffects, randBuff.effect)
+                        end
+                        updateBuffDebuffUI()
+                    end
+                elseif finalSymbol == "7" then
+                    resultLabel.Text = "🎰 JACKPOT 777! Random Level 45 Buff!"
+                    resultLabel.TextColor3 = Color3.fromRGB(255, 215, 0)
+                    local jackpotBuffs = {}
+                    for _, buff in ipairs(buffs) do
+                        if buff.req == 45 and buff.name ~= "Miniature Gambling Slot" then
+                            table.insert(jackpotBuffs, buff)
+                        end
+                    end
+                    if #jackpotBuffs > 0 then
+                        local randBuff = jackpotBuffs[math.random(1, #jackpotBuffs)]
+                        wait(1)
+                        randBuff.effect()
+                        if isToolBuff[randBuff.name] then
+                            table.insert(acquiredToolEffects, randBuff.effect)
+                        end
+                        updateBuffDebuffUI()
+                    end
+                end
+            else
+                slots[1].Text = symbols[math.random(1, #symbols)]
+                slots[2].Text = symbols[math.random(1, #symbols)]
+                slots[3].Text = symbols[math.random(1, #symbols)]
+                resultLabel.Text = "❌ MISS! Random Debuff Applied!"
+                resultLabel.TextColor3 = Color3.fromRGB(255, 0, 0)
+                wait(1)
+                applyRandomDebuff()
+            end
+            
+            wait(2)
+            slotGui:Destroy()
+            isRolling = false
+            
+            spawn(function()
+                for i = cooldown, 1, -1 do
+                    tool.Name = "Let's Go Gambling! (Cooldown: " .. i .. "s)"
+                    wait(1)
+                end
+                tool.Name = "Let's Go Gambling!"
+            end)
+        end)
+    end)
+    
+    tool.Parent = player.Backpack
+end
+
 showBuffCards = function()
     local hasSinner = false
     for _, debuffName in ipairs(activeDebuffs) do
@@ -1650,6 +2176,7 @@ showBuffCards = function()
         end
     end
     
+    -- Check for Wheel of Fortune / Wheel of Fortune [REVERSED]
     local wheelOfFortuneActive = _G.TarotState.activeEffects.wheelOfFortune
     local wheelReversedActive = _G.TarotState.activeEffects.wheelReversed
     
@@ -1720,6 +2247,7 @@ showBuffCards = function()
         end)
         
         card.MouseButton1Click:Connect(function()
+            -- Check for Star [REVERSED] curse
             if _G.TarotState.activeEffects.starReversedCurse then
                 print("Star [REVERSED] curse activated! Buff becomes a debuff!")
                 _G.TarotState.activeEffects.starReversedCurse = false
@@ -1748,7 +2276,6 @@ showBuffCards = function()
     end
 end
 
--- Add XP Function
 addXP = function(amount)
     local totalGain = amount + stats.extraXPGain
     stats.xp = stats.xp + totalGain
@@ -1766,7 +2293,6 @@ addXP = function(amount)
     end
 end
 
--- Character Setup with Tarot Integration
 local function setupCharacter(newCharacter)
     character = newCharacter
     humanoid = character:WaitForChild("Humanoid")
@@ -1782,7 +2308,6 @@ local function setupCharacter(newCharacter)
     
     lastHealth = humanoid.Health
     
-    -- Respawn tool buffs
     local hasEmptyHanded = false
     for _, debuffName in ipairs(activeDebuffs) do
         if debuffName == "Empty Handed" then
@@ -1792,87 +2317,13 @@ local function setupCharacter(newCharacter)
     end
     
     if not hasEmptyHanded then
-        -- Check for Hanged Man [REVERSED] - lose all tool buffs
-        if _G.TarotState.activeEffects.hangedManReversedActive then
-            print("The Hanged Man [REVERSED]: All tool buffs removed!")
-            for _, tool in ipairs(player.Backpack:GetChildren()) do
-                if tool:IsA("Tool") and isToolBuff[tool.Name] then
-                    tool:Destroy()
-                end
-            end
-        else
-            for _, effectFunc in ipairs(acquiredToolEffects) do
-                effectFunc()
-            end
+        for _, effectFunc in ipairs(acquiredToolEffects) do
+            effectFunc()
         end
     end
     
-    -- Apply Hanged Man respawn buff
-    if _G.TarotState.activeEffects.hangedManActive and _G.TarotState.activeEffects.hangedManJustDied then
-        _G.TarotState.activeEffects.hangedManJustDied = false
-        print("The Hanged Man: Applying respawn buff (+30 Speed, +30 Jump, +20 Hitbox for 2 min)")
-        humanoid.WalkSpeed = humanoid.WalkSpeed + 30
-        if humanoid.JumpPower then
-            humanoid.JumpPower = humanoid.JumpPower + 30
-        else
-            humanoid.JumpHeight = humanoid.JumpHeight + 30
-        end
-        stats.hitboxSize = stats.hitboxSize + 20
-        _G.HeadSize = 10 + stats.hitboxSize
-        _G.Disabled = true
-        
-        spawn(function()
-            wait(120) -- 2 minutes
-            if humanoid then
-                humanoid.WalkSpeed = humanoid.WalkSpeed - 30
-                if humanoid.JumpPower then
-                    humanoid.JumpPower = humanoid.JumpPower - 30
-                else
-                    humanoid.JumpHeight = humanoid.JumpHeight - 30
-                end
-                stats.hitboxSize = stats.hitboxSize - 20
-                _G.HeadSize = 10 + stats.hitboxSize
-            end
-            print("The Hanged Man: Respawn buff expired")
-        end)
-    end
-    
-    -- Apply Hanged Man [REVERSED] respawn debuff
-    if _G.TarotState.activeEffects.hangedManReversedJustDied then
-        _G.TarotState.activeEffects.hangedManReversedJustDied = false
-        print("The Hanged Man [REVERSED]: Applying respawn debuff (-15 Speed, -15 Jump for 2 min)")
-        humanoid.WalkSpeed = math.max(1, humanoid.WalkSpeed - 15)
-        if humanoid.JumpPower then
-            humanoid.JumpPower = math.max(1, humanoid.JumpPower - 15)
-        else
-            humanoid.JumpHeight = math.max(1, humanoid.JumpHeight - 15)
-        end
-        
-        spawn(function()
-            wait(120)
-            if humanoid then
-                humanoid.WalkSpeed = humanoid.WalkSpeed + 15
-                if humanoid.JumpPower then
-                    humanoid.JumpPower = humanoid.JumpPower + 15
-                else
-                    humanoid.JumpHeight = humanoid.JumpHeight + 15
-                end
-            end
-            print("The Hanged Man [REVERSED]: Respawn debuff expired")
-        end)
-    end
-    
-    -- Death detection
     humanoid.Died:Connect(function()
         print("Player died! Waiting for respawn...")
-        
-        -- Mark Hanged Man effects for next respawn
-        if _G.TarotState.activeEffects.hangedManActive then
-            _G.TarotState.activeEffects.hangedManJustDied = true
-        end
-        if _G.TarotState.activeEffects.hangedManReversedActive then
-            _G.TarotState.activeEffects.hangedManReversedJustDied = true
-        end
         
         -- Trigger tarot death card
         if _G.TarotState.hasTenthStars then
@@ -1890,62 +2341,7 @@ local function setupCharacter(newCharacter)
         end
     end)
     
-    -- Health changed detection for Fool & Fool [REVERSED] cards
     humanoid.HealthChanged:Connect(function(health)
-        -- The Fool: Quick Escape under 35 HP
-        if _G.TarotState.activeEffects.foolQuickEscape and health < 35 and health > 0 then
-            if os.time() - stats.quickEscapeLastTime >= 60 then
-                stats.quickEscapeLastTime = os.time()
-                local platforms = getAllPlatforms()
-                if #platforms > 0 then
-                    local randPart = platforms[math.random(1, #platforms)]
-                    hrp.CFrame = CFrame.new(randPart.Position + Vector3.new(0, randPart.Size.Y / 2 + 5, 0))
-                    print("The Fool: Quick Escape activated!")
-                end
-            end
-        end
-        
-        -- The Fool: +20 Speed when damaged (stacks, time doesn't)
-        if _G.TarotState.activeEffects.foolQuickEscape and health < lastHealth and health > 0 then
-            _G.TarotState.foolSpeedStacks = _G.TarotState.foolSpeedStacks + 1
-            humanoid.WalkSpeed = humanoid.WalkSpeed + 20
-            print("The Fool: +20 Speed stack (" .. _G.TarotState.foolSpeedStacks .. " stacks)")
-            
-            spawn(function()
-                wait(10)
-                if humanoid and _G.TarotState.foolSpeedStacks > 0 then
-                    humanoid.WalkSpeed = humanoid.WalkSpeed - 20
-                    _G.TarotState.foolSpeedStacks = _G.TarotState.foolSpeedStacks - 1
-                    print("The Fool: Speed stack expired (" .. _G.TarotState.foolSpeedStacks .. " remaining)")
-                end
-            end)
-        end
-        
-        -- The Fool [REVERSED]: Instant death under 50 HP
-        if _G.TarotState.activeEffects.foolReversedActive and health < 50 and health > 0 then
-            print("The Fool [REVERSED]: Instant death under 50 HP!")
-            humanoid.Health = 0
-        end
-        
-        -- The Fool [REVERSED]: -15 Speed when damaged (stacks speed AND time)
-        if _G.TarotState.activeEffects.foolReversedActive and health < lastHealth and health > 0 then
-            _G.TarotState.foolReversedSpeedStacks = _G.TarotState.foolReversedSpeedStacks + 1
-            humanoid.WalkSpeed = math.max(1, humanoid.WalkSpeed - 15)
-            print("The Fool [REVERSED]: -15 Speed stack (" .. _G.TarotState.foolReversedSpeedStacks .. " stacks)")
-            
-            _G.TarotState.foolReversedTimeStacks = _G.TarotState.foolReversedTimeStacks + 1
-            spawn(function()
-                wait(15)
-                if humanoid and _G.TarotState.foolReversedSpeedStacks > 0 then
-                    humanoid.WalkSpeed = humanoid.WalkSpeed + 15
-                    _G.TarotState.foolReversedSpeedStacks = _G.TarotState.foolReversedSpeedStacks - 1
-                    _G.TarotState.foolReversedTimeStacks = _G.TarotState.foolReversedTimeStacks - 1
-                    print("The Fool [REVERSED]: Speed debuff expired (" .. _G.TarotState.foolReversedSpeedStacks .. " remaining)")
-                end
-            end)
-        end
-        
-        -- Scaredy Cat
         if stats.hasScaredyCat and health < lastHealth and not stats.scaredyCatActive then
             stats.scaredyCatActive = true
             local previousSpeed = humanoid.WalkSpeed
@@ -1960,8 +2356,6 @@ local function setupCharacter(newCharacter)
                 stats.scaredyCatActive = false
             end)
         end
-        
-        -- Quick Escape
         if stats.hasQuickEscape and health < 10 and os.time() - stats.quickEscapeLastTime >= 60 then
             stats.quickEscapeLastTime = os.time()
             local platforms = getAllPlatforms()
@@ -1971,7 +2365,6 @@ local function setupCharacter(newCharacter)
                 print("Quick Escape activated!")
             end
         end
-        
         lastHealth = health
     end)
 end
@@ -1982,7 +2375,6 @@ end
 
 player.CharacterAdded:Connect(setupCharacter)
 
--- Juggernaut/Gale Fighter Hitbox System
 game:GetService('RunService').RenderStepped:Connect(function()
     if _G.Disabled and (stats.hasJuggernaut or stats.hasGaleFighter) then
         for _, v in ipairs(game:GetService('Players'):GetPlayers()) do
@@ -2005,7 +2397,6 @@ game:GetService('RunService').RenderStepped:Connect(function()
     end
 end)
 
--- Kill/Death Detection System
 local killedPlayers = {}
 spawn(function()
     while true do
@@ -2021,7 +2412,6 @@ spawn(function()
                         if otherHrp and otherHum then
                             local distance = (hrp.Position - otherHrp.Position).Magnitude
                             
-                            -- Kill detection (0-10 studs)
                             if distance <= 10 and otherHum.Health <= 0 then
                                 if not killedPlayers[otherPlayer.UserId] then
                                     killedPlayers[otherPlayer.UserId] = true
@@ -2060,7 +2450,6 @@ spawn(function()
                                 end
                             end
                             
-                            -- Mimicry debuff detection (11-25 studs)
                             if distance > 10 and distance <= 25 and otherHum.Health <= 0 then
                                 local hasMimicry = false
                                 for _, debuffName in ipairs(activeDebuffs) do
@@ -2110,7 +2499,6 @@ findSafePlatform = function(pos)
     return nil
 end
 
-print("✨ Rogue Cheat with Full Tarot System loaded!")
+print("Rogue Cheat with Tarot System loaded!")
 print("Kill players within 10 studs for XP!")
 print("Reach Level 70 to unlock The Tenth Stars of Dignity!")
-print("🎴 The Fool and The Hanged Man cards are now available!")
