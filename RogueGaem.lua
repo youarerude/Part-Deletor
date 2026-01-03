@@ -1,4 +1,4 @@
--- Rogue Cheat for Fun - Client-Sided Script
+-- Rogue Cheat for Fun - Client-Sided Script with Tarot System
 local player = game.Players.LocalPlayer
 local TweenService = game:GetService("TweenService")
 
@@ -28,7 +28,7 @@ local stats = {
 local activeBuffs = {}
 local activeDebuffs = {}
 local slothfulConnection = nil
-local slothfulDecreaseAmount = 0 -- Track how much speed was decreased by Slothful
+local slothfulDecreaseAmount = 0
 local hasImmunity = false
 
 local character
@@ -69,6 +69,712 @@ local isToolBuff = {
     ["Shadow Steps"] = true
 }
 local acquiredToolEffects = {}
+
+-- ==================== TAROT CARD SYSTEM ====================
+_G.TarotState = _G.TarotState or {
+    hasTenthStars = false,
+    currentCard = nil,
+    cardCount = 0,
+    activeEffects = {},
+    permanentSpeedBoost = 0,
+    permanentJumpBoost = 0,
+    loversNearbyPlayers = {}
+}
+
+-- Forward declarations for tarot functions
+local showTarotCard
+local drawTarotCard
+local replaceTarotCard
+local onTarotKill
+local onTarotDeath
+local initializeTenthStars
+
+-- Tarot Cards Database
+local tarotCards = {
+    {
+        name = "Wheel of Fortune",
+        reversed = false,
+        description = "The books that each of the creatures hold represents the Torah which communicates wisdom and self-understanding. The snake indicates the act of descending into material world. On the wheel itself, rides a sphinx that sits at the top, and what appears to be either a devil, or Anubis himself arising at the bottom.",
+        functionDesc = "• Level 10-45 buffs appear in level-up cards\n• Every 5 minutes: Random Level 1-10 buff",
+        apply = function()
+            _G.TarotState.activeEffects.wheelOfFortune = true
+            spawn(function()
+                while _G.TarotState.currentCard == "Wheel of Fortune" do
+                    wait(300)
+                    if _G.TarotState.currentCard == "Wheel of Fortune" then
+                        print("Wheel of Fortune: Granting random Level 1-10 buff")
+                    end
+                end
+            end)
+        end,
+        remove = function()
+            _G.TarotState.activeEffects.wheelOfFortune = false
+        end
+    },
+    {
+        name = "Strength",
+        reversed = false,
+        description = "A woman who calmly holds the jaws of a fully grown lion. Despite the fact that the lion looks menacing and strong, the woman seems to have dominion over it. The lion is a symbol of courage, passion and desire.",
+        functionDesc = "• Every 1 second: +1 Speed & +1 Jump Power\n• Boosts are PERMANENT (kept after card replacement)",
+        apply = function()
+            _G.TarotState.activeEffects.strengthTimer = game:GetService("RunService").Heartbeat:Connect(function()
+                wait(1)
+                if _G.TarotState.currentCard == "Strength" then
+                    local hum = player.Character and player.Character:FindFirstChild("Humanoid")
+                    if hum then
+                        _G.TarotState.permanentSpeedBoost = _G.TarotState.permanentSpeedBoost + 1
+                        _G.TarotState.permanentJumpBoost = _G.TarotState.permanentJumpBoost + 1
+                        hum.WalkSpeed = hum.WalkSpeed + 1
+                        if hum.JumpPower then
+                            hum.JumpPower = hum.JumpPower + 1
+                        else
+                            hum.JumpHeight = hum.JumpHeight + 1
+                        end
+                        print("Strength: +1 Speed, +1 Jump (Total: +" .. _G.TarotState.permanentSpeedBoost .. " Speed, +" .. _G.TarotState.permanentJumpBoost .. " Jump)")
+                    end
+                end
+            end)
+        end,
+        remove = function()
+            if _G.TarotState.activeEffects.strengthTimer then
+                _G.TarotState.activeEffects.strengthTimer:Disconnect()
+                _G.TarotState.activeEffects.strengthTimer = nil
+            end
+        end
+    },
+    {
+        name = "The Lovers",
+        reversed = false,
+        description = "The man and the woman are being protected and blessed by an angel above. The couple seems secure and happy in their home, which appears to be the Garden of Eden.",
+        functionDesc = "• Players within 50 studs: +10 Speed & +10 Jump per player\n• Stacks with multiple players\n• Lost when players leave range",
+        apply = function()
+            _G.TarotState.loversNearbyPlayers = {}
+            _G.TarotState.activeEffects.loversCheck = game:GetService("RunService").Heartbeat:Connect(function()
+                wait(0.5)
+                if _G.TarotState.currentCard ~= "The Lovers" then return end
+                local char = player.Character
+                if not char then return end
+                local hrpLocal = char:FindFirstChild("HumanoidRootPart")
+                local humLocal = char:FindFirstChild("Humanoid")
+                if not hrpLocal or not humLocal then return end
+                local currentNearby = {}
+                for _, otherPlayer in pairs(game.Players:GetPlayers()) do
+                    if otherPlayer ~= player and otherPlayer.Character then
+                        local otherHrp = otherPlayer.Character:FindFirstChild("HumanoidRootPart")
+                        if otherHrp then
+                            local distance = (hrpLocal.Position - otherHrp.Position).Magnitude
+                            if distance <= 50 then
+                                currentNearby[otherPlayer.UserId] = true
+                                if not _G.TarotState.loversNearbyPlayers[otherPlayer.UserId] then
+                                    _G.TarotState.loversNearbyPlayers[otherPlayer.UserId] = true
+                                    humLocal.WalkSpeed = humLocal.WalkSpeed + 10
+                                    if humLocal.JumpPower then
+                                        humLocal.JumpPower = humLocal.JumpPower + 10
+                                    else
+                                        humLocal.JumpHeight = humLocal.JumpHeight + 10
+                                    end
+                                    print("The Lovers: " .. otherPlayer.Name .. " entered range (+10 Speed, +10 Jump)")
+                                end
+                            end
+                        end
+                    end
+                end
+                for userId, _ in pairs(_G.TarotState.loversNearbyPlayers) do
+                    if not currentNearby[userId] then
+                        _G.TarotState.loversNearbyPlayers[userId] = nil
+                        humLocal.WalkSpeed = humLocal.WalkSpeed - 10
+                        if humLocal.JumpPower then
+                            humLocal.JumpPower = humLocal.JumpPower - 10
+                        else
+                            humLocal.JumpHeight = humLocal.JumpHeight - 10
+                        end
+                        print("The Lovers: Player left range (-10 Speed, -10 Jump)")
+                    end
+                end
+            end)
+        end,
+        remove = function()
+            if _G.TarotState.activeEffects.loversCheck then
+                _G.TarotState.activeEffects.loversCheck:Disconnect()
+                _G.TarotState.activeEffects.loversCheck = nil
+            end
+            local humLocal = player.Character and player.Character:FindFirstChild("Humanoid")
+            if humLocal then
+                local count = 0
+                for _ in pairs(_G.TarotState.loversNearbyPlayers) do
+                    count = count + 1
+                end
+                humLocal.WalkSpeed = humLocal.WalkSpeed - (count * 10)
+                if humLocal.JumpPower then
+                    humLocal.JumpPower = humLocal.JumpPower - (count * 10)
+                else
+                    humLocal.JumpHeight = humLocal.JumpHeight - (count * 10)
+                end
+            end
+            _G.TarotState.loversNearbyPlayers = {}
+        end
+    },
+    {
+        name = "The Devil",
+        reversed = false,
+        description = "The Devil represented in his most well-known satyr form, otherwise known as Baphomet. Both the man and the woman have horns.",
+        functionDesc = "⚠️ CURSE CARD (Appears after 10th card)\n• Removes 3 random buffs\n• Converts them to 3 random debuffs\n• Removed buffs NEVER return",
+        isSpecial = true,
+        triggerCount = 10,
+        apply = function()
+            print("⚠️ THE DEVIL HAS APPEARED! 3 BUFFS WILL BE CURSED!")
+            for i = 1, 3 do
+                if #activeBuffs > 0 then
+                    local randIdx = math.random(1, #activeBuffs)
+                    table.remove(activeBuffs, randIdx)
+                end
+            end
+            for i = 1, 3 do
+                applyRandomDebuff()
+            end
+            updateBuffDebuffUI()
+        end,
+        remove = function() end
+    },
+    {
+        name = "The Magician",
+        reversed = false,
+        description = "The Magician stands before a table bearing the four suits of the Tarot. Above his head floats the infinity symbol.",
+        functionDesc = "• Cooldowns reduced by 50%\n• Tool uses doubled\n• +25% XP gain",
+        apply = function()
+            _G.TarotState.activeEffects.magicianBoost = true
+            stats.extraXPGain = stats.extraXPGain + 5
+            print("The Magician: Enhanced efficiency activated!")
+        end,
+        remove = function()
+            _G.TarotState.activeEffects.magicianBoost = false
+            stats.extraXPGain = stats.extraXPGain - 5
+        end
+    },
+    {
+        name = "The Star",
+        reversed = false,
+        description = "A naked woman kneels by a pool of water, pouring liquid from two jugs. Above her shine eight stars.",
+        functionDesc = "• Immunity to next debuff\n• +15 Speed & +10 Jump Power",
+        apply = function()
+            _G.TarotState.activeEffects.starImmunity = true
+            local humLocal = player.Character and player.Character:FindFirstChild("Humanoid")
+            if humLocal then
+                humLocal.WalkSpeed = humLocal.WalkSpeed + 15
+                if humLocal.JumpPower then
+                    humLocal.JumpPower = humLocal.JumpPower + 10
+                else
+                    humLocal.JumpHeight = humLocal.JumpHeight + 10
+                end
+            end
+            print("The Star: Hope shines upon you!")
+        end,
+        remove = function()
+            _G.TarotState.activeEffects.starImmunity = false
+            local humLocal = player.Character and player.Character:FindFirstChild("Humanoid")
+            if humLocal then
+                humLocal.WalkSpeed = humLocal.WalkSpeed - 15
+                if humLocal.JumpPower then
+                    humLocal.JumpPower = humLocal.JumpPower - 10
+                else
+                    humLocal.JumpHeight = humLocal.JumpHeight - 10
+                end
+            end
+        end
+    },
+    {
+        name = "The Emperor",
+        reversed = false,
+        description = "The Emperor sits upon a stone throne adorned with ram heads, symbolizing Aries and assertive leadership.",
+        functionDesc = "• +20 Speed & +15 Jump Power\n• Knockback immunity",
+        apply = function()
+            local humLocal = player.Character and player.Character:FindFirstChild("Humanoid")
+            if humLocal then
+                humLocal.WalkSpeed = humLocal.WalkSpeed + 20
+                if humLocal.JumpPower then
+                    humLocal.JumpPower = humLocal.JumpPower + 15
+                else
+                    humLocal.JumpHeight = humLocal.JumpHeight + 15
+                end
+            end
+            _G.TarotState.activeEffects.emperorDefense = true
+            print("The Emperor: Royal authority empowers you!")
+        end,
+        remove = function()
+            local humLocal = player.Character and player.Character:FindFirstChild("Humanoid")
+            if humLocal then
+                humLocal.WalkSpeed = humLocal.WalkSpeed - 20
+                if humLocal.JumpPower then
+                    humLocal.JumpPower = humLocal.JumpPower - 15
+                else
+                    humLocal.JumpHeight = humLocal.JumpHeight - 15
+                end
+            end
+            _G.TarotState.activeEffects.emperorDefense = false
+        end
+    },
+    {
+        name = "Judgment",
+        reversed = false,
+        description = "An angel emerges from the clouds blowing a trumpet, calling forth the dead from their graves.",
+        functionDesc = "• Removes all current debuffs\n• +30 Speed boost for 15 seconds\n• Immunity to debuffs for 10 seconds",
+        apply = function()
+            _G.TarotState.activeEffects.judgmentActive = true
+            clearDebuffs()
+            print("Judgment: All debuffs removed!")
+            local humLocal = player.Character and player.Character:FindFirstChild("Humanoid")
+            if humLocal then
+                humLocal.WalkSpeed = humLocal.WalkSpeed + 30
+                spawn(function()
+                    wait(15)
+                    if humLocal then
+                        humLocal.WalkSpeed = humLocal.WalkSpeed - 30
+                    end
+                end)
+            end
+            _G.TarotState.activeEffects.judgmentImmunity = true
+            spawn(function()
+                wait(10)
+                _G.TarotState.activeEffects.judgmentImmunity = false
+            end)
+        end,
+        remove = function()
+            _G.TarotState.activeEffects.judgmentActive = false
+        end
+    },
+    {
+        name = "Wheel of Fortune [REVERSED]",
+        reversed = true,
+        description = "The books held by the creatures no longer signify accessible wisdom, but obscured knowledge and misinterpretation.",
+        functionDesc = "• ONLY Level 1-5 buffs appear in level-up cards\n• Every 5 minutes: Random debuff",
+        apply = function()
+            _G.TarotState.activeEffects.wheelReversed = true
+            spawn(function()
+                while _G.TarotState.currentCard == "Wheel of Fortune [REVERSED]" do
+                    wait(300)
+                    if _G.TarotState.currentCard == "Wheel of Fortune [REVERSED]" then
+                        print("Wheel of Fortune [REVERSED]: Applying random debuff")
+                        applyRandomDebuff()
+                    end
+                end
+            end)
+        end,
+        remove = function()
+            _G.TarotState.activeEffects.wheelReversed = false
+        end
+    },
+    {
+        name = "Strength [REVERSED]",
+        reversed = true,
+        description = "The woman's calm authority over the lion is diminished, suggesting inner turmoil and self-doubt.",
+        functionDesc = "• Every 1 second: -1 Speed & -1 Jump Power\n• Losses are PERMANENT (kept after card replacement)",
+        apply = function()
+            _G.TarotState.activeEffects.strengthReversedTimer = game:GetService("RunService").Heartbeat:Connect(function()
+                wait(1)
+                if _G.TarotState.currentCard == "Strength [REVERSED]" then
+                    local humLocal = player.Character and player.Character:FindFirstChild("Humanoid")
+                    if humLocal then
+                        _G.TarotState.permanentSpeedBoost = _G.TarotState.permanentSpeedBoost - 1
+                        _G.TarotState.permanentJumpBoost = _G.TarotState.permanentJumpBoost - 1
+                        humLocal.WalkSpeed = math.max(1, humLocal.WalkSpeed - 1)
+                        if humLocal.JumpPower then
+                            humLocal.JumpPower = math.max(1, humLocal.JumpPower - 1)
+                        else
+                            humLocal.JumpHeight = math.max(1, humLocal.JumpHeight - 1)
+                        end
+                        print("Strength [REVERSED]: -1 Speed, -1 Jump")
+                    end
+                end
+            end)
+        end,
+        remove = function()
+            if _G.TarotState.activeEffects.strengthReversedTimer then
+                _G.TarotState.activeEffects.strengthReversedTimer:Disconnect()
+                _G.TarotState.activeEffects.strengthReversedTimer = nil
+            end
+        end
+    },
+    {
+        name = "The Lovers [REVERSED]",
+        reversed = true,
+        description = "The blessing of the angel appears weakened, suggesting misalignment and disharmony.",
+        functionDesc = "• Players within 50 studs: -10 Speed & -10 Jump per player\n• Stacks with multiple players\n• Restored when players leave range",
+        apply = function()
+            _G.TarotState.loversNearbyPlayers = {}
+            _G.TarotState.activeEffects.loversReversedCheck = game:GetService("RunService").Heartbeat:Connect(function()
+                wait(0.5)
+                if _G.TarotState.currentCard ~= "The Lovers [REVERSED]" then return end
+                local char = player.Character
+                if not char then return end
+                local hrpLocal = char:FindFirstChild("HumanoidRootPart")
+                local humLocal = char:FindFirstChild("Humanoid")
+                if not hrpLocal or not humLocal then return end
+                local currentNearby = {}
+                for _, otherPlayer in pairs(game.Players:GetPlayers()) do
+                    if otherPlayer ~= player and otherPlayer.Character then
+                        local otherHrp = otherPlayer.Character:FindFirstChild("HumanoidRootPart")
+                        if otherHrp then
+                            local distance = (hrpLocal.Position - otherHrp.Position).Magnitude
+                            if distance <= 50 then
+                                currentNearby[otherPlayer.UserId] = true
+                                if not _G.TarotState.loversNearbyPlayers[otherPlayer.UserId] then
+                                    _G.TarotState.loversNearbyPlayers[otherPlayer.UserId] = true
+                                    humLocal.WalkSpeed = math.max(1, humLocal.WalkSpeed - 10)
+                                    if humLocal.JumpPower then
+                                        humLocal.JumpPower = math.max(1, humLocal.JumpPower - 10)
+                                    else
+                                        humLocal.JumpHeight = math.max(1, humLocal.JumpHeight - 10)
+                                    end
+                                    print("The Lovers [REVERSED]: " .. otherPlayer.Name .. " entered range (-10 Speed, -10 Jump)")
+                                end
+                            end
+                        end
+                    end
+                end
+                for userId, _ in pairs(_G.TarotState.loversNearbyPlayers) do
+                    if not currentNearby[userId] then
+                        _G.TarotState.loversNearbyPlayers[userId] = nil
+                        humLocal.WalkSpeed = humLocal.WalkSpeed + 10
+                        if humLocal.JumpPower then
+                            humLocal.JumpPower = humLocal.JumpPower + 10
+                        else
+                            humLocal.JumpHeight = humLocal.JumpHeight + 10
+                        end
+                        print("The Lovers [REVERSED]: Player left range (+10 Speed, +10 Jump restored)")
+                    end
+                end
+            end)
+        end,
+        remove = function()
+            if _G.TarotState.activeEffects.loversReversedCheck then
+                _G.TarotState.activeEffects.loversReversedCheck:Disconnect()
+                _G.TarotState.activeEffects.loversReversedCheck = nil
+            end
+            local humLocal = player.Character and player.Character:FindFirstChild("Humanoid")
+            if humLocal then
+                local count = 0
+                for _ in pairs(_G.TarotState.loversNearbyPlayers) do
+                    count = count + 1
+                end
+                humLocal.WalkSpeed = humLocal.WalkSpeed + (count * 10)
+                if humLocal.JumpPower then
+                    humLocal.JumpPower = humLocal.JumpPower + (count * 10)
+                else
+                    humLocal.JumpHeight = humLocal.JumpHeight + (count * 10)
+                end
+            end
+            _G.TarotState.loversNearbyPlayers = {}
+        end
+    },
+    {
+        name = "The Devil [REVERSED]",
+        reversed = true,
+        description = "The chains appear loose or removable, symbolizing awareness and the potential to reclaim personal autonomy.",
+        functionDesc = "✨ BLESSING CARD (Appears after 10th reversed card)\n• Removes 3 random debuffs\n• Converts them to 3 random buffs\n• Removed debuffs NEVER return",
+        isSpecial = true,
+        triggerCount = 10,
+        reversed = true,
+        apply = function()
+            print("✨ THE DEVIL [REVERSED] HAS APPEARED! 3 DEBUFFS WILL BE BLESSED!")
+            for i = 1, 3 do
+                if #activeDebuffs > 0 then
+                    local randIdx = math.random(1, #activeDebuffs)
+                    table.remove(activeDebuffs, randIdx)
+                end
+            end
+            updateBuffDebuffUI()
+        end,
+        remove = function() end
+    },
+    {
+        name = "The Magician [REVERSED]",
+        reversed = true,
+        description = "The tools of creation appear misused or ignored. Skills are present but misapplied.",
+        functionDesc = "• Cooldowns increased by 100%\n• Tool uses halved\n• -25% XP gain",
+        apply = function()
+            _G.TarotState.activeEffects.magicianReversedDebuff = true
+            stats.extraXPGain = stats.extraXPGain - 5
+            print("The Magician [REVERSED]: Your power is weakened!")
+        end,
+        remove = function()
+            _G.TarotState.activeEffects.magicianReversedDebuff = false
+            stats.extraXPGain = stats.extraXPGain + 5
+        end
+    },
+    {
+        name = "The Star [REVERSED]",
+        reversed = true,
+        description = "The eight stars above fade or become obscured by clouds, representing lost hope and disillusionment.",
+        functionDesc = "• Next buff becomes a debuff\n• -15 Speed & -10 Jump Power",
+        apply = function()
+            _G.TarotState.activeEffects.starReversedCurse = true
+            local humLocal = player.Character and player.Character:FindFirstChild("Humanoid")
+            if humLocal then
+                humLocal.WalkSpeed = math.max(1, humLocal.WalkSpeed - 15)
+                if humLocal.JumpPower then
+                    humLocal.JumpPower = math.max(1, humLocal.JumpPower - 10)
+                else
+                    humLocal.JumpHeight = math.max(1, humLocal.JumpHeight - 10)
+                end
+            end
+            print("The Star [REVERSED]: Hope fades away...")
+        end,
+        remove = function()
+            _G.TarotState.activeEffects.starReversedCurse = false
+            local humLocal = player.Character and player.Character:FindFirstChild("Humanoid")
+            if humLocal then
+                humLocal.WalkSpeed = humLocal.WalkSpeed + 15
+                if humLocal.JumpPower then
+                    humLocal.JumpPower = humLocal.JumpPower + 10
+                else
+                    humLocal.JumpHeight = humLocal.JumpHeight + 10
+                end
+            end
+        end
+    },
+    {
+        name = "The Emperor [REVERSED]",
+        reversed = true,
+        description = "The Emperor's throne appears unstable, suggesting tyranny or collapsed leadership.",
+        functionDesc = "• -20 Speed & -15 Jump Power\n• Constant knockback vulnerability",
+        apply = function()
+            local humLocal = player.Character and player.Character:FindFirstChild("Humanoid")
+            if humLocal then
+                humLocal.WalkSpeed = math.max(1, humLocal.WalkSpeed - 20)
+                if humLocal.JumpPower then
+                    humLocal.JumpPower = math.max(1, humLocal.JumpPower - 15)
+                else
+                    humLocal.JumpHeight = math.max(1, humLocal.JumpHeight - 15)
+                end
+            end
+            _G.TarotState.activeEffects.emperorReversedWeakness = true
+            print("The Emperor [REVERSED]: Your authority crumbles!")
+        end,
+        remove = function()
+            local humLocal = player.Character and player.Character:FindFirstChild("Humanoid")
+            if humLocal then
+                humLocal.WalkSpeed = humLocal.WalkSpeed + 20
+                if humLocal.JumpPower then
+                    humLocal.JumpPower = humLocal.JumpPower + 15
+                else
+                    humLocal.JumpHeight = humLocal.JumpHeight + 15
+                end
+            end
+            _G.TarotState.activeEffects.emperorReversedWeakness = false
+        end
+    },
+    {
+        name = "Judgment [REVERSED]",
+        reversed = true,
+        description = "The angel's trumpet sounds faintly or not at all. Judgment reversed embodies harsh self-criticism.",
+        functionDesc = "• Gain 2 random debuffs immediately\n• -30 Speed for 20 seconds\n• Cannot remove debuffs for 15 seconds",
+        apply = function()
+            _G.TarotState.activeEffects.judgmentReversedCurse = true
+            for i = 1, 2 do
+                applyRandomDebuff()
+            end
+            print("Judgment [REVERSED]: 2 random debuffs applied!")
+            local humLocal = player.Character and player.Character:FindFirstChild("Humanoid")
+            if humLocal then
+                humLocal.WalkSpeed = math.max(1, humLocal.WalkSpeed - 30)
+                spawn(function()
+                    wait(20)
+                    if humLocal then
+                        humLocal.WalkSpeed = humLocal.WalkSpeed + 30
+                    end
+                end)
+            end
+            _G.TarotState.activeEffects.judgmentBlockRemoval = true
+            spawn(function()
+                wait(15)
+                _G.TarotState.activeEffects.judgmentBlockRemoval = false
+            end)
+        end,
+        remove = function()
+            _G.TarotState.activeEffects.judgmentReversedCurse = false
+        end
+    }
+}
+
+-- Show Tarot Card GUI
+showTarotCard = function(card)
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "TarotCardGui"
+    screenGui.ResetOnSpawn = false
+    screenGui.Parent = player.PlayerGui
+    
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(0, 600, 0, 500)
+    frame.Position = UDim2.new(0.5, -300, 0.5, -250)
+    frame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+    frame.BorderSizePixel = 3
+    frame.BorderColor3 = card.reversed and Color3.fromRGB(150, 0, 200) or Color3.fromRGB(255, 200, 0)
+    frame.BackgroundTransparency = 0.1
+    frame.Parent = screenGui
+    
+    local cardName = Instance.new("TextLabel")
+    cardName.Size = UDim2.new(1, 0, 0, 60)
+    cardName.Position = UDim2.new(0, 0, 0, 10)
+    cardName.BackgroundTransparency = 1
+    cardName.Text = card.name
+    cardName.TextColor3 = card.reversed and Color3.fromRGB(200, 50, 255) or Color3.fromRGB(255, 215, 0)
+    cardName.Font = Enum.Font.GothamBold
+    cardName.TextSize = 28
+    cardName.TextStrokeTransparency = 0.5
+    cardName.Parent = frame
+    
+    local descScrollFrame = Instance.new("ScrollingFrame")
+    descScrollFrame.Size = UDim2.new(1, -40, 0, 200)
+    descScrollFrame.Position = UDim2.new(0, 20, 0, 80)
+    descScrollFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    descScrollFrame.BorderSizePixel = 1
+    descScrollFrame.BorderColor3 = Color3.fromRGB(100, 100, 100)
+    descScrollFrame.ScrollBarThickness = 6
+    descScrollFrame.Parent = frame
+    
+    local descLabel = Instance.new("TextLabel")
+    descLabel.Size = UDim2.new(1, -20, 0, 0)
+    descLabel.Position = UDim2.new(0, 10, 0, 10)
+    descLabel.BackgroundTransparency = 1
+    descLabel.Text = card.description
+    descLabel.TextColor3 = Color3.fromRGB(220, 220, 220)
+    descLabel.Font = Enum.Font.Gotham
+    descLabel.TextSize = 14
+    descLabel.TextWrapped = true
+    descLabel.TextXAlignment = Enum.TextXAlignment.Left
+    descLabel.TextYAlignment = Enum.TextYAlignment.Top
+    descLabel.Parent = descScrollFrame
+    
+    descLabel.Size = UDim2.new(1, -20, 0, descLabel.TextBounds.Y + 20)
+    descScrollFrame.CanvasSize = UDim2.new(0, 0, 0, descLabel.TextBounds.Y + 30)
+    
+    local funcLabel = Instance.new("TextLabel")
+    funcLabel.Size = UDim2.new(1, -40, 0, 150)
+    funcLabel.Position = UDim2.new(0, 20, 0, 295)
+    funcLabel.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+    funcLabel.BorderSizePixel = 1
+    funcLabel.BorderColor3 = card.reversed and Color3.fromRGB(200, 0, 0) or Color3.fromRGB(0, 200, 0)
+    funcLabel.Text = "EFFECTS:\n" .. card.functionDesc
+    funcLabel.TextColor3 = card.reversed and Color3.fromRGB(255, 100, 100) or Color3.fromRGB(100, 255, 100)
+    funcLabel.Font = Enum.Font.GothamBold
+    funcLabel.TextSize = 14
+    funcLabel.TextWrapped = true
+    funcLabel.TextXAlignment = Enum.TextXAlignment.Left
+    funcLabel.TextYAlignment = Enum.TextYAlignment.Top
+    local padding = Instance.new("UIPadding")
+    padding.PaddingLeft = UDim.new(0, 10)
+    padding.PaddingTop = UDim.new(0, 10)
+    padding.PaddingRight = UDim.new(0, 10)
+    padding.Parent = funcLabel
+    funcLabel.Parent = frame
+    
+    wait(5)
+    local fadeInfo = TweenInfo.new(2, Enum.EasingStyle.Linear, Enum.EasingDirection.Out)
+    local fadeTween = TweenService:Create(frame, fadeInfo, {BackgroundTransparency = 1})
+    
+    for _, child in ipairs(frame:GetDescendants()) do
+        if child:IsA("TextLabel") then
+            TweenService:Create(child, fadeInfo, {TextTransparency = 1, TextStrokeTransparency = 1}):Play()
+        elseif child:IsA("Frame") or child:IsA("ScrollingFrame") then
+            TweenService:Create(child, fadeInfo, {BackgroundTransparency = 1}):Play()
+        end
+    end
+    
+    fadeTween:Play()
+    fadeTween.Completed:Connect(function()
+        screenGui:Destroy()
+    end)
+end
+
+-- Draw a random tarot card
+drawTarotCard = function(isDeath)
+    local availableCards = {}
+    
+    if isDeath then
+        _G.TarotState.cardCount = (_G.TarotState.cardCount or 0) + 1
+        if _G.TarotState.cardCount % 10 == 0 then
+            for _, card in ipairs(tarotCards) do
+                if card.name == "The Devil [REVERSED]" then
+                    return card
+                end
+            end
+        end
+        for _, card in ipairs(tarotCards) do
+            if card.reversed and not card.isSpecial then
+                table.insert(availableCards, card)
+            end
+        end
+    else
+        _G.TarotState.cardCount = (_G.TarotState.cardCount or 0) + 1
+        if _G.TarotState.cardCount % 10 == 0 then
+            for _, card in ipairs(tarotCards) do
+                if card.name == "The Devil" then
+                    return card
+                end
+            end
+        end
+        for _, card in ipairs(tarotCards) do
+            if not card.reversed and not card.isSpecial then
+                table.insert(availableCards, card)
+            end
+        end
+    end
+    
+    if #availableCards > 0 then
+        return availableCards[math.random(1, #availableCards)]
+    end
+    return nil
+end
+
+-- Replace current tarot card
+replaceTarotCard = function(newCard)
+    if _G.TarotState.currentCard then
+        for _, card in ipairs(tarotCards) do
+            if card.name == _G.TarotState.currentCard then
+                card.remove()
+                break
+            end
+        end
+    end
+    
+    _G.TarotState.currentCard = newCard.name
+    newCard.apply()
+    showTarotCard(newCard)
+    print("Tarot Card drawn: " .. newCard.name)
+end
+
+-- Hook into kill detection
+onTarotKill = function()
+    if not _G.TarotState.hasTenthStars then return end
+    local card = drawTarotCard(false)
+    if card then
+        replaceTarotCard(card)
+    end
+end
+
+-- Hook into death detection
+onTarotDeath = function()
+    if not _G.TarotState.hasTenthStars then return end
+    local card = drawTarotCard(true)
+    if card then
+        replaceTarotCard(card)
+    end
+end
+
+-- Initialize The Tenth Stars of Dignity buff
+initializeTenthStars = function()
+    if _G.TarotState.hasTenthStars then
+        print("The Tenth Stars of Dignity can only be applied ONCE!")
+        return
+    end
+    _G.TarotState.hasTenthStars = true
+    print("✨ THE TENTH STARS OF DIGNITY ACTIVATED!")
+    print("Kill players to draw upright tarot cards (buffs)")
+    print("Die to draw reversed tarot cards (debuffs)")
+    print("Every 10th card will be a special card!")
+end
+
+-- ==================== END TAROT SYSTEM ====================
 
 -- Debuffs Database
 local debuffs = {
@@ -114,9 +820,7 @@ local debuffs = {
         apply = function()
             acquiredToolEffects = {}
         end,
-        remove = function()
-            -- Tools will naturally respawn on next death
-        end
+        remove = function() end
     },
     {
         name = "Hopeless",
@@ -131,9 +835,7 @@ local debuffs = {
                 end
             end
         end,
-        remove = function()
-            -- Buffs are permanently lost
-        end
+        remove = function() end
     },
     {
         name = "Meaningless",
@@ -148,12 +850,8 @@ local debuffs = {
     {
         name = "Misfortune",
         desc = "Level 10-50 buffs can't spawn",
-        apply = function()
-            -- Handled in showBuffCards
-        end,
-        remove = function()
-            -- Handled in showBuffCards
-        end
+        apply = function() end,
+        remove = function() end
     },
     {
         name = "Slothful",
@@ -174,7 +872,6 @@ local debuffs = {
                 slothfulConnection:Disconnect()
                 slothfulConnection = nil
             end
-            -- Restore the speed that was lost
             if humanoid and slothfulDecreaseAmount > 0 then
                 humanoid.WalkSpeed = humanoid.WalkSpeed + slothfulDecreaseAmount
                 print("Slothful removed: Restored " .. slothfulDecreaseAmount .. " speed")
@@ -185,32 +882,20 @@ local debuffs = {
     {
         name = "Sinner",
         desc = "Can't gain buffs",
-        apply = function()
-            -- Handled in showBuffCards and buff selection
-        end,
-        remove = function()
-            -- Handled in showBuffCards
-        end
+        apply = function() end,
+        remove = function() end
     },
     {
         name = "Genesis",
         desc = "2 debuffs on death instead of 1",
-        apply = function()
-            -- Handled in death detection
-        end,
-        remove = function()
-            -- No special cleanup needed
-        end
+        apply = function() end,
+        remove = function() end
     },
     {
         name = "Mimicry",
         desc = "Die if someone dies within 11-25 studs",
-        apply = function()
-            -- Handled in kill detection system
-        end,
-        remove = function()
-            -- No special cleanup needed
-        end
+        apply = function() end,
+        remove = function() end
     },
     {
         name = "Payment",
@@ -226,22 +911,32 @@ local debuffs = {
             end
         end,
         remove = function()
-            -- Payment debuff cannot be removed
             print("Payment debuff cannot be removed!")
         end,
-        isPayment = true -- Special flag
+        isPayment = true
     }
 }
 
 -- Apply Random Debuff on Death
 applyRandomDebuff = function()
-    -- Check for Immunity buff
+    -- Check for Star immunity
+    if _G.TarotState.activeEffects.starImmunity then
+        print("The Star immunity blocked a debuff!")
+        _G.TarotState.activeEffects.starImmunity = false
+        return
+    end
+    
+    -- Check for Judgment immunity
+    if _G.TarotState.activeEffects.judgmentImmunity then
+        print("Judgment immunity blocked a debuff!")
+        return
+    end
+    
     if hasImmunity then
         print("Immunity active! No debuff applied, but Payment cost will be added on respawn.")
         return
     end
     
-    -- Check for Genesis debuff (apply 2 debuffs instead of 1)
     local hasGenesis = false
     for _, debuffName in ipairs(activeDebuffs) do
         if debuffName == "Genesis" then
@@ -255,7 +950,6 @@ applyRandomDebuff = function()
     for i = 1, numDebuffs do
         if #debuffs > 0 then
             local randDebuff = debuffs[math.random(1, #debuffs)]
-            -- Skip Payment debuff from random selection
             while randDebuff.isPayment do
                 randDebuff = debuffs[math.random(1, #debuffs)]
             end
@@ -268,7 +962,6 @@ applyRandomDebuff = function()
     updateBuffDebuffUI()
 end
 
--- Apply Payment Debuff (for Immunity)
 local function applyPaymentDebuff()
     for _, debuff in ipairs(debuffs) do
         if debuff.isPayment then
@@ -281,10 +974,14 @@ local function applyPaymentDebuff()
     end
 end
 
--- Clear One Random Debuff
 local function clearOneDebuff()
+    -- Check if Judgment [REVERSED] is blocking removal
+    if _G.TarotState.activeEffects.judgmentBlockRemoval then
+        print("Judgment [REVERSED] prevents debuff removal!")
+        return
+    end
+    
     if #activeDebuffs > 0 then
-        -- Filter out Payment debuffs (they cannot be removed)
         local removableDebuffs = {}
         for i, debuffName in ipairs(activeDebuffs) do
             if debuffName ~= "Payment" then
@@ -296,7 +993,6 @@ local function clearOneDebuff()
             local selected = removableDebuffs[math.random(1, #removableDebuffs)]
             local debuffName = selected.name
             
-            -- Find and remove the debuff
             for _, debuff in ipairs(debuffs) do
                 if debuff.name == debuffName then
                     debuff.remove()
@@ -313,7 +1009,6 @@ local function clearOneDebuff()
     end
 end
 
--- Clear All Debuffs (used for skip button)
 clearDebuffs = function()
     for _, debuffName in ipairs(activeDebuffs) do
         for _, debuff in ipairs(debuffs) do
@@ -328,7 +1023,6 @@ clearDebuffs = function()
     print("All debuffs cleared!")
 end
 
--- Transparency Function
 local function setTransparency(character, transparency)
     for _, part in pairs(character:GetDescendants()) do
         if part:IsA("BasePart") or part:IsA("Decal") then
@@ -468,7 +1162,6 @@ local buffs = {
         table.insert(activeBuffs, "Radar")
     end, req = 25},
     {name = "intesignal", desc = "Infinite ESP, 15s CD, Lose 3 buffs", effect = function() 
-        -- Remove 3 random buffs
         for i = 1, 3 do
             if #activeBuffs > 0 then
                 local randIdx = math.random(1, #activeBuffs)
@@ -501,6 +1194,15 @@ local buffs = {
             table.insert(activeBuffs, "Shadow Steps")
         end, 
         req = 45
+    },
+    {
+        name = "The Tenth Stars of Dignity", 
+        desc = "Draw tarot cards on kills (buffs) or deaths (debuffs). Only obtainable ONCE!", 
+        effect = function() 
+            initializeTenthStars()
+            table.insert(activeBuffs, "The Tenth Stars of Dignity")
+        end, 
+        req = 70
     }
 }
 
@@ -510,7 +1212,6 @@ screenGui.Name = "RogueCheatGUI"
 screenGui.ResetOnSpawn = false
 screenGui.Parent = player.PlayerGui
 
--- XP Bar Frame
 local xpFrame = Instance.new("Frame")
 xpFrame.Size = UDim2.new(0, 300, 0, 60)
 xpFrame.Position = UDim2.new(0.5, -150, 0, 20)
@@ -552,7 +1253,6 @@ xpLabel.Font = Enum.Font.Gotham
 xpLabel.TextSize = 12
 xpLabel.Parent = xpFrame
 
--- Active Buffs Button
 local activeBuffsButton = Instance.new("TextButton")
 activeBuffsButton.Size = UDim2.new(0, 70, 0, 25)
 activeBuffsButton.Position = UDim2.new(0, 10, 1, 5)
@@ -565,7 +1265,6 @@ activeBuffsButton.Font = Enum.Font.GothamBold
 activeBuffsButton.TextSize = 12
 activeBuffsButton.Parent = xpFrame
 
--- Active Debuffs Button
 local activeDebuffsButton = Instance.new("TextButton")
 activeDebuffsButton.Size = UDim2.new(0, 70, 0, 25)
 activeDebuffsButton.Position = UDim2.new(0, 90, 1, 5)
@@ -578,7 +1277,6 @@ activeDebuffsButton.Font = Enum.Font.GothamBold
 activeDebuffsButton.TextSize = 12
 activeDebuffsButton.Parent = xpFrame
 
--- Buffs Dropdown
 local buffsDropdown = Instance.new("Frame")
 buffsDropdown.Size = UDim2.new(0, 200, 0, 250)
 buffsDropdown.Position = UDim2.new(0, 0, 1, 30)
@@ -620,7 +1318,6 @@ closeBuffsButton.Font = Enum.Font.GothamBold
 closeBuffsButton.TextSize = 12
 closeBuffsButton.Parent = buffsDropdown
 
--- Debuffs Dropdown
 local debuffsDropdown = Instance.new("Frame")
 debuffsDropdown.Size = UDim2.new(0, 200, 0, 250)
 debuffsDropdown.Position = UDim2.new(0, 0, 1, 30)
@@ -662,7 +1359,6 @@ closeDebuffsButton.Font = Enum.Font.GothamBold
 closeDebuffsButton.TextSize = 12
 closeDebuffsButton.Parent = debuffsDropdown
 
--- Button Connections
 activeBuffsButton.MouseButton1Click:Connect(function()
     buffsDropdown.Visible = not buffsDropdown.Visible
     debuffsDropdown.Visible = false
@@ -681,9 +1377,7 @@ closeDebuffsButton.MouseButton1Click:Connect(function()
     debuffsDropdown.Visible = false
 end)
 
--- Update Buff/Debuff UI
 updateBuffDebuffUI = function()
-    -- Clear existing items
     for _, child in ipairs(buffsScrollFrame:GetChildren()) do
         if child:IsA("TextLabel") and child.Name == "BuffItem" then
             child:Destroy()
@@ -695,7 +1389,6 @@ updateBuffDebuffUI = function()
         end
     end
     
-    -- Add active buffs
     for _, buffName in ipairs(activeBuffs) do
         local item = Instance.new("TextLabel")
         item.Name = "BuffItem"
@@ -713,7 +1406,6 @@ updateBuffDebuffUI = function()
         item.Parent = buffsScrollFrame
     end
     
-    -- Add active debuffs
     for _, debuffName in ipairs(activeDebuffs) do
         local item = Instance.new("TextLabel")
         item.Name = "DebuffItem"
@@ -735,7 +1427,6 @@ updateBuffDebuffUI = function()
     debuffsScrollFrame.CanvasSize = UDim2.new(0, 0, 0, debuffsListLayout.AbsoluteContentSize.Y)
 end
 
--- Skip to Next Level Button
 local skipButton = Instance.new("TextButton")
 skipButton.Size = UDim2.new(0, 150, 0, 40)
 skipButton.Position = UDim2.new(1, -160, 0, 10)
@@ -757,7 +1448,6 @@ skipButton.MouseButton1Click:Connect(function()
     showBuffCards()
 end)
 
--- Dropdown for all buffs (cheat menu)
 local dropdownButton = Instance.new("TextButton")
 dropdownButton.Size = UDim2.new(0, 100, 0, 30)
 dropdownButton.Position = UDim2.new(0, 10, 0, 10)
@@ -808,7 +1498,6 @@ dropdownButton.MouseButton1Click:Connect(function()
     buffListFrame.Visible = not buffListFrame.Visible
 end)
 
--- Update XP Bar Display
 updateXPBar = function()
     local progress = stats.xp / stats.xpRequired
     xpBar:TweenSize(UDim2.new(progress, 0, 1, 0), "Out", "Quad", 0.3, true)
@@ -816,7 +1505,6 @@ updateXPBar = function()
     xpLabel.Text = stats.xp .. " / " .. stats.xpRequired .. " XP"
 end
 
--- Create Teleport Tool
 createTeleportTool = function(uses)
     local mouse = player:GetMouse()
     local tool = Instance.new("Tool")
@@ -910,9 +1598,6 @@ createDashTool = function()
     tool.Parent = player.Backpack
 end
 
--- Shadow Steps Tool - Level 45 Buff
--- Faster dash with invisibility and noclip
-
 createShadowStepsTool = function()
     local tool = Instance.new("Tool")
     tool.RequiresHandle = false
@@ -930,58 +1615,37 @@ createShadowStepsTool = function()
         
         if os.time() - lastUse >= cooldown then
             lastUse = os.time()
-            
-            -- Save original state
             local originalSpeed = humanoid.WalkSpeed
             local dashSpeed = 20 + originalSpeed
             local dashDuration = 1.5
             
-            -- Enable invisibility
-            local function setTransparency(char, transparency)
-                for _, part in pairs(char:GetDescendants()) do
-                    if part:IsA("BasePart") then
-                        part.Transparency = transparency
-                    elseif part:IsA("Decal") then
-                        part.Transparency = transparency
-                    end
-                end
-            end
-            
-            -- Make invisible
             setTransparency(character, 1)
             
-            -- Enable noclip
             for _, part in pairs(character:GetDescendants()) do
                 if part:IsA("BasePart") then
                     part.CanCollide = false
                 end
             end
             
-            -- Apply dash forward
             local bodyVel = Instance.new("BodyVelocity")
             bodyVel.MaxForce = Vector3.new(100000, 0, 100000)
             bodyVel.Velocity = hrp.CFrame.LookVector * dashSpeed
             bodyVel.Parent = hrp
             
-            -- Wait for dash duration
             wait(dashDuration)
             
-            -- Remove dash
             if bodyVel and bodyVel.Parent then
                 bodyVel:Destroy()
             end
             
-            -- Restore visibility
             setTransparency(character, 0)
             
-            -- Restore collision
             for _, part in pairs(character:GetDescendants()) do
                 if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
                     part.CanCollide = true
                 end
             end
             
-            -- Start cooldown display
             spawn(function()
                 if onCooldown then return end
                 onCooldown = true
@@ -1230,7 +1894,6 @@ createIntesignalTool = function()
     tool.Parent = player.Backpack
 end
 
--- Create Gambling Tool
 createGamblingTool = function()
     local tool = Instance.new("Tool")
     tool.RequiresHandle = false
@@ -1241,7 +1904,6 @@ createGamblingTool = function()
     local isRolling = false
     
     tool.Activated:Connect(function()
-        -- Check if already rolling or on cooldown
         if isRolling then
             print("Gambling is already in progress!")
             return
@@ -1256,7 +1918,6 @@ createGamblingTool = function()
         isRolling = true
         lastUse = os.time()
         
-        -- Create slot machine GUI
         local slotGui = Instance.new("ScreenGui")
         slotGui.Name = "SlotMachineGui"
         slotGui.Parent = player.PlayerGui
@@ -1278,7 +1939,6 @@ createGamblingTool = function()
         title.TextSize = 20
         title.Parent = frame
         
-        -- 3 slot reels
         local slots = {}
         for i = 1, 3 do
             local slot = Instance.new("TextLabel")
@@ -1305,15 +1965,13 @@ createGamblingTool = function()
         resultLabel.TextSize = 16
         resultLabel.Parent = frame
         
-        -- Symbol pool
         local symbols = {"🍎", "🍌", "💧", "🔥", "7"}
         
-        -- Determine outcome based on weighted chances
         local roll = math.random(1, 75)
         local finalSymbol
         
         if roll <= 37 then
-            finalSymbol = nil -- Miss
+            finalSymbol = nil
         elseif roll <= 56 then
             finalSymbol = "🍎"
         elseif roll <= 64 then
@@ -1326,7 +1984,6 @@ createGamblingTool = function()
             finalSymbol = "7"
         end
         
-        -- Animate rolling
         spawn(function()
             for spin = 1, 20 do
                 for i, slot in ipairs(slots) do
@@ -1335,7 +1992,6 @@ createGamblingTool = function()
                 wait(0.1)
             end
             
-            -- Slow down animation
             for spin = 1, 10 do
                 for i, slot in ipairs(slots) do
                     slot.Text = symbols[math.random(1, #symbols)]
@@ -1343,13 +1999,11 @@ createGamblingTool = function()
                 wait(0.2)
             end
             
-            -- Show final result
             if finalSymbol then
                 for i, slot in ipairs(slots) do
                     slot.Text = finalSymbol
                 end
                 
-                -- Grant buff based on symbol (dynamically reads from buffs table)
                 if finalSymbol == "🍎" then
                     resultLabel.Text = "🍎 APPLE WIN! Random Level 1 Buff!"
                     resultLabel.TextColor3 = Color3.fromRGB(0, 255, 0)
@@ -1442,7 +2096,6 @@ createGamblingTool = function()
                     end
                 end
             else
-                -- Miss - random symbols
                 slots[1].Text = symbols[math.random(1, #symbols)]
                 slots[2].Text = symbols[math.random(1, #symbols)]
                 slots[3].Text = symbols[math.random(1, #symbols)]
@@ -1456,7 +2109,6 @@ createGamblingTool = function()
             slotGui:Destroy()
             isRolling = false
             
-            -- Start cooldown AFTER result is shown
             spawn(function()
                 for i = cooldown, 1, -1 do
                     tool.Name = "Let's Go Gambling! (Cooldown: " .. i .. "s)"
@@ -1471,7 +2123,6 @@ createGamblingTool = function()
 end
 
 showBuffCards = function()
-    -- Check for Sinner debuff
     local hasSinner = false
     for _, debuffName in ipairs(activeDebuffs) do
         if debuffName == "Sinner" then
@@ -1482,7 +2133,6 @@ showBuffCards = function()
     
     if hasSinner then
         print("Sinner debuff active - cannot gain buffs! Removing Sinner debuff...")
-        -- Remove Sinner debuff
         for i, debuffName in ipairs(activeDebuffs) do
             if debuffName == "Sinner" then
                 for _, debuff in ipairs(debuffs) do
@@ -1496,7 +2146,7 @@ showBuffCards = function()
             end
         end
         updateBuffDebuffUI()
-        return -- Don't show cards
+        return
     end
     
     local cardFrame = Instance.new("Frame")
@@ -1516,7 +2166,6 @@ showBuffCards = function()
     title.TextSize = 20
     title.Parent = cardFrame
     
-    -- Check for Misfortune debuff
     local hasMisfortune = false
     local misfortuneIndex = nil
     for i, debuffName in ipairs(activeDebuffs) do
@@ -1527,10 +2176,20 @@ showBuffCards = function()
         end
     end
     
+    -- Check for Wheel of Fortune / Wheel of Fortune [REVERSED]
+    local wheelOfFortuneActive = _G.TarotState.activeEffects.wheelOfFortune
+    local wheelReversedActive = _G.TarotState.activeEffects.wheelReversed
+    
     local availableBuffs = {}
     for _, buff in ipairs(buffs) do
         local canAdd = stats.level >= buff.req
         if hasMisfortune and buff.req >= 10 and buff.req <= 50 then
+            canAdd = false
+        end
+        if wheelOfFortuneActive and (buff.req < 10 or buff.req > 45) then
+            canAdd = false
+        end
+        if wheelReversedActive and buff.req > 5 then
             canAdd = false
         end
         if canAdd then
@@ -1588,12 +2247,18 @@ showBuffCards = function()
         end)
         
         card.MouseButton1Click:Connect(function()
-            buff.effect()
-            if isToolBuff[buff.name] then
-                table.insert(acquiredToolEffects, buff.effect)
+            -- Check for Star [REVERSED] curse
+            if _G.TarotState.activeEffects.starReversedCurse then
+                print("Star [REVERSED] curse activated! Buff becomes a debuff!")
+                _G.TarotState.activeEffects.starReversedCurse = false
+                applyRandomDebuff()
+            else
+                buff.effect()
+                if isToolBuff[buff.name] then
+                    table.insert(acquiredToolEffects, buff.effect)
+                end
             end
             
-            -- Remove Misfortune debuff AFTER card is chosen
             if hasMisfortune and misfortuneIndex then
                 for _, debuff in ipairs(debuffs) do
                     if debuff.name == "Misfortune" then
@@ -1620,7 +2285,7 @@ addXP = function(amount)
         stats.level = stats.level + 1
         stats.xpRequired = stats.xpRequired + 10
         
-        clearOneDebuff() -- Remove only 1 random debuff
+        clearOneDebuff()
         updateXPBar()
         showBuffCards()
     else
@@ -1643,7 +2308,6 @@ local function setupCharacter(newCharacter)
     
     lastHealth = humanoid.Health
     
-    -- Check for Empty Handed debuff
     local hasEmptyHanded = false
     for _, debuffName in ipairs(activeDebuffs) do
         if debuffName == "Empty Handed" then
@@ -1658,9 +2322,14 @@ local function setupCharacter(newCharacter)
         end
     end
     
-    -- Death detection for debuff application
     humanoid.Died:Connect(function()
         print("Player died! Waiting for respawn...")
+        
+        -- Trigger tarot death card
+        if _G.TarotState.hasTenthStars then
+            onTarotDeath()
+        end
+        
         local newChar = player.CharacterAdded:Wait()
         wait(0.5)
         print("Applying debuff or Payment...")
@@ -1743,11 +2412,15 @@ spawn(function()
                         if otherHrp and otherHum then
                             local distance = (hrp.Position - otherHrp.Position).Magnitude
                             
-                            -- Kill detection (0-10 studs)
                             if distance <= 10 and otherHum.Health <= 0 then
                                 if not killedPlayers[otherPlayer.UserId] then
                                     killedPlayers[otherPlayer.UserId] = true
                                     addXP(5)
+                                    
+                                    -- Trigger tarot kill card
+                                    if _G.TarotState.hasTenthStars then
+                                        onTarotKill()
+                                    end
                                     
                                     if stats.hasEmpathy then
                                         stats.speedBoosts = stats.speedBoosts + 3
@@ -1777,9 +2450,7 @@ spawn(function()
                                 end
                             end
                             
-                            -- Mimicry debuff detection (11-25 studs)
                             if distance > 10 and distance <= 25 and otherHum.Health <= 0 then
-                                -- Check if player has Mimicry debuff
                                 local hasMimicry = false
                                 for _, debuffName in ipairs(activeDebuffs) do
                                     if debuffName == "Mimicry" then
@@ -1828,4 +2499,6 @@ findSafePlatform = function(pos)
     return nil
 end
 
-print("Rogue Cheat loaded! Kill players within 10 studs for XP!")
+print("Rogue Cheat with Tarot System loaded!")
+print("Kill players within 10 studs for XP!")
+print("Reach Level 70 to unlock The Tenth Stars of Dignity!")
