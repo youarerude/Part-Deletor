@@ -19,6 +19,7 @@ local hasTrauma = false
 -- Active Illusions
 local activeIllusions = {}
 local illusionLoops = {}
+local activeIllusionObjects = {}
 
 -- Current Suit
 local currentSuit = "Standard Suit"
@@ -123,17 +124,6 @@ spText.Font = Enum.Font.GothamBold
 spText.TextSize = 16
 spText.Parent = spFrame
 
--- Weapons Button
-local weaponsBtn = Instance.new("TextButton")
-weaponsBtn.Size = UDim2.new(0, 120, 0, 40)
-weaponsBtn.Position = UDim2.new(0.5, -250, 0, 10)
-weaponsBtn.Text = "WEAPONS"
-weaponsBtn.Font = Enum.Font.GothamBold
-weaponsBtn.TextSize = 18
-weaponsBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
-weaponsBtn.TextColor3 = Color3.new(1, 1, 1)
-weaponsBtn.Parent = screenGui
-
 -- Illusions Button
 local illusionsBtn = Instance.new("TextButton")
 illusionsBtn.Size = UDim2.new(0, 120, 0, 40)
@@ -155,6 +145,17 @@ suitsBtn.TextSize = 18
 suitsBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
 suitsBtn.TextColor3 = Color3.new(1, 1, 1)
 suitsBtn.Parent = screenGui
+
+-- Weapons Button
+local weaponsBtn = Instance.new("TextButton")
+weaponsBtn.Size = UDim2.new(0, 120, 0, 40)
+weaponsBtn.Position = UDim2.new(0.5, 150, 0, 10)
+weaponsBtn.Text = "WEAPONS"
+weaponsBtn.Font = Enum.Font.GothamBold
+weaponsBtn.TextSize = 18
+weaponsBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+weaponsBtn.TextColor3 = Color3.new(1, 1, 1)
+weaponsBtn.Parent = screenGui
 
 -- Illusions GUI (Fixed size - 70% of screen height)
 local illusionsGui = Instance.new("Frame")
@@ -385,7 +386,7 @@ local function resetStats()
     updateBars()
 end
 
-local function applyDamage(damageType, minAmount, maxAmount)
+local function applyDamageToPlayer(damageType, minAmount, maxAmount, attackerSP)
     -- Generate random damage with decimal
     local amount = math.random(minAmount * 10, maxAmount * 10) / 10
     
@@ -393,15 +394,19 @@ local function applyDamage(damageType, minAmount, maxAmount)
     local resistance = suits[currentSuit][damageType] or 1
     amount = amount * resistance
     
+    if attackerSP and attackerSP <= 0 then
+        amount = amount / 2
+    end
+    
     local finalDamage = amount
     
     if damageType == "Crimson" then
         currentHP = math.max(0, currentHP - finalDamage)
     elseif damageType == "Blue" then
-        if currentSP > 0 then
-            currentSP = math.max(0, currentSP - finalDamage)
-        else
+        if attackerSP and attackerSP <= 0 then
             currentHP = math.max(0, currentHP - finalDamage)
+        else
+            currentSP = math.max(0, currentSP - finalDamage)
         end
     elseif damageType == "Purple" then
         currentHP = math.max(0, currentHP - finalDamage)
@@ -411,10 +416,10 @@ local function applyDamage(damageType, minAmount, maxAmount)
         currentHP = math.max(0, currentHP - finalDamage)
     elseif damageType == "White" then
         finalDamage = calculateGreyDamage(amount)
-        if currentSP > 0 then
-            currentSP = math.max(0, currentSP - finalDamage)
-        else
+        if attackerSP and attackerSP <= 0 then
             currentHP = math.max(0, currentHP - finalDamage)
+        else
+            currentSP = math.max(0, currentSP - finalDamage)
         end
     end
     
@@ -436,6 +441,106 @@ local function applyDamage(damageType, minAmount, maxAmount)
     updateBars()
 end
 
+local function applyDamageToIllusion(ill, damageType, minAmount, maxAmount, attackerSP)
+    local amount = math.random(minAmount * 10, maxAmount * 10) / 10
+    
+    if attackerSP <= 0 then
+        amount = amount / 2
+    end
+    
+    local finalDamage = amount
+    
+    if damageType == "Crimson" then
+        ill.hp = math.max(0, ill.hp - finalDamage)
+    elseif damageType == "Blue" then
+        if attackerSP <= 0 then
+            ill.hp = math.max(0, ill.hp - finalDamage)
+        else
+            ill.sp = math.max(0, ill.sp - finalDamage)
+        end
+    elseif damageType == "Purple" then
+        ill.hp = math.max(0, ill.hp - finalDamage)
+        ill.sp = math.max(0, ill.sp - finalDamage)
+    elseif damageType == "Grey" then
+        finalDamage = calculateGreyDamage(amount)
+        ill.hp = math.max(0, ill.hp - finalDamage)
+    elseif damageType == "White" then
+        finalDamage = calculateGreyDamage(amount)
+        if attackerSP <= 0 then
+            ill.hp = math.max(0, ill.hp - finalDamage)
+        else
+            ill.sp = math.max(0, ill.sp - finalDamage)
+        end
+    end
+    
+    -- Show and update bars
+    if not ill.bars then
+        local billboard = Instance.new("BillboardGui")
+        billboard.Size = UDim2.new(4, 0, 2, 0)
+        billboard.Adornee = ill.instance
+        billboard.AlwaysOnTop = true
+        billboard.StudsOffset = Vector3.new(0, 4, 0)
+        billboard.Parent = ill.instance
+        
+        local illHpFrame = Instance.new("Frame")
+        illHpFrame.Size = UDim2.new(1, 0, 0.4, 0)
+        illHpFrame.Position = UDim2.new(0, 0, 0, 0)
+        illHpFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+        illHpFrame.Parent = billboard
+        
+        local illHpBar = Instance.new("Frame")
+        illHpBar.Size = UDim2.new(1, 0, 1, 0)
+        illHpBar.BackgroundColor3 = Color3.fromRGB(220, 50, 50)
+        illHpBar.Parent = illHpFrame
+        
+        local illHpText = Instance.new("TextLabel")
+        illHpText.Size = UDim2.new(1, 0, 1, 0)
+        illHpText.BackgroundTransparency = 1
+        illHpText.TextColor3 = Color3.new(1, 1, 1)
+        illHpText.Font = Enum.Font.GothamBold
+        illHpText.TextSize = 12
+        illHpText.Parent = illHpFrame
+        
+        local illSpFrame = Instance.new("Frame")
+        illSpFrame.Size = UDim2.new(1, 0, 0.4, 0)
+        illSpFrame.Position = UDim2.new(0, 0, 0.5, 0)
+        illSpFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+        illSpFrame.Parent = billboard
+        
+        local illSpBar = Instance.new("Frame")
+        illSpBar.Size = UDim2.new(1, 0, 1, 0)
+        illSpBar.BackgroundColor3 = Color3.fromRGB(50, 120, 220)
+        illSpBar.Parent = illSpFrame
+        
+        local illSpText = Instance.new("TextLabel")
+        illSpText.Size = UDim2.new(1, 0, 1, 0)
+        illSpText.BackgroundTransparency = 1
+        illSpText.TextColor3 = Color3.new(1, 1, 1)
+        illSpText.Font = Enum.Font.GothamBold
+        illSpText.TextSize = 12
+        illSpText.Parent = illSpFrame
+        
+        ill.bars = {hpBar = illHpBar, hpText = illHpText, spBar = illSpBar, spText = illSpText, billboard = billboard}
+    end
+    
+    ill.bars.hpBar.Size = UDim2.new(ill.hp / ill.maxHp, 0, 1, 0)
+    ill.bars.hpText.Text = string.format("HP: %.1f/%d", ill.hp, ill.maxHp)
+    ill.bars.spBar.Size = UDim2.new(ill.sp / ill.maxSp, 0, 1, 0)
+    ill.bars.spText.Text = string.format("SP: %.1f/%d", ill.sp, ill.maxSp)
+    
+    if ill.hp <= 0 then
+        if ill.instance and ill.instance.Parent then
+            ill.instance:Destroy()
+        end
+        for i, obj in ipairs(activeIllusionObjects) do
+            if obj == ill then
+                table.remove(activeIllusionObjects, i)
+                break
+            end
+        end
+    end
+end
+
 function updateBars()
     hpBar.Size = UDim2.new(currentHP / maxHP, 0, 1, 0)
     hpText.Text = string.format("HP: %.1f/%d", currentHP, maxHP)
@@ -444,133 +549,13 @@ function updateBars()
     spText.Text = string.format("SP: %.1f/%d", currentSP, maxSP)
 end
 
--- Illusion Health
-local illusionHealth = {
-    ["Apostle"] = {hp = 75, sp = 50},
-    ["Eye Eater"] = {hp = 175, sp = 100},
-    ["Brooding Darkness"] = {hp = 482, sp = 500},
-    ["The Gun Devil"] = {hp = 800, sp = 750},
-    ["Liquid Orchestra"] = {hp = 1200, sp = 1750}
+local illusionStats = {
+    ["Apostle"] = {maxHp = 75, maxSp = 50},
+    ["Eye Eater"] = {maxHp = 175, maxSp = 100},
+    ["Brooding Darkness"] = {maxHp = 482, maxSp = 500},
+    ["The Gun Devil"] = {maxHp = 800, maxSp = 750},
+    ["Liquid Orchestra"] = {maxHp = 1200, maxSp = 1750}
 }
-
-local illusionEntities = {}
-
-local function createHealthBars(entity)
-    local mainPart = entity.mainPart
-    if not mainPart then return end
-
-    local billboard = Instance.new("BillboardGui")
-    billboard.Size = UDim2.new(4, 0, 2, 0)
-    billboard.Adornee = mainPart
-    billboard.AlwaysOnTop = true
-    billboard.StudsOffset = Vector3.new(0, 5, 0)
-    billboard.Parent = mainPart
-
-    -- HP Frame
-    local hpF = Instance.new("Frame")
-    hpF.Size = UDim2.new(1, 0, 0.4, 0)
-    hpF.Position = UDim2.new(0, 0, 0, 0)
-    hpF.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-    hpF.BorderSizePixel = 1
-    hpF.Parent = billboard
-
-    local hpB = Instance.new("Frame")
-    hpB.Size = UDim2.new(1, 0, 1, 0)
-    hpB.BackgroundColor3 = Color3.fromRGB(220, 50, 50)
-    hpB.Parent = hpF
-
-    local hpT = Instance.new("TextLabel")
-    hpT.Size = UDim2.new(1, 0, 1, 0)
-    hpT.BackgroundTransparency = 1
-    hpT.TextColor3 = Color3.new(1, 1, 1)
-    hpT.Font = Enum.Font.GothamBold
-    hpT.TextSize = 14
-    hpT.Parent = hpF
-
-    -- SP Frame
-    local spF = Instance.new("Frame")
-    spF.Size = UDim2.new(1, 0, 0.4, 0)
-    spF.Position = UDim2.new(0, 0, 0.5, 0)
-    spF.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-    spF.BorderSizePixel = 1
-    spF.Parent = billboard
-
-    local spB = Instance.new("Frame")
-    spB.Size = UDim2.new(1, 0, 1, 0)
-    spB.BackgroundColor3 = Color3.fromRGB(50, 120, 220)
-    spB.Parent = spF
-
-    local spT = Instance.new("TextLabel")
-    spT.Size = UDim2.new(1, 0, 1, 0)
-    spT.BackgroundTransparency = 1
-    spT.TextColor3 = Color3.new(1, 1, 1)
-    spT.Font = Enum.Font.GothamBold
-    spT.TextSize = 14
-    spT.Parent = spF
-
-    entity.billboard = billboard
-    entity.hpBar = hpB
-    entity.hpText = hpT
-    entity.spBar = spB
-    entity.spText = spT
-
-    updateIllusionBars(entity)
-end
-
-local function updateIllusionBars(entity)
-    if not entity.billboard then return end
-    entity.hpBar.Size = UDim2.new(entity.currentHP / entity.maxHP, 0, 1, 0)
-    entity.hpText.Text = string.format("HP: %.1f/%d", entity.currentHP, entity.maxHP)
-    entity.spBar.Size = UDim2.new(entity.currentSP / entity.maxSP, 0, 1, 0)
-    entity.spText.Text = string.format("SP: %.1f/%d", entity.currentSP, entity.maxSP)
-end
-
-local function applyDamageToIllusion(entity, damageType, amount)
-    local finalDamage = amount
-    if damageType == "Grey" or damageType == "White" then
-        finalDamage = calculateGreyDamage(amount)
-    end
-
-    local toHP = true
-    local toSP = false
-
-    if damageType == "Crimson" or damageType == "Grey" or damageType == "Purple" then
-        toHP = true
-    end
-    if damageType == "Blue" or damageType == "White" or damageType == "Purple" then
-        toSP = true
-    end
-
-    if toSP then
-        if entity.currentSP > 0 then
-            entity.currentSP = math.max(0, entity.currentSP - finalDamage)
-        else
-            entity.currentHP = math.max(0, entity.currentHP - finalDamage)
-        end
-    end
-    if toHP then
-        entity.currentHP = math.max(0, entity.currentHP - finalDamage)
-    end
-
-    if not entity.billboard and (entity.currentHP < entity.maxHP or entity.currentSP < entity.maxSP) then
-        createHealthBars(entity)
-    end
-    updateIllusionBars(entity)
-
-    if entity.currentHP <= 0 then
-        if entity.object then entity.object:Destroy() end
-        if entity.billboard then entity.billboard:Destroy() end
-        illusionEntities[entity.id] = nil
-        -- For single illusions, check if no more entities for that name
-        local count = 0
-        for _, e in pairs(illusionEntities) do
-            if e.name == entity.name then count = count + 1 end
-        end
-        if count == 0 then
-            activeIllusions[entity.name] = false
-        end
-    end
-end
 
 -- Illusion: Apostle
 local function startApostle()
@@ -599,21 +584,18 @@ local function startApostle()
         bodyVel.MaxForce = Vector3.new(4000, 4000, 4000)
         bodyVel.Parent = apostle
         
-        local entity = {
-            name = "Apostle",
-            mainPart = apostle,
-            object = apostle,
-            maxHP = illusionHealth["Apostle"].hp,
-            maxSP = illusionHealth["Apostle"].sp,
-            currentHP = illusionHealth["Apostle"].hp,
-            currentSP = illusionHealth["Apostle"].sp,
+        local ill = {
+            instance = apostle,
+            hp = illusionStats["Apostle"].maxHp,
+            maxHp = illusionStats["Apostle"].maxHp,
+            sp = illusionStats["Apostle"].maxSp,
+            maxSp = illusionStats["Apostle"].maxSp,
+            bars = nil,
             vel = bodyVel
         }
-        entity.id = #illusionEntities + 1
-        illusionEntities[entity.id] = entity
-        apostle:SetAttribute("IllusionId", entity.id)
         
-        table.insert(apostles, entity)
+        table.insert(apostles, ill)
+        table.insert(activeIllusionObjects, ill)
         
         local touchConnection
         touchConnection = apostle.Touched:Connect(function(hit)
@@ -627,20 +609,19 @@ local function startApostle()
                 TweenService:Create(whiteScreen, TweenInfo.new(2), {BackgroundTransparency = 1}):Play()
                 task.delay(2, function() whiteScreen:Destroy() end)
                 
-                local minDmg = 1
-                local maxDmg = 7
-                if entity.currentSP <= 0 then
-                    minDmg = minDmg / 2
-                    maxDmg = maxDmg / 2
-                end
-                applyDamage("Blue", minDmg, maxDmg)
+                applyDamageToPlayer("Blue", 1, 7, ill.sp)
                 touchConnection:Disconnect()
                 apostle:Destroy()
-                illusionEntities[entity.id] = nil
                 
                 for i, a in ipairs(apostles) do
-                    if a == entity then
+                    if a == ill then
                         table.remove(apostles, i)
+                        break
+                    end
+                end
+                for i, obj in ipairs(activeIllusionObjects) do
+                    if obj == ill then
+                        table.remove(activeIllusionObjects, i)
                         break
                     end
                 end
@@ -653,10 +634,9 @@ local function startApostle()
     local spawnLoop = RunService.Heartbeat:Connect(function()
         if not activeIllusions["Apostle"] then
             for _, a in ipairs(apostles) do
-                if a.object and a.object.Parent then 
-                    a.object:Destroy() 
+                if a.instance and a.instance.Parent then 
+                    a.instance:Destroy() 
                 end
-                illusionEntities[a.id] = nil
             end
             spawnLoop:Disconnect()
             return
@@ -666,9 +646,12 @@ local function startApostle()
         if char and char:FindFirstChild("HumanoidRootPart") then
             local hrp = char.HumanoidRootPart
             for _, a in ipairs(apostles) do
-                if a.object and a.object.Parent and a.vel and a.vel.Parent then
-                    local dir = (hrp.Position - a.object.Position).Unit
+                if a.instance and a.instance.Parent and a.vel and a.vel.Parent then
+                    local dir = (hrp.Position - a.instance.Position).Unit
                     a.vel.Velocity = dir * 15
+                end
+                if a.hp <= 0 then
+                    a.instance:Destroy()
                 end
             end
         end
@@ -758,24 +741,16 @@ local function startBroodingDarkness()
     rightLeg.Position = torso.Position + Vector3.new(0.5, -2, 0)
     rightLeg.Parent = enemy
     
-    local entity = {
-        name = "Brooding Darkness",
-        mainPart = torso,
-        object = enemy,
-        maxHP = illusionHealth["Brooding Darkness"].hp,
-        maxSP = illusionHealth["Brooding Darkness"].sp,
-        currentHP = illusionHealth["Brooding Darkness"].hp,
-        currentSP = illusionHealth["Brooding Darkness"].sp
+    local ill = {
+        instance = enemy,
+        hp = illusionStats["Brooding Darkness"].maxHp,
+        maxHp = illusionStats["Brooding Darkness"].maxHp,
+        sp = illusionStats["Brooding Darkness"].maxSp,
+        maxSp = illusionStats["Brooding Darkness"].maxSp,
+        bars = nil
     }
-    entity.id = #illusionEntities + 1
-    illusionEntities[entity.id] = entity
-
-    for _, part in ipairs(enemy:GetChildren()) do
-        if part:IsA("Part") then
-            part:SetAttribute("IllusionId", entity.id)
-        end
-    end
-
+    table.insert(activeIllusionObjects, ill)
+    
     local attackTimer = 0
     local abilityTimer = 0
     local isForceWalking = false
@@ -804,13 +779,7 @@ local function startBroodingDarkness()
         
         -- Check if player is in range
         if dist <= 10 then
-            local minDmg = 4
-            local maxDmg = 7
-            if entity.currentSP <= 0 then
-                minDmg = minDmg / 2
-                maxDmg = maxDmg / 2
-            end
-            applyDamage("Blue", minDmg, maxDmg)
+            applyDamageToPlayer("Blue", 4, 7, ill.sp)
         end
         
         -- Reset arms
@@ -842,13 +811,7 @@ local function startBroodingDarkness()
             local dist = (playerPos - torso.Position).Magnitude
             
             if dist <= 50 then
-                local minDmg = 22
-                local maxDmg = 28
-                if entity.currentSP <= 0 then
-                    minDmg = minDmg / 2
-                    maxDmg = maxDmg / 2
-                end
-                applyDamage("Blue", minDmg, maxDmg)
+                applyDamageToPlayer("Blue", 22, 28, ill.sp)
                 
                 -- Check if SP is 0 for force walk
                 if currentSP <= 0 and not isForceWalking then
@@ -873,13 +836,7 @@ local function startBroodingDarkness()
                                 -- Check if touched illusion
                                 local touchDist = (currentHrp.Position - torso.Position).Magnitude
                                 if touchDist <= 5 then
-                                    local minDmg = 80
-                                    local maxDmg = 120
-                                    if entity.currentSP <= 0 then
-                                        minDmg = minDmg / 2
-                                        maxDmg = maxDmg / 2
-                                    end
-                                    applyDamage("Crimson", minDmg, maxDmg)
+                                    applyDamageToPlayer("Crimson", 80, 120, ill.sp)
                                     if forceWalkConnection then
                                         forceWalkConnection:Disconnect()
                                     end
@@ -904,7 +861,20 @@ local function startBroodingDarkness()
             if enemy and enemy.Parent then enemy:Destroy() end
             if forceWalkConnection then forceWalkConnection:Disconnect() end
             loop:Disconnect()
-            illusionEntities[entity.id] = nil
+            return
+        end
+        
+        if ill.hp <= 0 then
+            enemy:Destroy()
+            activeIllusions["Brooding Darkness"] = false
+            if forceWalkConnection then forceWalkConnection:Disconnect() end
+            for i, obj in ipairs(activeIllusionObjects) do
+                if obj == ill then
+                    table.remove(activeIllusionObjects, i)
+                    break
+                end
+            end
+            loop:Disconnect()
             return
         end
         
@@ -1037,23 +1007,15 @@ local function startGunDevil()
     rightLeg.Position = torso.Position + Vector3.new(0.5, -2, 0)
     rightLeg.Parent = enemy
     
-    local entity = {
-        name = "The Gun Devil",
-        mainPart = torso,
-        object = enemy,
-        maxHP = illusionHealth["The Gun Devil"].hp,
-        maxSP = illusionHealth["The Gun Devil"].sp,
-        currentHP = illusionHealth["The Gun Devil"].hp,
-        currentSP = illusionHealth["The Gun Devil"].sp
+    local ill = {
+        instance = enemy,
+        hp = illusionStats["The Gun Devil"].maxHp,
+        maxHp = illusionStats["The Gun Devil"].maxHp,
+        sp = illusionStats["The Gun Devil"].maxSp,
+        maxSp = illusionStats["The Gun Devil"].maxSp,
+        bars = nil
     }
-    entity.id = #illusionEntities + 1
-    illusionEntities[entity.id] = entity
-
-    for _, part in ipairs(enemy:GetChildren()) do
-        if part:IsA("Part") then
-            part:SetAttribute("IllusionId", entity.id)
-        end
-    end
+    table.insert(activeIllusionObjects, ill)
     
     local shootTimer = 0
     local bulletCount = 0
@@ -1104,13 +1066,7 @@ local function startGunDevil()
         local touchConnection
         touchConnection = bullet.Touched:Connect(function(hit)
             if hit.Parent == currentChar then
-                local minDmg = 8
-                local maxDmg = 17
-                if entity.currentSP <= 0 then
-                    minDmg = minDmg / 2
-                    maxDmg = maxDmg / 2
-                end
-                applyDamage("Crimson", minDmg, maxDmg)
+                applyDamageToPlayer("Crimson", 8, 17, ill.sp)
                 touchConnection:Disconnect()
                 bullet:Destroy()
             end
@@ -1143,7 +1099,19 @@ local function startGunDevil()
         if not activeIllusions["The Gun Devil"] then
             if enemy and enemy.Parent then enemy:Destroy() end
             loop:Disconnect()
-            illusionEntities[entity.id] = nil
+            return
+        end
+        
+        if ill.hp <= 0 then
+            enemy:Destroy()
+            activeIllusions["The Gun Devil"] = false
+            for i, obj in ipairs(activeIllusionObjects) do
+                if obj == ill then
+                    table.remove(activeIllusionObjects, i)
+                    break
+                end
+            end
+            loop:Disconnect()
             return
         end
         
@@ -1219,7 +1187,7 @@ local function startGunDevil()
             abilityTimer = 0
             task.spawn(function()
                 circleBarrage()
-            end
+            end)
         end
     end)
     
@@ -1265,19 +1233,15 @@ local function startEyeEater()
     particles.Enabled = false
     particles.Parent = pupil
     
-    local entity = {
-        name = "Eye Eater",
-        mainPart = eye,
-        object = eye,
-        maxHP = illusionHealth["Eye Eater"].hp,
-        maxSP = illusionHealth["Eye Eater"].sp,
-        currentHP = illusionHealth["Eye Eater"].hp,
-        currentSP = illusionHealth["Eye Eater"].sp
+    local ill = {
+        instance = eye,
+        hp = illusionStats["Eye Eater"].maxHp,
+        maxHp = illusionStats["Eye Eater"].maxHp,
+        sp = illusionStats["Eye Eater"].maxSp,
+        maxSp = illusionStats["Eye Eater"].maxSp,
+        bars = nil
     }
-    entity.id = #illusionEntities + 1
-    illusionEntities[entity.id] = entity
-    eye:SetAttribute("IllusionId", entity.id)
-    pupil:SetAttribute("IllusionId", entity.id)
+    table.insert(activeIllusionObjects, ill)
     
     local attackTimer = 0
     local abilityTimer = 0
@@ -1299,13 +1263,7 @@ local function startEyeEater()
         if currentChar and currentChar:FindFirstChild("HumanoidRootPart") then
             local dist = (currentChar.HumanoidRootPart.Position - eye.Position).Magnitude
             if dist <= 15 then
-                local minDmg = 8
-                local maxDmg = 10
-                if entity.currentSP <= 0 then
-                    minDmg = minDmg / 2
-                    maxDmg = maxDmg / 2
-                end
-                applyDamage("Grey", minDmg, maxDmg)
+                applyDamageToPlayer("Grey", 8, 10, ill.sp)
             end
         end
         
@@ -1369,13 +1327,7 @@ local function startEyeEater()
                             end
                             eye.Color = Color3.fromRGB(255, 100, 100)
                             
-                            local minDmg = 10
-                            local maxDmg = 20
-                            if entity.currentSP <= 0 then
-                                minDmg = minDmg / 2
-                                maxDmg = maxDmg / 2
-                            end
-                            applyDamage("Grey", minDmg, maxDmg)
+                            applyDamageToPlayer("Grey", 10, 20, ill.sp)
                             
                             task.wait(0.5)
                             eye.Color = Color3.new(1, 1, 1)
@@ -1422,7 +1374,20 @@ local function startEyeEater()
             if eye and eye.Parent then eye:Destroy() end
             if forceWalkConnection then forceWalkConnection:Disconnect() end
             loop:Disconnect()
-            illusionEntities[entity.id] = nil
+            return
+        end
+        
+        if ill.hp <= 0 then
+            eye:Destroy()
+            activeIllusions["Eye Eater"] = false
+            if forceWalkConnection then forceWalkConnection:Disconnect() end
+            for i, obj in ipairs(activeIllusionObjects) do
+                if obj == ill then
+                    table.remove(activeIllusionObjects, i)
+                    break
+                end
+            end
+            loop:Disconnect()
             return
         end
         
@@ -1497,6 +1462,16 @@ local function startLiquidOrchestra()
     movementText.TextSize = 48
     movementText.Parent = surfaceGui
     
+    local ill = {
+        instance = liquid,
+        hp = illusionStats["Liquid Orchestra"].maxHp,
+        maxHp = illusionStats["Liquid Orchestra"].maxHp,
+        sp = illusionStats["Liquid Orchestra"].maxSp,
+        maxSp = illusionStats["Liquid Orchestra"].maxSp,
+        bars = nil
+    }
+    table.insert(activeIllusionObjects, ill)
+    
     local movements = {
         {time = 0, color = Color3.fromRGB(150, 150, 150), size = 20, damage = "Grey", scale = {10, 30}, name = "Movement 1"},
         {time = 25, color = Color3.new(1, 1, 1), size = 45, damage = "White", scale = {10, 30}, name = "Movement 2"},
@@ -1504,19 +1479,6 @@ local function startLiquidOrchestra()
         {time = 150, color = Color3.fromRGB(220, 50, 50), size = 150, damage = "Crimson", scale = {10, 30}, name = "Movement 4"},
         {time = 300, color = Color3.fromRGB(50, 120, 220), size = 300, damage = "Blue", scale = {10, 30}, name = "Movement 5"}
     }
-    
-    local entity = {
-        name = "Liquid Orchestra",
-        mainPart = liquid,
-        object = liquid,
-        maxHP = illusionHealth["Liquid Orchestra"].hp,
-        maxSP = illusionHealth["Liquid Orchestra"].sp,
-        currentHP = illusionHealth["Liquid Orchestra"].hp,
-        currentSP = illusionHealth["Liquid Orchestra"].sp
-    }
-    entity.id = #illusionEntities + 1
-    illusionEntities[entity.id] = entity
-    liquid:SetAttribute("IllusionId", entity.id)
     
     local currentMovement = 1
     local forcefield = nil
@@ -1549,7 +1511,20 @@ local function startLiquidOrchestra()
             if liquid and liquid.Parent then liquid:Destroy() end
             if forcefield and forcefield.Parent then forcefield:Destroy() end
             loop:Disconnect()
-            illusionEntities[entity.id] = nil
+            return
+        end
+        
+        if ill.hp <= 0 then
+            if liquid then liquid:Destroy() end
+            if forcefield then forcefield:Destroy() end
+            activeIllusions["Liquid Orchestra"] = false
+            for i, obj in ipairs(activeIllusionObjects) do
+                if obj == ill then
+                    table.remove(activeIllusionObjects, i)
+                    break
+                end
+            end
+            loop:Disconnect()
             return
         end
         
@@ -1568,13 +1543,7 @@ local function startLiquidOrchestra()
             local movement = movements[currentMovement]
             
             if dist <= movement.size / 2 and (timer - lastDamageTime) >= 1 then
-                local minDmg = movement.scale[1]
-                local maxDmg = movement.scale[2]
-                if entity.currentSP <= 0 then
-                    minDmg = minDmg / 2
-                    maxDmg = maxDmg / 2
-                end
-                applyDamage(movement.damage, minDmg, maxDmg)
+                applyDamageToPlayer(movement.damage, movement.scale[1], movement.scale[2], ill.sp)
                 lastDamageTime = timer
             end
         end
@@ -1611,7 +1580,7 @@ local illusions = {
     },
     {
         name = "Eye Eater",
-        desc = "A floating eye that consumes vision and minds.",
+        desc = "A floating eye that lures victims with its hypnotic gaze.",
         damageType = "Grey",
         damageScale = "8 - 10 / 10 - 20",
         danger = "SAMECH",
@@ -1707,6 +1676,11 @@ end
 
 scrollFrame.CanvasSize = UDim2.new(0, 0, 0, listLayout.AbsoluteContentSize.Y + 20)
 
+-- Current Weapon
+local currentWeapon = nil
+local weaponConns = {}
+local weaponGui = nil
+
 -- Weapons
 local weapons = {
     {
@@ -1716,7 +1690,38 @@ local weapons = {
         cooldown = 2,
         danger = "TZADEL",
         minDmg = 24,
-        maxDmg = 30
+        maxDmg = 30,
+        special = "",
+        equipFunc = function()
+            local lastAttack = 0
+            local attackConn = UserInputService.InputBegan:Connect(function(input)
+                if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                    if tick() - lastAttack < 2 then return end
+                    lastAttack = tick()
+                    local rayParams = RaycastParams.new()
+                    rayParams.FilterDescendantsInstances = {character}
+                    rayParams.FilterType = Enum.FilterType.Blacklist
+                    local ray = camera:ScreenPointToRay(mouse.X, mouse.Y)
+                    local result = workspace:Raycast(ray.Origin, ray.Direction * 100, rayParams)
+                    if result then
+                        local hitPart = result.Instance
+                        for _, ill in ipairs(activeIllusionObjects) do
+                            if hitPart == ill.instance or hitPart:IsDescendantOf(ill.instance) then
+                                applyDamageToIllusion(ill, "Blue", 24, 30, currentSP)
+                                break
+                            end
+                        end
+                    end
+                end
+            end)
+            table.insert(weaponConns, attackConn)
+        end,
+        unequipFunc = function()
+            for i = #weaponConns, 1, -1 do
+                weaponConns[i]:Disconnect()
+                table.remove(weaponConns, i)
+            end
+        end
     },
     {
         name = "AK-47",
@@ -1724,20 +1729,137 @@ local weapons = {
         damageScale = "5 - 9",
         cooldown = 0.1,
         danger = "SAMECH",
-        special = "ranged",
         minDmg = 5,
         maxDmg = 9,
-        maxBullets = 50
+        special = "long ranged weapon. Hold the shoot button to shoot. Press the reload button to reload bullet. Bullet max : 50/50",
+        equipFunc = function()
+            local maxAmmo = 50
+            local currentAmmo = 50
+            local isShooting = false
+            local lastShot = 0
+            
+            weaponGui = Instance.new("Frame")
+            weaponGui.Size = UDim2.new(0, 200, 0, 50)
+            weaponGui.Position = UDim2.new(0.5, -100, 1, -60)
+            weaponGui.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+            weaponGui.Parent = screenGui
+            
+            local ammoText = Instance.new("TextLabel")
+            ammoText.Size = UDim2.new(0.5, 0, 1, 0)
+            ammoText.BackgroundTransparency = 1
+            ammoText.Text = currentAmmo .. "/" .. maxAmmo
+            ammoText.TextColor3 = Color3.new(1, 1, 1)
+            ammoText.Font = Enum.Font.GothamBold
+            ammoText.TextSize = 16
+            ammoText.Parent = weaponGui
+            
+            local reloadBtn = Instance.new("TextButton")
+            reloadBtn.Size = UDim2.new(0.5, 0, 1, 0)
+            reloadBtn.Position = UDim2.new(0.5, 0, 0, 0)
+            reloadBtn.Text = "RELOAD"
+            reloadBtn.Font = Enum.Font.GothamBold
+            reloadBtn.TextSize = 16
+            reloadBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+            reloadBtn.TextColor3 = Color3.new(1, 1, 1)
+            reloadBtn.Parent = weaponGui
+            
+            reloadBtn.MouseButton1Click:Connect(function()
+                currentAmmo = maxAmmo
+                ammoText.Text = currentAmmo .. "/" .. maxAmmo
+            end)
+            
+            local inputBeganConn = UserInputService.InputBegan:Connect(function(input)
+                if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                    isShooting = true
+                end
+            end)
+            
+            local inputEndedConn = UserInputService.InputEnded:Connect(function(input)
+                if input.UserInputType == Enum.UserInputType.MouseButton1 then
+                    isShooting = false
+                end
+            end)
+            
+            local fireLoop = RunService.Heartbeat:Connect(function()
+                if isShooting and currentAmmo > 0 and tick() - lastShot >= 0.1 then
+                    lastShot = tick()
+                    currentAmmo = currentAmmo - 1
+                    ammoText.Text = currentAmmo .. "/" .. maxAmmo
+                    local rayParams = RaycastParams.new()
+                    rayParams.FilterDescendantsInstances = {character}
+                    rayParams.FilterType = Enum.FilterType.Blacklist
+                    local ray = camera:ScreenPointToRay(mouse.X, mouse.Y)
+                    local result = workspace:Raycast(ray.Origin, ray.Direction * 500, rayParams)
+                    if result then
+                        local hitPart = result.Instance
+                        for _, ill in ipairs(activeIllusionObjects) do
+                            if hitPart == ill.instance or hitPart:IsDescendantOf(ill.instance) then
+                                applyDamageToIllusion(ill, "Crimson", 5, 9, currentSP)
+                                break
+                            end
+                        end
+                    end
+                end
+            end)
+            
+            table.insert(weaponConns, inputBeganConn)
+            table.insert(weaponConns, inputEndedConn)
+            table.insert(weaponConns, fireLoop)
+        end,
+        unequipFunc = function()
+            for i = #weaponConns, 1, -1 do
+                weaponConns[i]:Disconnect()
+                table.remove(weaponConns, i)
+            end
+            if weaponGui then
+                weaponGui:Destroy()
+                weaponGui = nil
+            end
+        end
+    },
+    {
+        name = "Shadow Blade",
+        damageType = "Purple",
+        damageScale = "15 - 25",
+        cooldown = 1.5,
+        danger = "LAMED",
+        minDmg = 15,
+        maxDmg = 25,
+        special = "",
+        equipFunc = function()
+            local lastAttack = 0
+            local attackConn = UserInputService.InputBegan:Connect(function(input)
+                if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                    if tick() - lastAttack < 1.5 then return end
+                    lastAttack = tick()
+                    local rayParams = RaycastParams.new()
+                    rayParams.FilterDescendantsInstances = {character}
+                    rayParams.FilterType = Enum.FilterType.Blacklist
+                    local ray = camera:ScreenPointToRay(mouse.X, mouse.Y)
+                    local result = workspace:Raycast(ray.Origin, ray.Direction * 100, rayParams)
+                    if result then
+                        local hitPart = result.Instance
+                        for _, ill in ipairs(activeIllusionObjects) do
+                            if hitPart == ill.instance or hitPart:IsDescendantOf(ill.instance) then
+                                applyDamageToIllusion(ill, "Purple", 15, 25, currentSP)
+                                break
+                            end
+                        end
+                    end
+                end
+            end)
+            table.insert(weaponConns, attackConn)
+        end,
+        unequipFunc = function()
+            for i = #weaponConns, 1, -1 do
+                weaponConns[i]:Disconnect()
+                table.remove(weaponConns, i)
+            end
+        end
     }
 }
 
-local equippedWeapon = nil
-local lastAttackTime = 0
-local weaponGui = nil
-local currentBullets = 0
-local isShooting = false
-local weaponLoopConnection = nil
-
+-- Create Weapon Entries
 local function refreshWeaponButtons()
     for _, child in ipairs(weaponsScrollFrame:GetChildren()) do
         if child:IsA("Frame") then
@@ -1745,7 +1867,7 @@ local function refreshWeaponButtons()
         end
     end
     
-    for _, weapon in ipairs(weapons) do
+    for _, wep in ipairs(weapons) do
         local frame = Instance.new("Frame")
         frame.Size = UDim2.new(1, -10, 0, 150)
         frame.BackgroundColor3 = Color3.fromRGB(240, 240, 240)
@@ -1755,127 +1877,53 @@ local function refreshWeaponButtons()
         local nameLabel = Instance.new("TextLabel")
         nameLabel.Size = UDim2.new(1, -10, 0, 25)
         nameLabel.Position = UDim2.new(0, 5, 0, 5)
-        nameLabel.Text = weapon.name
+        nameLabel.Text = wep.name .. (currentWeapon == wep.name and " (EQUIPPED)" or "")
         nameLabel.Font = Enum.Font.GothamBold
         nameLabel.TextSize = 18
         nameLabel.BackgroundTransparency = 1
         nameLabel.TextXAlignment = Enum.TextXAlignment.Left
-        nameLabel.TextColor3 = Color3.new(0, 0, 0)
+        nameLabel.TextColor3 = currentWeapon == wep.name and Color3.fromRGB(0, 200, 0) or Color3.new(0, 0, 0)
         nameLabel.Parent = frame
         
         local infoLabel = Instance.new("TextLabel")
-        infoLabel.Size = UDim2.new(1, -10, 0, 70)
+        infoLabel.Size = UDim2.new(1, -10, 0, 80)
         infoLabel.Position = UDim2.new(0, 5, 0, 35)
-        infoLabel.Text = string.format("Damage Type: %s\nDamage Scale: %s\nAttack Cooldown: %s\nDanger Level: %s", 
-            weapon.damageType, weapon.damageScale, weapon.cooldown, weapon.danger)
+        infoLabel.Text = string.format("Damage Type: %s\nDamage Scale: %s\nAttack Cooldown: %s\nDanger Level: %s\n%s", 
+            wep.damageType, wep.damageScale, wep.cooldown, wep.danger, wep.special)
         infoLabel.Font = Enum.Font.Gotham
         infoLabel.TextSize = 12
+        infoLabel.TextWrapped = true
         infoLabel.BackgroundTransparency = 1
         infoLabel.TextXAlignment = Enum.TextXAlignment.Left
         infoLabel.TextYAlignment = Enum.TextYAlignment.Top
-        infoLabel.TextColor3 = dangerColors[weapon.danger]
+        infoLabel.TextColor3 = dangerColors[wep.danger]
         infoLabel.Parent = frame
         
         local equipBtn = Instance.new("TextButton")
-        equipBtn.Size = UDim2.new(0, 80, 0, 30)
-        equipBtn.Position = UDim2.new(1, -90, 1, -35)
-        equipBtn.Text = (equippedWeapon == weapon.name) and "EQUIPPED" or "EQUIP"
+        equipBtn.Size = UDim2.new(0, 100, 0, 35)
+        equipBtn.Position = UDim2.new(0.5, -50, 1, -40)
+        equipBtn.Text = currentWeapon == wep.name and "EQUIPPED" or "EQUIP"
         equipBtn.Font = Enum.Font.GothamBold
         equipBtn.TextSize = 16
-        equipBtn.BackgroundColor3 = (equippedWeapon == weapon.name) and Color3.fromRGB(80, 255, 80) or Color3.fromRGB(80, 160, 255)
+        equipBtn.BackgroundColor3 = currentWeapon == wep.name and Color3.fromRGB(100, 255, 100) or Color3.fromRGB(80, 160, 255)
         equipBtn.TextColor3 = Color3.new(1, 1, 1)
         equipBtn.Parent = frame
         
         equipBtn.MouseButton1Click:Connect(function()
-            equippedWeapon = weapon.name
-            if weaponGui then weaponGui:Destroy() end
-            weaponGui = nil
-            if weaponLoopConnection then weaponLoopConnection:Disconnect() end
-            weaponLoopConnection = nil
-            if weapon.special == "ranged" then
-                currentBullets = weapon.maxBullets
-                weaponGui = Instance.new("Frame")
-                weaponGui.Size = UDim2.new(0, 150, 0, 50)
-                weaponGui.Position = UDim2.new(0.5, -75, 1, -60)
-                weaponGui.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-                weaponGui.Parent = screenGui
-
-                local ammoText = Instance.new("TextLabel")
-                ammoText.Size = UDim2.new(0.5, 0, 1, 0)
-                ammoText.BackgroundTransparency = 1
-                ammoText.Text = currentBullets .. "/50"
-                ammoText.TextColor3 = Color3.new(1,1,1)
-                ammoText.Font = Enum.Font.GothamBold
-                ammoText.TextSize = 16
-                ammoText.Parent = weaponGui
-                weaponGui.ammoText = ammoText
-
-                local reloadBtn = Instance.new("TextButton")
-                reloadBtn.Size = UDim2.new(0.5, 0, 1, 0)
-                reloadBtn.Position = UDim2.new(0.5, 0, 0, 0)
-                reloadBtn.Text = "Reload"
-                reloadBtn.Font = Enum.Font.GothamBold
-                reloadBtn.TextSize = 16
-                reloadBtn.BackgroundColor3 = Color3.fromRGB(255, 80, 80)
-                reloadBtn.TextColor3 = Color3.new(1,1,1)
-                reloadBtn.Parent = weaponGui
-
-                reloadBtn.MouseButton1Click:Connect(function()
-                    currentBullets = weapon.maxBullets
-                    weaponGui.ammoText.Text = currentBullets .. "/50"
-                end)
-
-                weaponLoopConnection = RunService.Heartbeat:Connect(function(dt)
-                    if isShooting and currentBullets > 0 and os.clock() - lastAttackTime >= weapon.cooldown then
-                        lastAttackTime = os.clock()
-                        currentBullets = currentBullets - 1
-                        weaponGui.ammoText.Text = currentBullets .. "/50"
-
-                        -- Shoot player bullet
-                        local char = player.Character
-                        if not char or not char:FindFirstChild("HumanoidRootPart") then return end
-                        local hrp = char.HumanoidRootPart
-
-                        local bullet = Instance.new("Part")
-                        bullet.Size = Vector3.new(0.3, 0.3, 1)
-                        bullet.Color = Color3.fromRGB(255, 200, 0)
-                        bullet.Material = Enum.Material.Neon
-                        bullet.CanCollide = false
-                        bullet.Anchored = false
-                        bullet.Position = hrp.Position + Vector3.new(0, 1, 0)
-                        bullet.CFrame = CFrame.new(bullet.Position, mouse.Hit.Position)
-                        bullet.Parent = workspace
-
-                        local amount = math.random(weapon.minDmg * 10, weapon.maxDmg * 10) / 10
-                        if currentSP <= 0 then
-                            amount = amount / 2
+            if currentWeapon == wep.name then
+                wep.unequipFunc()
+                currentWeapon = nil
+            else
+                if currentWeapon then
+                    for _, w in ipairs(weapons) do
+                        if w.name == currentWeapon then
+                            w.unequipFunc()
+                            break
                         end
-                        bullet:SetAttribute("Damage", amount)
-                        bullet:SetAttribute("DamageType", weapon.damageType)
-
-                        local bodyVel = Instance.new("BodyVelocity")
-                        bodyVel.MaxForce = Vector3.new(1e6, 1e6, 1e6)
-                        bodyVel.Velocity = bullet.CFrame.LookVector * 120
-                        bodyVel.Parent = bullet
-
-                        local touchConn = bullet.Touched:Connect(function(hit)
-                            local id = hit:GetAttribute("IllusionId")
-                            if id then
-                                local ent = illusionEntities[id]
-                                if ent then
-                                    local dmg = bullet:GetAttribute("Damage")
-                                    local typ = bullet:GetAttribute("DamageType")
-                                    applyDamageToIllusion(ent, typ, dmg)
-                                    bullet:Destroy()
-                                end
-                            end
-                        end)
-
-                        task.delay(3, function()
-                            if bullet.Parent then bullet:Destroy() end
-                        end)
                     end
-                end)
+                end
+                currentWeapon = wep.name
+                wep.equipFunc()
             end
             refreshWeaponButtons()
         end)
@@ -1885,58 +1933,6 @@ local function refreshWeaponButtons()
 end
 
 refreshWeaponButtons()
-
--- User Input for attacks
-UserInputService.InputBegan:Connect(function(input, processed)
-    if processed then return end
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        if equippedWeapon then
-            local weaponData
-            for _, w in ipairs(weapons) do
-                if w.name == equippedWeapon then
-                    weaponData = w
-                    break
-                end
-            end
-            if not weaponData then return end
-
-            if weaponData.special == "ranged" then
-                isShooting = true
-            else
-                if os.clock() - lastAttackTime >= weaponData.cooldown then
-                    lastAttackTime = os.clock()
-
-                    -- Raycast for melee
-                    local ray = camera:ScreenPointToRay(mouse.X, mouse.Y)
-                    local params = RaycastParams.new()
-                    params.FilterDescendantsInstances = {character}
-                    params.FilterType = Enum.RaycastFilterType.Exclude
-                    local result = workspace:Raycast(ray.Origin, ray.Direction * 1000, params)
-
-                    if result and result.Instance then
-                        local id = result.Instance:GetAttribute("IllusionId")
-                        if id then
-                            local ent = illusionEntities[id]
-                            if ent then
-                                local amount = math.random(weaponData.minDmg * 10, weaponData.maxDmg * 10) / 10
-                                if currentSP <= 0 then
-                                    amount = amount / 2
-                                end
-                                applyDamageToIllusion(ent, weaponData.damageType, amount)
-                            end
-                        end
-                    end
-                end
-            end
-        end
-    end
-end)
-
-UserInputService.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        isShooting = false
-    end
-end)
 
 -- Create Suit Entries
 local function refreshSuitButtons()
@@ -1982,10 +1978,10 @@ local function refreshSuitButtons()
         resistanceLabel.Font = Enum.Font.Gotham
         resistanceLabel.TextSize = 12
         resistanceLabel.BackgroundTransparency = 1
-        resistanceLabel.TextXAlignment = Enum.TextXAlignment.Left
-        resistanceLabel.TextYAlignment = Enum.TextYAlignment.Top
-        resistanceLabel.TextColor3 = Color3.new(0, 0, 0)
-        resistanceLabel.Parent = frame
+        resistanceLabel.TextXAlignment  = Enum.TextXAlignment.Left
+resistanceLabel.TextYAlignment = Enum.TextYAlignment.Top
+resistanceLabel.TextColor3 = Color3.new(0, 0, 0)
+resistanceLabel.Parent = frame
         
         -- Equip Button
         local equipBtn = Instance.new("TextButton")
