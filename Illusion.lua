@@ -1436,10 +1436,10 @@ local function startEyeEater()
     eye.Material = Enum.Material.SmoothPlastic
     eye.Anchored = true
     eye.CanCollide = false
-    eye.Position = hrp.Position + Vector3.new(10, 5, 0)
+    eye.Position = hrp.Position + Vector3.new(8, 5, 0)
     eye.Parent = workspace
     
-    -- Green pupil (normal state)
+    -- Green pupil
     local pupil = Instance.new("Part")
     pupil.Shape = Enum.PartType.Ball
     pupil.Size = Vector3.new(1.5, 1.5, 1.5)
@@ -1449,31 +1449,41 @@ local function startEyeEater()
     pupil.CanCollide = false
     pupil.Parent = eye
     
-    -- Particle emitter for purple state
+    -- Particle emitter for purple phase
     local particles = Instance.new("ParticleEmitter")
-    particles.Texture = "rbxasset://textures/particles/smoke_main.dds"
+    particles.Texture = "rbxasset://textures/particles/sparkles_main.dds"
     particles.Color = ColorSequence.new(Color3.fromRGB(200, 0, 255))
     particles.Size = NumberSequence.new(0.5)
     particles.Lifetime = NumberRange.new(1, 2)
     particles.Rate = 50
-    particles.Speed = NumberRange.new(2, 5)
+    particles.Speed = NumberRange.new(3, 5)
     particles.Enabled = false
     particles.Parent = pupil
     
+    -- Mouth part (hidden initially)
+    local mouth = Instance.new("Part")
+    mouth.Size = Vector3.new(2, 0.5, 2)
+    mouth.Color = Color3.new(0, 0, 0)
+    mouth.Material = Enum.Material.Neon
+    mouth.Transparency = 1
+    mouth.Anchored = true
+    mouth.CanCollide = false
+    mouth.Parent = eye
+    
     local attackTimer = 0
     local abilityTimer = 0
-    local moveSpeed = 10
-    local isMouth = false
     local isForceWalking = false
     local forceWalkConnection = nil
     local originalSpeed = 16
+    local moveSpeed = 10
     
-    local function transformToMouth()
-        isMouth = true
-        eye.Color = Color3.fromRGB(255, 100, 100)
-        pupil.Visible = false
+    local function normalAttack()
+        -- Transform to mouth
+        TweenService:Create(pupil, TweenInfo.new(0.2), {Transparency = 1}):Play()
+        TweenService:Create(mouth, TweenInfo.new(0.2), {Transparency = 0}):Play()
         
-        -- Check if player is close enough
+        task.wait(0.3)
+        
         local currentChar = player.Character
         if currentChar and currentChar:FindFirstChild("HumanoidRootPart") then
             local dist = (currentChar.HumanoidRootPart.Position - eye.Position).Magnitude
@@ -1482,26 +1492,33 @@ local function startEyeEater()
             end
         end
         
-        task.wait(0.5)
+        task.wait(0.2)
         
-        -- Transform back
-        isMouth = false
-        eye.Color = Color3.new(1, 1, 1)
-        pupil.Visible = true
+        -- Transform back to eye
+        TweenService:Create(pupil, TweenInfo.new(0.2), {Transparency = 0}):Play()
+        TweenService:Create(mouth, TweenInfo.new(0.2), {Transparency = 1}):Play()
     end
     
-    local function purpleAbility()
-        -- Turn purple with particles
-        pupil.Color = Color3.fromRGB(200, 0, 255)
+    local function purplePhaseAbility()
+        -- Turn pupil purple and enable particles
+        local originalColor = pupil.Color
+        TweenService:Create(pupil, TweenInfo.new(0.5), {Color = Color3.fromRGB(200, 0, 255)}):Play()
         particles.Enabled = true
         
         local currentChar = player.Character
-        if currentChar and currentChar:FindFirstChild("HumanoidRootPart") and currentChar:FindFirstChild("Humanoid") then
-            local dist = (currentChar.HumanoidRootPart.Position - eye.Position).Magnitude
+        if not currentChar or not currentChar:FindFirstChild("HumanoidRootPart") then 
+            particles.Enabled = false
+            TweenService:Create(pupil, TweenInfo.new(0.5), {Color = originalColor}):Play()
+            return 
+        end
+        
+        local dist = (currentChar.HumanoidRootPart.Position - eye.Position).Magnitude
+        
+        if dist <= 200 and not isForceWalking then
+            isForceWalking = true
+            local humanoid = currentChar:FindFirstChild("Humanoid")
             
-            if dist <= 200 then
-                isForceWalking = true
-                local humanoid = currentChar.Humanoid
+            if humanoid then
                 originalSpeed = humanoid.WalkSpeed
                 humanoid.WalkSpeed = originalSpeed + 4
                 
@@ -1510,33 +1527,30 @@ local function startEyeEater()
                         if forceWalkConnection then
                             forceWalkConnection:Disconnect()
                         end
+                        humanoid.WalkSpeed = originalSpeed
                         isForceWalking = false
-                        if humanoid then
-                            humanoid.WalkSpeed = originalSpeed
-                        end
                         return
                     end
                     
                     local currentHrp = currentChar:FindFirstChild("HumanoidRootPart")
-                    if currentHrp and humanoid then
-                        -- Force walk toward eye
+                    if currentHrp then
                         local direction = (eye.Position - currentHrp.Position).Unit
-                        humanoid:Move(direction)
+                        humanoid:MoveTo(currentHrp.Position + direction * 10)
                         
                         -- Check if touched eye
                         local touchDist = (currentHrp.Position - eye.Position).Magnitude
                         if touchDist <= 5 then
-                            -- Transform to mouth and damage
-                            pupil.Color = Color3.fromRGB(0, 255, 0)
-                            particles.Enabled = false
-                            eye.Color = Color3.fromRGB(255, 100, 100)
-                            pupil.Visible = false
+                            -- Transform to mouth and deal damage
+                            TweenService:Create(pupil, TweenInfo.new(0.2), {Transparency = 1}):Play()
+                            TweenService:Create(mouth, TweenInfo.new(0.2), {Transparency = 0}):Play()
                             
                             applyDamage("Grey", 10, 20)
                             
                             task.wait(0.5)
-                            eye.Color = Color3.new(1, 1, 1)
-                            pupil.Visible = true
+                            
+                            -- Transform back
+                            TweenService:Create(pupil, TweenInfo.new(0.2), {Transparency = 0}):Play()
+                            TweenService:Create(mouth, TweenInfo.new(0.2), {Transparency = 1}):Play()
                             
                             -- Reset speed and stop force walk
                             humanoid.WalkSpeed = originalSpeed
@@ -1544,34 +1558,35 @@ local function startEyeEater()
                                 forceWalkConnection:Disconnect()
                             end
                             isForceWalking = false
+                            
+                            -- Turn pupil back to green
+                            particles.Enabled = false
+                            TweenService:Create(pupil, TweenInfo.new(0.5), {Color = originalColor}):Play()
                         end
                     end
                 end)
             end
         end
         
-        -- Reset after 10 seconds if player hasn't reached
         task.wait(10)
+        
+        -- Reset if still active
         if isForceWalking then
-            pupil.Color = Color3.fromRGB(0, 255, 0)
             particles.Enabled = false
-            
-            local currentChar = player.Character
-            if currentChar and currentChar:FindFirstChild("Humanoid") then
-                currentChar.Humanoid.WalkSpeed = originalSpeed
-            end
-            
-            if forceWalkConnection then
-                forceWalkConnection:Disconnect()
-            end
-            isForceWalking = false
+            TweenService:Create(pupil, TweenInfo.new(0.5), {Color = originalColor}):Play()
         end
     end
     
     local loop = RunService.Heartbeat:Connect(function(dt)
         if not activeIllusions["Eye Eater"] then
             if eye and eye.Parent then eye:Destroy() end
-            if forceWalkConnection then forceWalkConnection:Disconnect() end
+            if forceWalkConnection then 
+                forceWalkConnection:Disconnect()
+                local humanoid = player.Character and player.Character:FindFirstChild("Humanoid")
+                if humanoid then
+                    humanoid.WalkSpeed = originalSpeed
+                end
+            end
             loop:Disconnect()
             return
         end
@@ -1579,19 +1594,19 @@ local function startEyeEater()
         attackTimer = attackTimer + dt
         abilityTimer = abilityTimer + dt
         
-        -- Attack every 3 seconds
-        if attackTimer >= 3 and not isMouth and not isForceWalking then
+        -- Normal attack every 3 seconds
+        if attackTimer >= 3 then
             attackTimer = 0
             task.spawn(function()
-                transformToMouth()
+                normalAttack()
             end)
         end
         
-        -- Purple ability every 25 seconds
-        if abilityTimer >= 25 and not isForceWalking then
+        -- Purple phase ability every 25 seconds
+        if abilityTimer >= 25 then
             abilityTimer = 0
             task.spawn(function()
-                purpleAbility()
+                purplePhaseAbility()
             end)
         end
         
@@ -1602,15 +1617,21 @@ local function startEyeEater()
             local eyePos = eye.Position
             local dist = (playerPos - eyePos).Magnitude
             
-            -- Move towards player if too far
-            if dist > 10 and not isForceWalking then
+            -- Move towards player
+            if dist > 12 then
                 local direction = (playerPos - eyePos).Unit
                 local newPos = eyePos + direction * moveSpeed * dt
                 eye.Position = newPos
             end
             
-            -- Make pupil face player
-            pupil.Position = eye.Position + (playerPos - eye.Position).Unit * 0.75
+            -- Make eye look at player
+            local lookAt = Vector3.new(playerPos.X, eye.Position.Y, playerPos.Z)
+            eye.CFrame = CFrame.new(eye.Position, lookAt)
+            
+            -- Update pupil and mouth positions
+            pupil.Position = eye.Position + eye.CFrame.LookVector * 1
+            mouth.Position = eye.Position + eye.CFrame.LookVector * 1.2
+            mouth.CFrame = CFrame.new(mouth.Position, playerPos)
         end
     end)
     
@@ -1723,7 +1744,7 @@ local illusions = {
     },
     {
         name = "Brooding Darkness",
-        desc = "A dark humanoid entity that feeds on despair. It strikes with its shadowy fists and unleashes waves of mental anguish. Those with broken minds are drawn to it like moths to a flame, meeting their doom in its embrace.",
+        desc = "A dark humanoid entity that feeds on despair. It strikes with its shadowy fists and unleashes waves of mental anguish.",
         damageType = "Blue",
         damageScale = "4 - 7 (Punch) / 22 - 28 (Ability) / 80 - 120 (Touch)",
         danger = "LAMED",
@@ -1731,7 +1752,7 @@ local illusions = {
     },
     {
         name = "The Gun Devil",
-        desc = "A manifestation of humanity's fear of firearms. This metallic grey entity is armed with dual guns that never run out of ammunition. It stalks its prey relentlessly, firing with cold precision. After warming up with a few shots, it unleashes a devastating barrage that tears through flesh and bone. The sound of gunfire echoes as a grim reminder: nowhere is safe.",
+        desc = "A manifestation of humanity's fear of firearms. This metallic grey entity stalks its prey relentlessly, firing with cold precision.",
         damageType = "Crimson",
         damageScale = "8 - 17",
         danger = "SHIN",
@@ -1739,15 +1760,15 @@ local illusions = {
     },
     {
         name = "Eye Eater",
-        desc = "Eye of RAHHHH. A floating eyeball with an emerald green pupil that watches your every move. Every few seconds, it transforms into a grotesque mouth to feast on your soul. But its true terror lies in its hypnotic purple gaze - when the pupil turns violet, you cannot resist its pull. Your legs move on their own, faster and faster, drawn like a moth to flame. And when you reach it... the eye opens wide.",
+        desc = "Eye of RAHHHH. A cursed floating eyeball with an unnatural green glow. It watches and waits, then feeds on sanity.",
         damageType = "Grey",
-        damageScale = "8 - 10 (Bite) / 10 - 20 (Purple Touch)",
+        damageScale = "8 - 10 (Attack) / 10 - 20 (Touch)",
         danger = "SAMECH",
         func = startEyeEater
     },
     {
         name = "Liquid Orchestra",
-        desc = "Somewhere in the Flament Village, a deadly disease is around the village but nobody noticed. Then, a villager shouted: 'Hey! This liquid is producing music!' Everybody come to the liquid. And slowly, the music grew louder, and louder, and louder. The villagers are devoted to the music and then they start to melt and rot.",
+        desc = "A deadly disease in Flament Village. The villagers discovered liquid producing music, growing louder until they melted and rotted.",
         damageType = "Variable",
         damageScale = "10 - 30",
         danger = "TZADEL",
