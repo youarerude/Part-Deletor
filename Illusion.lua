@@ -1471,7 +1471,7 @@ local function startEyeEater()
     local function transformToMouth()
         isMouth = true
         eye.Color = Color3.fromRGB(255, 100, 100)
-        pupil.Visible = false
+        pupil.Transparency = 1 -- Hide pupil instead of setting Visible
         
         -- Check if player is close enough
         local currentChar = player.Character
@@ -1487,7 +1487,7 @@ local function startEyeEater()
         -- Transform back
         isMouth = false
         eye.Color = Color3.new(1, 1, 1)
-        pupil.Visible = true
+        pupil.Transparency = 0 -- Show pupil again
     end
     
     local function purpleAbility()
@@ -1530,13 +1530,13 @@ local function startEyeEater()
                             pupil.Color = Color3.fromRGB(0, 255, 0)
                             particles.Enabled = false
                             eye.Color = Color3.fromRGB(255, 100, 100)
-                            pupil.Visible = false
+                            pupil.Transparency = 1 -- Hide pupil
                             
                             applyDamage("Grey", 10, 20)
                             
                             task.wait(0.5)
                             eye.Color = Color3.new(1, 1, 1)
-                            pupil.Visible = true
+                            pupil.Transparency = 0 -- Show pupil again
                             
                             -- Reset speed and stop force walk
                             humanoid.WalkSpeed = originalSpeed
@@ -1736,14 +1736,6 @@ local illusions = {
         damageScale = "8 - 17",
         danger = "SHIN",
         func = startGunDevil
-    },
-    {
-        name = "Eye Eater",
-        desc = "Eye of RAHHHH. A floating eyeball with an emerald green pupil that watches your every move. Every few seconds, it transforms into a grotesque mouth to feast on your soul. But its true terror lies in its hypnotic purple gaze - when the pupil turns violet, you cannot resist its pull. Your legs move on their own, faster and faster, drawn like a moth to flame. And when you reach it... the eye opens wide.",
-        damageType = "Grey",
-        damageScale = "8 - 10 (Bite) / 10 - 20 (Purple Touch)",
-        danger = "SAMECH",
-        func = startEyeEater
     },
     {
         name = "Liquid Orchestra",
