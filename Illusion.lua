@@ -762,7 +762,7 @@ local function startBroodingDarkness()
     rightLeg.Size = Vector3.new(1, 2, 1)
     rightLeg.Color = Color3.new(0.2, 0.2, 0.2)
     rightLeg.Material = Enum.Material.Neon
-    rightLeg.Anchored = true
+    rightArm.Anchored = true
     rightLeg.CanCollide = false
     rightLeg.Position = torso.Position + Vector3.new(0.5, -2, 0)
     rightLeg.Parent = enemy
@@ -1952,6 +1952,120 @@ local function startMimicry()
     illusionLoops["Mimicry"] = {loop, diedConnection}
 end
 
+-- Illusion: Monolith
+local function startMonolith()
+    local char = player.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+    
+    local hrp = char.HumanoidRootPart
+    
+    local pillar = Instance.new("Part")
+    pillar.Size = Vector3.new(5, 20, 5)
+    pillar.Color = Color3.fromRGB(200, 100, 255)
+    pillar.Material = Enum.Material.Neon
+    pillar.Anchored = true
+    pillar.CanCollide = false
+    pillar.Position = hrp.Position + Vector3.new(20, 10, 20)
+    pillar.Parent = workspace
+    
+    local attackTimer = 0
+    local teleportTimer = 0
+    local attackCount = 0
+    
+    local loop = RunService.Heartbeat:Connect(function(dt)
+        if not activeIllusions["Monolith"] then
+            if pillar and pillar.Parent then pillar:Destroy() end
+            loop:Disconnect()
+            return
+        end
+        
+        local currentChar = player.Character
+        if not currentChar or not currentChar:FindFirstChild("HumanoidRootPart") then return end
+        local currentHrp = currentChar.HumanoidRootPart
+        
+        attackTimer = attackTimer + dt
+        teleportTimer = teleportTimer + dt
+        
+        if teleportTimer >= 30 then
+            teleportTimer = 0
+            local angle = math.random() * 2 * math.pi
+            local dist = math.random(30, 50)
+            local offset = Vector3.new(math.cos(angle) * dist, 0, math.sin(angle) * dist)
+            pillar.Position = currentHrp.Position + offset
+        end
+        
+        if attackTimer >= 3 then
+            attackTimer = 0
+            attackCount = attackCount + 1
+            
+            local forcefield = Instance.new("Part")
+            forcefield.Shape = Enum.PartType.Ball
+            forcefield.Size = Vector3.new(50, 50, 50)
+            forcefield.Color = Color3.fromRGB(200, 100, 255)
+            forcefield.Material = Enum.Material.ForceField
+            forcefield.Transparency = 0.3
+            forcefield.Anchored = true
+            forcefield.CanCollide = false
+            forcefield.Position = pillar.Position
+            forcefield.Parent = workspace
+            
+            local distToPlayer = (currentHrp.Position - pillar.Position).Magnitude
+            if distToPlayer <= 25 then
+                applyDamage("Purple", 10, 15)
+            end
+            
+            TweenService:Create(forcefield, TweenInfo.new(2), {Transparency = 1}):Play()
+            task.delay(2, function()
+                if forcefield and forcefield.Parent then
+                    forcefield:Destroy()
+                end
+            end)
+            
+            if attackCount >= 5 then
+                attackCount = 0
+                
+                local specialFF = Instance.new("Part")
+                specialFF.Shape = Enum.PartType.Ball
+                specialFF.Size = Vector3.new(100, 100, 100)
+                specialFF.Color = Color3.fromRGB(0, 255, 0)
+                specialFF.Material = Enum.Material.ForceField
+                specialFF.Transparency = 0.3
+                specialFF.Anchored = true
+                specialFF.CanCollide = false
+                specialFF.Position = pillar.Position
+                specialFF.Parent = workspace
+                
+                TweenService:Create(specialFF, TweenInfo.new(2), {Transparency = 1}):Play()
+                task.delay(2, function()
+                    if specialFF and specialFF.Parent then
+                        specialFF:Destroy()
+                    end
+                end)
+                
+                task.spawn(function()
+                    local damageTypes = {"Crimson", "Blue", "Purple", "Grey", "White"}
+                    local startTime = tick()
+                    while tick() - startTime < 2 do
+                        if not activeIllusions["Monolith"] then break end
+                        local currentChar2 = player.Character
+                        if currentChar2 and currentChar2:FindFirstChild("HumanoidRootPart") then
+                            local distToPlayer2 = (currentChar2.HumanoidRootPart.Position - pillar.Position).Magnitude
+                            if distToPlayer2 <= 50 then
+                                for _, dtype in ipairs(damageTypes) do
+                                    applyDamage(dtype, 3, 5)
+                                end
+                            end
+                        end
+                        task.wait(0.2)
+                    end
+                end)
+            end
+        end
+    end)
+    
+    illusionLoops["Monolith"] = {loop}
+end
+
 -- Create Illusion Entries
 local illusions = {
     {
@@ -1993,6 +2107,14 @@ local illusions = {
         damageScale = "12 - 25 dmg (punch damage in phase 1)",
         danger = "TZADEL",
         func = startMimicry
+    },
+    {
+        name = "Monolith",
+        desc = "A giant pillar with purple outline that cant move. Every 3 second a purple 50 stud forcefield appears and purple damages player that are in it, it will slowly fades away. Every 30 second it will teleport to the player between 30 - 50 studs away. After 5th forcefield attack, a 100 stud green forcefield appears and every player in it gets [RED, BLUE, PURPLE, GREY, and WHITE] damage 3 - 5 every 0.2 seconds and it will fade away after 2 seconds.",
+        damageType = "purple",
+        damageScale = "10 - 15 (purple forcefield)",
+        danger = "LAMED",
+        func = startMonolith
     }
 }
 
