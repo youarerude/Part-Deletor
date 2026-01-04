@@ -1818,6 +1818,28 @@ local function startMimicry()
     local isRushing = false
     local rushDirection = Vector3.new()
     
+    local diedConnection = humanoid.Died:Connect(function()
+        if phase == 1 and activeIllusions["Mimicry"] and not isEgg then
+            local currentChar = player.Character
+            if currentChar and currentChar:FindFirstChild("HumanoidRootPart") then
+                local dist = (currentChar.HumanoidRootPart.Position - torso.Position).Magnitude
+                if dist <= 10 then
+                    if enemy and enemy.Parent then enemy:Destroy() end
+                    eggPart = Instance.new("Part")
+                    eggPart.Size = Vector3.new(3, 3, 3)
+                    eggPart.Shape = Enum.PartType.Block
+                    eggPart.Color = Color3.fromRGB(255, 0, 0)
+                    eggPart.Anchored = true
+                    eggPart.CanCollide = false
+                    eggPart.Position = torso.Position
+                    eggPart.Parent = workspace
+                    isEgg = true
+                    eggTimer = 0
+                end
+            end
+        end
+    end)
+    
     local function punchAttack()
         local currentChar = player.Character
         if not currentChar or not currentChar:FindFirstChild("HumanoidRootPart") then return end
@@ -1837,23 +1859,6 @@ local function startMimicry()
         -- Damage if in range
         if dist <= 5 + 5 * (phase - 1) then
             applyDamage("Crimson", minDmg, maxDmg)
-            
-            -- Check if killed
-            if currentHP <= 0 and phase == 1 then
-                -- Turn to egg
-                if enemy and enemy.Parent then enemy:Destroy() end
-                eggPart = Instance.new("Part")
-                eggPart.Size = Vector3.new(3, 3, 3)
-                eggPart.Shape = Enum.PartType.Block
-                eggPart.Color = Color3.fromRGB(255, 0, 0)
-                eggPart.Anchored = true
-                eggPart.CanCollide = false
-                eggPart.Position = enemyPos
-                eggPart.Parent = workspace
-                
-                isEgg = true
-                eggTimer = 0
-            end
         end
         
         -- Reset arm
@@ -1876,6 +1881,7 @@ local function startMimicry()
         if not activeIllusions["Mimicry"] then
             if enemy and enemy.Parent then enemy:Destroy() end
             if eggPart and eggPart.Parent then eggPart:Destroy() end
+            if diedConnection then diedConnection:Disconnect() end
             loop:Disconnect()
             return
         end
@@ -1943,7 +1949,7 @@ local function startMimicry()
         end
     end)
     
-    illusionLoops["Mimicry"] = {loop}
+    illusionLoops["Mimicry"] = {loop, diedConnection}
 end
 
 -- Create Illusion Entries
