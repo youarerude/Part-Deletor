@@ -1471,7 +1471,9 @@ local function startEyeEater()
     local function transformToMouth()
         isMouth = true
         eye.Color = Color3.fromRGB(255, 100, 100)
-        pupil.Transparency = 1 -- Hide pupil instead of setting Visible
+        if pupil and pupil.Parent then
+            pupil.Visible = false
+        end
         
         -- Check if player is close enough
         local currentChar = player.Character
@@ -1487,13 +1489,19 @@ local function startEyeEater()
         -- Transform back
         isMouth = false
         eye.Color = Color3.new(1, 1, 1)
-        pupil.Transparency = 0 -- Show pupil again
+        if pupil and pupil.Parent then
+            pupil.Visible = true
+        end
     end
     
     local function purpleAbility()
         -- Turn purple with particles
-        pupil.Color = Color3.fromRGB(200, 0, 255)
-        particles.Enabled = true
+        if pupil and pupil.Parent then
+            pupil.Color = Color3.fromRGB(200, 0, 255)
+        end
+        if particles and particles.Parent then
+            particles.Enabled = true
+        end
         
         local currentChar = player.Character
         if currentChar and currentChar:FindFirstChild("HumanoidRootPart") and currentChar:FindFirstChild("Humanoid") then
@@ -1527,16 +1535,22 @@ local function startEyeEater()
                         local touchDist = (currentHrp.Position - eye.Position).Magnitude
                         if touchDist <= 5 then
                             -- Transform to mouth and damage
-                            pupil.Color = Color3.fromRGB(0, 255, 0)
-                            particles.Enabled = false
+                            if pupil and pupil.Parent then
+                                pupil.Color = Color3.fromRGB(0, 255, 0)
+                                pupil.Visible = false
+                            end
+                            if particles and particles.Parent then
+                                particles.Enabled = false
+                            end
                             eye.Color = Color3.fromRGB(255, 100, 100)
-                            pupil.Transparency = 1 -- Hide pupil
                             
                             applyDamage("Grey", 10, 20)
                             
                             task.wait(0.5)
                             eye.Color = Color3.new(1, 1, 1)
-                            pupil.Transparency = 0 -- Show pupil again
+                            if pupil and pupil.Parent then
+                                pupil.Visible = true
+                            end
                             
                             -- Reset speed and stop force walk
                             humanoid.WalkSpeed = originalSpeed
@@ -1553,8 +1567,12 @@ local function startEyeEater()
         -- Reset after 10 seconds if player hasn't reached
         task.wait(10)
         if isForceWalking then
-            pupil.Color = Color3.fromRGB(0, 255, 0)
-            particles.Enabled = false
+            if pupil and pupil.Parent then
+                pupil.Color = Color3.fromRGB(0, 255, 0)
+            end
+            if particles and particles.Parent then
+                particles.Enabled = false
+            end
             
             local currentChar = player.Character
             if currentChar and currentChar:FindFirstChild("Humanoid") then
@@ -1610,7 +1628,9 @@ local function startEyeEater()
             end
             
             -- Make pupil face player
-            pupil.Position = eye.Position + (playerPos - eye.Position).Unit * 0.75
+            if pupil and pupil.Parent then
+                pupil.Position = eye.Position + (playerPos - eye.Position).Unit * 0.75
+            end
         end
     end)
     
