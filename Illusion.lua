@@ -47,6 +47,27 @@ local suits = {
         Purple = 0.9,
         White = 1.3,
         Grey = 0.7
+    },
+    ["Monolith's Advocate"] = {
+        Crimson = 2,
+        Blue = 2.5,
+        Purple = 0.1,
+        Grey = 0.3,
+        White = 0.5
+    },
+    ["Absolute Warrior"] = {
+        Crimson = 0.1,
+        Blue = 0.1,
+        Purple = 5,
+        Grey = 0.1,
+        White = 0.1
+    },
+    ["Mimic Art Suit"] = {
+        Crimson = -0.3,
+        Blue = 0.8,
+        Purple = 1,
+        Grey = 1.3,
+        White = 1.2
     }
 }
 
