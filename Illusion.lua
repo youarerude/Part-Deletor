@@ -2083,6 +2083,218 @@ local function startKingChessFamily()
     illusionLoops["King Chess Family"] = {loop}
 end
 
+-- Illusion: Bonehive Disease
+local function startBonehiveDisease()
+    local char = player.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+    
+    local hrp = char.HumanoidRootPart
+    
+    -- Create initial green fog
+    local fog = Instance.new("Part")
+    fog.Shape = Enum.PartType.Ball
+    fog.Size = Vector3.new(20, 20, 20)
+    fog.Color = Color3.fromRGB(50, 150, 50)
+    fog.Material = Enum.Material.Neon
+    fog.Transparency = 0.7
+    fog.CanCollide = false
+    fog.Anchored = true
+    fog.Position = hrp.Position + Vector3.new(30, 0, 0)
+    fog.Parent = workspace
+    
+    -- Fog particle effect
+    local particles = Instance.new("ParticleEmitter")
+    particles.Texture = "rbxasset://textures/particles/smoke_main.dds"
+    particles.Color = ColorSequence.new(Color3.fromRGB(50, 150, 50))
+    particles.Size = NumberSequence.new(3)
+    particles.Lifetime = NumberRange.new(2, 4)
+    particles.Rate = 50
+    particles.Speed = NumberRange.new(1, 3)
+    particles.Transparency = NumberSequence.new(0.5)
+    particles.Parent = fog
+    
+    local fogSize = 20
+    local minDmg = 3
+    local maxDmg = 8
+    local growthTimer = 0
+    local damageTimer = 0
+    local termiteSpawnTimer = 0
+    local bonehives = {}
+    local termites = {}
+    local playerBonehiveStates = {}
+    
+    local function createBonehive(position)
+        local bonehive = Instance.new("Part")
+        bonehive.Size = Vector3.new(4, 4, 4)
+        bonehive.Color = Color3.fromRGB(230, 230, 200)
+        bonehive.Material = Enum.Material.Cobblestone
+        bonehive.Anchored = true
+        bonehive.CanCollide = false
+        bonehive.Position = position
+        bonehive.Parent = workspace
+        
+        -- Add bone texture details
+        for i = 1, 5 do
+            local bone = Instance.new("Part")
+            bone.Size = Vector3.new(0.5, math.random(10, 20) / 10, 0.5)
+            bone.Color = Color3.fromRGB(255, 255, 240)
+            bone.Material = Enum.Material.Marble
+            bone.Anchored = true
+            bone.CanCollide = false
+            local angle = math.random() * math.pi * 2
+            local dist = math.random(5, 15) / 10
+            bone.Position = bonehive.Position + Vector3.new(math.cos(angle) * dist, math.random(-10, 10) / 10, math.sin(angle) * dist)
+            bone.Orientation = Vector3.new(math.random(-45, 45), math.random(0, 360), math.random(-45, 45))
+            bone.Parent = bonehive
+        end
+        
+        table.insert(bonehives, bonehive)
+        
+        -- Increase fog size by 5 studs
+        fogSize = fogSize + 5
+        fog.Size = Vector3.new(fogSize, fogSize, fogSize)
+    end
+    
+    local function spawnTermite(bonehive)
+        if not bonehive or not bonehive.Parent then return end
+        
+        local termite = Instance.new("Part")
+        termite.Size = Vector3.new(0.5, 0.3, 1)
+        termite.Color = Color3.fromRGB(139, 69, 19)
+        termite.Material = Enum.Material.Neon
+        termite.Anchored = false
+        termite.CanCollide = true
+        termite.Position = bonehive.Position + Vector3.new(math.random(-2, 2), 3, math.random(-2, 2))
+        termite.Parent = workspace
+        
+        local bodyVel = Instance.new("BodyVelocity")
+        bodyVel.MaxForce = Vector3.new(4000, 4000, 4000)
+        bodyVel.Parent = termite
+        
+        local bodyGyro = Instance.new("BodyGyro")
+        bodyGyro.MaxTorque = Vector3.new(4000, 4000, 4000)
+        bodyGyro.P = 3000
+        bodyGyro.Parent = termite
+        
+        table.insert(termites, {
+            part = termite,
+            vel = bodyVel,
+            gyro = bodyGyro,
+            attackTimer = 0
+        })
+    end
+    
+    local loop = RunService.Heartbeat:Connect(function(dt)
+        if not activeIllusions["Bonehive Disease"] then
+            if fog and fog.Parent then fog:Destroy() end
+            for _, bonehive in ipairs(bonehives) do
+                if bonehive and bonehive.Parent then bonehive:Destroy() end
+            end
+            for _, termite in ipairs(termites) do
+                if termite.part and termite.part.Parent then termite.part:Destroy() end
+            end
+            loop:Disconnect()
+            return
+        end
+        
+        local currentChar = player.Character
+        if not currentChar or not currentChar:FindFirstChild("HumanoidRootPart") then return end
+        local playerPos = currentChar.HumanoidRootPart.Position
+        
+        -- Move fog towards player
+        local fogDir = (playerPos - fog.Position).Unit
+        fog.Position = fog.Position + fogDir * 5 * dt
+        
+        -- Growth timer
+        growthTimer = growthTimer + dt
+        if growthTimer >= 1 then
+            growthTimer = 0
+            fogSize = fogSize + 1
+            fog.Size = Vector3.new(fogSize, fogSize, fogSize)
+            
+            -- Increase damage (cap at 100-200)
+            if minDmg < 100 then
+                minDmg = minDmg + 1
+            end
+            if maxDmg < 200 then
+                maxDmg = maxDmg + 1
+            end
+        end
+        
+        -- Check if player is in fog
+        local distToFog = (playerPos - fog.Position).Magnitude
+        local isInFog = distToFog <= (fogSize / 2)
+        
+        if isInFog then
+            damageTimer = damageTimer + dt
+            if damageTimer >= 1 then
+                damageTimer = 0
+                applyDamage("White", minDmg, maxDmg)
+                
+                -- Check if SP reached 0 and not already transformed
+                if currentSP <= 0 and not playerBonehiveStates[player.UserId] then
+                    playerBonehiveStates[player.UserId] = true
+                    createBonehive(playerPos)
+                    
+                    -- Kill the player
+                    if currentChar:FindFirstChild("Humanoid") then
+                        currentChar.Humanoid.Health = 0
+                    end
+                    
+                    -- Reset the state after respawn
+                    task.delay(5, function()
+                        playerBonehiveStates[player.UserId] = nil
+                    end)
+                end
+            end
+        else
+            damageTimer = 0
+        end
+        
+        -- Spawn termites every 10 seconds
+        termiteSpawnTimer = termiteSpawnTimer + dt
+        if termiteSpawnTimer >= 10 then
+            termiteSpawnTimer = 0
+            for _, bonehive in ipairs(bonehives) do
+                if bonehive and bonehive.Parent then
+                    spawnTermite(bonehive)
+                end
+            end
+        end
+        
+        -- Update termites
+        for i = #termites, 1, -1 do
+            local termite = termites[i]
+            if not termite.part or not termite.part.Parent then
+                table.remove(termites, i)
+            else
+                termite.attackTimer = termite.attackTimer + dt
+                
+                -- Move towards player
+                local dir = (playerPos - termite.part.Position).Unit
+                termite.vel.Velocity = Vector3.new(dir.X * 15, -5, dir.Z * 15)
+                termite.gyro.CFrame = CFrame.new(termite.part.Position, termite.part.Position + dir)
+                
+                -- Attack if close
+                local distToTermite = (playerPos - termite.part.Position).Magnitude
+                if distToTermite <= 3 and termite.attackTimer >= 1 then
+                    termite.attackTimer = 0
+                    applyDamage("Crimson", 2, 3)
+                end
+                
+                -- Remove if too far from fog
+                local distTermiteToFog = (termite.part.Position - fog.Position).Magnitude
+                if distTermiteToFog > (fogSize / 2) + 50 then
+                    termite.part:Destroy()
+                    table.remove(termites, i)
+                end
+            end
+        end
+    end)
+    
+    illusionLoops["Bonehive Disease"] = {loop}
+end
+
 -- Create Illusion Entries
 local illusions = {
     {
@@ -2140,6 +2352,14 @@ local illusions = {
         damageScale = "6 - 50",
         danger = "TZADEL",
         func = startKingChessFamily
+    },
+    {
+        name = "Bonehive Disease",
+        desc = "A moving green fog that grows 1 stud every second. Players inside take 3-8 White damage per second (scales up to 100-200). If SP reaches 0 in the fog, player transforms into a bonehive (increases fog size by 5 studs). Every 10 seconds, bone termites spawn dealing 2-3 Crimson damage.",
+        damageType = "White",
+        damageScale = "3 - 8 → 100 - 200",
+        danger = "SAMECH",
+        func = startBonehiveDisease
     }
 }
 
