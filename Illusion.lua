@@ -399,6 +399,70 @@ function updateBars()
     spText.Text = string.format("SP: %.1f/%d", currentSP, maxSP)
 end
 
+-- Helper function to create humanoid body
+local function createHumanoid(name, size, color1, color2, position)
+    local model = Instance.new("Model")
+    model.Name = name
+    model.Parent = workspace
+    
+    local torso = Instance.new("Part")
+    torso.Size = Vector3.new(2, 2, 1) * size
+    torso.Color = color1
+    torso.Material = Enum.Material.Neon
+    torso.Anchored = true
+    torso.CanCollide = false
+    torso.Position = position
+    torso.Parent = model
+    
+    local head = Instance.new("Part")
+    head.Size = Vector3.new(1.5, 1.5, 1.5) * size
+    head.Shape = Enum.PartType.Ball
+    head.Color = color1
+    head.Material = Enum.Material.Neon
+    head.Anchored = true
+    head.CanCollide = false
+    head.Position = torso.Position + Vector3.new(0, 2 * size, 0)
+    head.Parent = model
+    
+    local leftArm = Instance.new("Part")
+    leftArm.Size = Vector3.new(1, 2, 1) * size
+    leftArm.Color = color2
+    leftArm.Material = Enum.Material.Neon
+    leftArm.Anchored = true
+    leftArm.CanCollide = false
+    leftArm.Position = torso.Position + Vector3.new(-1.5 * size, 0, 0)
+    leftArm.Parent = model
+    
+    local rightArm = Instance.new("Part")
+    rightArm.Size = Vector3.new(1, 2, 1) * size
+    rightArm.Color = color2
+    rightArm.Material = Enum.Material.Neon
+    rightArm.Anchored = true
+    rightArm.CanCollide = false
+    rightArm.Position = torso.Position + Vector3.new(1.5 * size, 0, 0)
+    rightArm.Parent = model
+    
+    local leftLeg = Instance.new("Part")
+    leftLeg.Size = Vector3.new(1, 2, 1) * size
+    leftLeg.Color = color2
+    leftLeg.Material = Enum.Material.Neon
+    leftLeg.Anchored = true
+    leftLeg.CanCollide = false
+    leftLeg.Position = torso.Position + Vector3.new(-0.5 * size, -2 * size, 0)
+    leftLeg.Parent = model
+    
+    local rightLeg = Instance.new("Part")
+    rightLeg.Size = Vector3.new(1, 2, 1) * size
+    rightLeg.Color = color2
+    rightLeg.Material = Enum.Material.Neon
+    rightLeg.Anchored = true
+    rightLeg.CanCollide = false
+    rightLeg.Position = torso.Position + Vector3.new(0.5 * size, -2 * size, 0)
+    rightLeg.Parent = model
+    
+    return model, torso, head, leftArm, rightArm, leftLeg, rightLeg
+end
+
 -- Illusion: Apostle
 local function startApostle()
     local apostles = {}
@@ -719,479 +783,6 @@ local function startBroodingDarkness()
     end)
     
     illusionLoops["Brooding Darkness"] = {loop}
-end
-
--- Illusion: Brooding Darkness
-local function startBroodingDarkness()
-    local char = player.Character
-    if not char or not char:FindFirstChild("HumanoidRootPart") then return end
-    
-    local hrp = char.HumanoidRootPart
-    
-    -- Create humanoid-like enemy
-    local enemy = Instance.new("Model")
-    enemy.Name = "BroodingDarkness"
-    enemy.Parent = workspace
-    
-    local torso = Instance.new("Part")
-    torso.Size = Vector3.new(2, 2, 1)
-    torso.Color = Color3.new(0, 0, 0)
-    torso.Material = Enum.Material.Neon
-    torso.Anchored = true
-    torso.CanCollide = false
-    torso.Position = hrp.Position + Vector3.new(10, 0, 0)
-    torso.Parent = enemy
-    
-    local head = Instance.new("Part")
-    head.Size = Vector3.new(1.5, 1.5, 1.5)
-    head.Shape = Enum.PartType.Ball
-    head.Color = Color3.new(0, 0, 0)
-    head.Material = Enum.Material.Neon
-    head.Anchored = true
-    head.CanCollide = false
-    head.Position = torso.Position + Vector3.new(0, 2, 0)
-    head.Parent = enemy
-    
-    local leftArm = Instance.new("Part")
-    leftArm.Size = Vector3.new(1, 2, 1)
-    leftArm.Color = Color3.new(0.1, 0.1, 0.1)
-    leftArm.Material = Enum.Material.Neon
-    leftArm.Anchored = true
-    leftArm.CanCollide = false
-    leftArm.Position = torso.Position + Vector3.new(-1.5, 0, 0)
-    leftArm.Parent = enemy
-    
-    local rightArm = Instance.new("Part")
-    rightArm.Size = Vector3.new(1, 2, 1)
-    rightArm.Color = Color3.new(0.1, 0.1, 0.1)
-    rightArm.Material = Enum.Material.Neon
-    rightArm.Anchored = true
-    rightArm.CanCollide = false
-    rightArm.Position = torso.Position + Vector3.new(1.5, 0, 0)
-    rightArm.Parent = enemy
-    
-    local leftLeg = Instance.new("Part")
-    leftLeg.Size = Vector3.new(1, 2, 1)
-    leftLeg.Color = Color3.new(0.2, 0.2, 0.2)
-    leftLeg.Material = Enum.Material.Neon
-    leftLeg.Anchored = true
-    leftLeg.CanCollide = false
-    leftLeg.Position = torso.Position + Vector3.new(-0.5, -2, 0)
-    leftLeg.Parent = enemy
-    
-    local rightLeg = Instance.new("Part")
-    rightLeg.Size = Vector3.new(1, 2, 1)
-    rightLeg.Color = Color3.new(0.2, 0.2, 0.2)
-    rightLeg.Material = Enum.Material.Neon
-    rightArm.Anchored = true
-    rightLeg.CanCollide = false
-    rightLeg.Position = torso.Position + Vector3.new(0.5, -2, 0)
-    rightLeg.Parent = enemy
-    
-    local attackTimer = 0
-    local abilityTimer = 0
-    local isForceWalking = false
-    local forceWalkConnection = nil
-    local moveSpeed = 8 -- Studs per second
-    
-    local function punchAttack()
-        local currentChar = player.Character
-        if not currentChar or not currentChar:FindFirstChild("HumanoidRootPart") then return end
-        
-        local playerPos = currentChar.HumanoidRootPart.Position
-        local enemyPos = torso.Position
-        local dist = (playerPos - enemyPos).Magnitude
-        
-        -- Animate arms forward
-        local leftGoal = {Position = leftArm.Position + (playerPos - enemyPos).Unit * 3}
-        local rightGoal = {Position = rightArm.Position + (playerPos - enemyPos).Unit * 3}
-        
-        local punchTween1 = TweenService:Create(leftArm, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), leftGoal)
-        local punchTween2 = TweenService:Create(rightArm, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), rightGoal)
-        
-        punchTween1:Play()
-        punchTween2:Play()
-        
-        task.wait(0.3)
-        
-        -- Check if player is in range
-        if dist <= 10 then
-            applyDamage("Blue", 4, 7)
-        end
-        
-        -- Reset arms
-        task.wait(0.2)
-        TweenService:Create(leftArm, TweenInfo.new(0.3), {Position = torso.Position + Vector3.new(-1.5, 0, 0)}):Play()
-        TweenService:Create(rightArm, TweenInfo.new(0.3), {Position = torso.Position + Vector3.new(1.5, 0, 0)}):Play()
-    end
-    
-    local function useAbility()
-        -- Create blue forcefield
-        local forcefield = Instance.new("Part")
-        forcefield.Shape = Enum.PartType.Ball
-        forcefield.Size = Vector3.new(100, 100, 100)
-        forcefield.Color = Color3.fromRGB(50, 120, 220)
-        forcefield.Material = Enum.Material.ForceField
-        forcefield.Transparency = 0.3
-        forcefield.CanCollide = false
-        forcefield.Anchored = true
-        forcefield.Position = torso.Position
-        forcefield.Parent = workspace
-        
-        -- Fade forcefield over 3 seconds
-        TweenService:Create(forcefield, TweenInfo.new(3), {Transparency = 1}):Play()
-        
-        -- Check if player is in range
-        local currentChar = player.Character
-        if currentChar and currentChar:FindFirstChild("HumanoidRootPart") then
-            local playerPos = currentChar.HumanoidRootPart.Position
-            local dist = (playerPos - torso.Position).Magnitude
-            
-            if dist <= 50 then
-                applyDamage("Blue", 22, 28)
-                
-                -- Check if SP is 0 for force walk
-                if currentSP <= 0 and not isForceWalking then
-                    isForceWalking = true
-                    local humanoid = currentChar:FindFirstChild("Humanoid")
-                    
-                    if humanoid then
-                        forceWalkConnection = RunService.Heartbeat:Connect(function()
-                            if not activeIllusions["Brooding Darkness"] or not torso.Parent then
-                                if forceWalkConnection then
-                                    forceWalkConnection:Disconnect()
-                                end
-                                isForceWalking = false
-                                return
-                            end
-                            
-                            local currentHrp = currentChar:FindFirstChild("HumanoidRootPart")
-                            if currentHrp then
-                                local direction = (torso.Position - currentHrp.Position).Unit
-                                humanoid:MoveTo(currentHrp.Position + direction * 5)
-                                
-                                -- Check if touched illusion
-                                local touchDist = (currentHrp.Position - torso.Position).Magnitude
-                                if touchDist <= 5 then
-                                    applyDamage("Crimson", 80, 120)
-                                    if forceWalkConnection then
-                                        forceWalkConnection:Disconnect()
-                                    end
-                                    isForceWalking = false
-                                end
-                            end
-                        end)
-                    end
-                end
-            end
-        end
-        
-        task.delay(3, function()
-            if forcefield and forcefield.Parent then
-                forcefield:Destroy()
-            end
-        end)
-    end
-    
-    local loop = RunService.Heartbeat:Connect(function(dt)
-        if not activeIllusions["Brooding Darkness"] then
-            if enemy and enemy.Parent then enemy:Destroy() end
-            if forceWalkConnection then forceWalkConnection:Disconnect() end
-            loop:Disconnect()
-            return
-        end
-        
-        attackTimer = attackTimer + dt
-        abilityTimer = abilityTimer + dt
-        
-        -- Attack every 3 seconds
-        if attackTimer >= 3 then
-            attackTimer = 0
-            punchAttack()
-        end
-        
-        -- Use ability every 30 seconds
-        if abilityTimer >= 30 then
-            abilityTimer = 0
-            useAbility()
-        end
-        
-        -- Follow and face player
-        local currentChar = player.Character
-        if currentChar and currentChar:FindFirstChild("HumanoidRootPart") then
-            local playerPos = currentChar.HumanoidRootPart.Position
-            local enemyPos = torso.Position
-            local dist = (playerPos - enemyPos).Magnitude
-            
-            -- Move towards player if too far
-            if dist > 7 then
-                local direction = (playerPos - enemyPos).Unit
-                local newPos = enemyPos + direction * moveSpeed * dt
-                torso.Position = newPos
-            end
-            
-            -- Make enemy face player
-            local lookAt = Vector3.new(playerPos.X, torso.Position.Y, playerPos.Z)
-            torso.CFrame = CFrame.new(torso.Position, lookAt)
-            
-            -- Update body parts positions relative to torso
-            head.Position = torso.Position + Vector3.new(0, 2, 0)
-            leftArm.Position = torso.Position + torso.CFrame.RightVector * -1.5
-            rightArm.Position = torso.Position + torso.CFrame.RightVector * 1.5
-            leftLeg.Position = torso.Position + Vector3.new(-0.5, -2, 0)
-            rightLeg.Position = torso.Position + Vector3.new(0.5, -2, 0)
-        end
-    end)
-    
-    illusionLoops["Brooding Darkness"] = {loop}
-end
-
--- Illusion: The Gun Devil
-local function startGunDevil()
-    local char = player.Character
-    if not char or not char:FindFirstChild("HumanoidRootPart") then return end
-    
-    local hrp = char.HumanoidRootPart
-    
-    -- Create grey humanoid
-    local enemy = Instance.new("Model")
-    enemy.Name = "GunDevil"
-    enemy.Parent = workspace
-    
-    local torso = Instance.new("Part")
-    torso.Size = Vector3.new(2, 2, 1)
-    torso.Color = Color3.fromRGB(150, 150, 150)
-    torso.Material = Enum.Material.Metal
-    torso.Anchored = true
-    torso.CanCollide = false
-    torso.Position = hrp.Position + Vector3.new(15, 0, 0)
-    torso.Parent = enemy
-    
-    local head = Instance.new("Part")
-    head.Size = Vector3.new(1.5, 1.5, 1.5)
-    head.Shape = Enum.PartType.Ball
-    head.Color = Color3.fromRGB(120, 120, 120)
-    head.Material = Enum.Material.Metal
-    head.Anchored = true
-    head.CanCollide = false
-    head.Position = torso.Position + Vector3.new(0, 2, 0)
-    head.Parent = enemy
-    
-    local leftArm = Instance.new("Part")
-    leftArm.Size = Vector3.new(1, 2, 1)
-    leftArm.Color = Color3.fromRGB(140, 140, 140)
-    leftArm.Material = Enum.Material.Metal
-    leftArm.Anchored = true
-    leftArm.CanCollide = false
-    leftArm.Position = torso.Position + Vector3.new(-1.5, 0, 0)
-    leftArm.Parent = enemy
-    
-    local rightArm = Instance.new("Part")
-    rightArm.Size = Vector3.new(1, 2, 1)
-    rightArm.Color = Color3.fromRGB(140, 140, 140)
-    rightArm.Material = Enum.Material.Metal
-    rightArm.Anchored = true
-    rightArm.CanCollide = false
-    rightArm.Position = torso.Position + Vector3.new(1.5, 0, 0)
-    rightArm.Parent = enemy
-    
-    -- Gun parts on arms
-    local leftGun = Instance.new("Part")
-    leftGun.Size = Vector3.new(0.5, 0.5, 2)
-    leftGun.Color = Color3.new(0.1, 0.1, 0.1)
-    leftGun.Material = Enum.Material.Metal
-    leftGun.Anchored = true
-    leftGun.CanCollide = false
-    leftGun.Parent = enemy
-    
-    local rightGun = Instance.new("Part")
-    rightGun.Size = Vector3.new(0.5, 0.5, 2)
-    rightGun.Color = Color3.new(0.1, 0.1, 0.1)
-    rightGun.Material = Enum.Material.Metal
-    rightGun.Anchored = true
-    rightGun.CanCollide = false
-    rightGun.Parent = enemy
-    
-    local leftLeg = Instance.new("Part")
-    leftLeg.Size = Vector3.new(1, 2, 1)
-    leftLeg.Color = Color3.fromRGB(130, 130, 130)
-    leftLeg.Material = Enum.Material.Metal
-    leftLeg.Anchored = true
-    leftLeg.CanCollide = false
-    leftLeg.Position = torso.Position + Vector3.new(-0.5, -2, 0)
-    leftLeg.Parent = enemy
-    
-    local rightLeg = Instance.new("Part")
-    rightLeg.Size = Vector3.new(1, 2, 1)
-    rightLeg.Color = Color3.fromRGB(130, 130, 130)
-    rightLeg.Material = Enum.Material.Metal
-    rightLeg.Anchored = true
-    rightLeg.CanCollide = false
-    rightLeg.Position = torso.Position + Vector3.new(0.5, -2, 0)
-    rightLeg.Parent = enemy
-    
-    local shootTimer = 0
-    local bulletCount = 0
-    local isBarraging = false
-    local barrageCount = 0
-    local barrageTimer = 0
-    local abilityTimer = 0
-    local moveSpeed = 6
-    
-    local function shootBullet(gunPart, direction)
-        local currentChar = player.Character
-        if not currentChar or not currentChar:FindFirstChild("HumanoidRootPart") then return end
-        
-        local playerPos = currentChar.HumanoidRootPart.Position
-        local targetPos = direction or playerPos
-        
-        -- Create bullet
-        local bullet = Instance.new("Part")
-        bullet.Size = Vector3.new(0.3, 0.3, 1)
-        bullet.Color = Color3.fromRGB(255, 200, 0)
-        bullet.Material = Enum.Material.Neon
-        bullet.CanCollide = false
-        bullet.Anchored = false
-        bullet.Position = gunPart.Position
-        bullet.CFrame = CFrame.new(gunPart.Position, targetPos)
-        bullet.Parent = workspace
-        
-        -- Muzzle flash
-        local flash = Instance.new("Part")
-        flash.Size = Vector3.new(1, 1, 1)
-        flash.Color = Color3.fromRGB(255, 150, 0)
-        flash.Material = Enum.Material.Neon
-        flash.Transparency = 0.3
-        flash.Shape = Enum.PartType.Ball
-        flash.CanCollide = false
-        flash.Anchored = true
-        flash.Position = gunPart.Position
-        flash.Parent = workspace
-        
-        TweenService:Create(flash, TweenInfo.new(0.1), {Transparency = 1}):Play()
-        task.delay(0.1, function() if flash.Parent then flash:Destroy() end end)
-        
-        local bodyVel = Instance.new("BodyVelocity")
-        bodyVel.MaxForce = Vector3.new(4000, 4000, 4000)
-        bodyVel.Velocity = (targetPos - gunPart.Position).Unit * 120
-        bodyVel.Parent = bullet
-        
-        local touchConnection
-        touchConnection = bullet.Touched:Connect(function(hit)
-            if hit.Parent == currentChar then
-                applyDamage("Crimson", 8, 17)
-                touchConnection:Disconnect()
-                bullet:Destroy()
-            end
-        end)
-        
-        task.delay(3, function()
-            if bullet.Parent then bullet:Destroy() end
-        end)
-    end
-    
-    local function circleBarrage()
-        -- Shoot 20 bullets in a circle pattern
-        for i = 1, 20 do
-            local angle = (i / 20) * math.pi * 2
-            local offset = Vector3.new(math.cos(angle) * 50, 0, math.sin(angle) * 50)
-            local targetPos = torso.Position + offset
-            
-            -- Alternate between guns for visual effect
-            if i % 2 == 0 then
-                shootBullet(leftGun, targetPos)
-            else
-                shootBullet(rightGun, targetPos)
-            end
-            
-            task.wait(0.05) -- Small delay between each shot for visual effect
-        end
-    end
-    
-    local loop = RunService.Heartbeat:Connect(function(dt)
-        if not activeIllusions["The Gun Devil"] then
-            if enemy and enemy.Parent then enemy:Destroy() end
-            loop:Disconnect()
-            return
-        end
-        
-        local currentChar = player.Character
-        if currentChar and currentChar:FindFirstChild("HumanoidRootPart") then
-            local playerPos = currentChar.HumanoidRootPart.Position
-            local enemyPos = torso.Position
-            local dist = (playerPos - enemyPos).Magnitude
-            
-            -- Move towards player if too far
-            if dist > 20 then
-                local direction = (playerPos - enemyPos).Unit
-                local newPos = enemyPos + direction * moveSpeed * dt
-                torso.Position = newPos
-            end
-            
-            -- Make enemy face player
-            local lookAt = Vector3.new(playerPos.X, torso.Position.Y, playerPos.Z)
-            torso.CFrame = CFrame.new(torso.Position, lookAt)
-            
-            -- Update body parts
-            head.Position = torso.Position + Vector3.new(0, 2, 0)
-            leftArm.Position = torso.Position + torso.CFrame.RightVector * -1.5
-            rightArm.Position = torso.Position + torso.CFrame.RightVector * 1.5
-            leftGun.CFrame = CFrame.new(leftArm.Position + torso.CFrame.LookVector * 1.5, playerPos)
-            rightGun.CFrame = CFrame.new(rightArm.Position + torso.CFrame.LookVector * 1.5, playerPos)
-            leftLeg.Position = torso.Position + Vector3.new(-0.5, -2, 0)
-            rightLeg.Position = torso.Position + Vector3.new(0.5, -2, 0)
-        end
-        
-        -- Shooting logic
-        if isBarraging then
-            barrageTimer = barrageTimer + dt
-            if barrageTimer >= 0.1 then
-                barrageTimer = 0
-                barrageCount = barrageCount + 1
-                
-                -- Alternate between guns
-                if barrageCount % 2 == 0 then
-                    shootBullet(leftGun)
-                else
-                    shootBullet(rightGun)
-                end
-                
-                if barrageCount >= 20 then
-                    isBarraging = false
-                    barrageCount = 0
-                    bulletCount = 0
-                end
-            end
-        else
-            shootTimer = shootTimer + dt
-            if shootTimer >= 2 then
-                shootTimer = 0
-                bulletCount = bulletCount + 1
-                
-                -- Alternate between guns
-                if bulletCount % 2 == 0 then
-                    shootBullet(leftGun)
-                else
-                    shootBullet(rightGun)
-                end
-                
-                if bulletCount >= 5 then
-                    isBarraging = true
-                end
-            end
-        end
-        
-        -- Circle barrage ability every 30 seconds
-        abilityTimer = abilityTimer + dt
-        if abilityTimer >= 30 then
-            abilityTimer = 0
-            task.spawn(function()
-                circleBarrage()
-            end)
-        end
-    end)
-    
-    illusionLoops["The Gun Devil"] = {loop}
 end
 
 -- Illusion: The Gun Devil
@@ -2087,6 +1678,411 @@ local function startMonolith()
     illusionLoops["Monolith"] = {loop}
 end
 
+-- Illusion: King Chess Family
+local function startKingChessFamily()
+    local char = player.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+    
+    local hrp = char.HumanoidRootPart
+    
+    -- Create King
+    local king, kingTorso, kingHead, kingLeftArm, kingRightArm, kingLeftLeg, kingRightLeg = 
+        createHumanoid("King", 2, Color3.new(1, 1, 1), Color3.new(0, 0, 0), hrp.Position + Vector3.new(20, 0, 0))
+    
+    -- Crown for King
+    local crown = Instance.new("Part")
+    crown.Size = Vector3.new(3.5, 1, 3.5)
+    crown.Color = Color3.fromRGB(255, 215, 0)
+    crown.Material = Enum.Material.Neon
+    crown.Anchored = true
+    crown.CanCollide = false
+    crown.Parent = king
+    
+    -- Staff for King
+    local staff = Instance.new("Part")
+    staff.Size = Vector3.new(0.5, 8, 0.5)
+    staff.Color = Color3.fromRGB(139, 69, 19)
+    staff.Material = Enum.Material.Wood
+    staff.Anchored = true
+    staff.CanCollide = false
+    staff.Parent = king
+    
+    local staffTop = Instance.new("Part")
+    staffTop.Size = Vector3.new(1.5, 1.5, 1.5)
+    staffTop.Shape = Enum.PartType.Ball
+    staffTop.Color = Color3.fromRGB(255, 215, 0)
+    staffTop.Material = Enum.Material.Neon
+    staffTop.Anchored = true
+    staffTop.CanCollide = false
+    staffTop.Parent = king
+    
+    -- Create Queen
+    local queen, queenTorso, queenHead, queenLeftArm, queenRightArm, queenLeftLeg, queenRightLeg = 
+        createHumanoid("Queen", 2, Color3.new(1, 1, 1), Color3.new(0, 0, 0), hrp.Position + Vector3.new(25, 0, 0))
+    
+    -- Crown for Queen
+    local queenCrown = Instance.new("Part")
+    queenCrown.Size = Vector3.new(3, 1.5, 3)
+    queenCrown.Color = Color3.fromRGB(255, 215, 0)
+    queenCrown.Material = Enum.Material.Neon
+    queenCrown.Anchored = true
+    queenCrown.CanCollide = false
+    queenCrown.Parent = queen
+    
+    -- Sword for Queen
+    local queenSword = Instance.new("Part")
+    queenSword.Size = Vector3.new(0.3, 5, 0.5)
+    queenSword.Color = Color3.fromRGB(192, 192, 192)
+    queenSword.Material = Enum.Material.Metal
+    queenSword.Anchored = true
+    queenSword.CanCollide = false
+    queenSword.Parent = queen
+    
+    -- Create 4 Rooks (circling King)
+    local rooks = {}
+    for i = 1, 4 do
+        local angle = (i / 4) * math.pi * 2
+        local offset = Vector3.new(math.cos(angle) * 15, 0, math.sin(angle) * 15)
+        local rook, rTorso, rHead, rLA, rRA, rLL, rRL = 
+            createHumanoid("Rook" .. i, 1, Color3.new(1, 1, 1), Color3.new(0, 0, 0), hrp.Position + offset)
+        
+        -- Sword for Rook
+        local rookSword = Instance.new("Part")
+        rookSword.Size = Vector3.new(0.2, 3, 0.3)
+        rookSword.Color = Color3.fromRGB(192, 192, 192)
+        rookSword.Material = Enum.Material.Metal
+        rookSword.Anchored = true
+        rookSword.CanCollide = false
+        rookSword.Parent = rook
+        
+        table.insert(rooks, {
+            model = rook,
+            torso = rTorso,
+            head = rHead,
+            leftArm = rLA,
+            rightArm = rRA,
+            leftLeg = rLL,
+            rightLeg = rRL,
+            sword = rookSword,
+            angle = angle,
+            followingPlayer = false
+        })
+    end
+    
+    -- Create 1 Bishop
+    local bishop, bishopTorso, bishopHead, bishopLeftArm, bishopRightArm, bishopLeftLeg, bishopRightLeg = 
+        createHumanoid("Bishop", 1, Color3.new(1, 1, 1), Color3.new(0, 0, 0), hrp.Position + Vector3.new(30, 0, 0))
+    
+    -- Staff for Bishop
+    local bishopStaff = Instance.new("Part")
+    bishopStaff.Size = Vector3.new(0.3, 4, 0.3)
+    bishopStaff.Color = Color3.fromRGB(139, 69, 19)
+    bishopStaff.Material = Enum.Material.Wood
+    bishopStaff.Anchored = true
+    bishopStaff.CanCollide = false
+    bishopStaff.Parent = bishop
+    
+    -- Create 2 Knights (riding horses)
+    local knights = {}
+    for i = 1, 2 do
+        local knight, kTorso, kHead, kLA, kRA, kLL, kRL = 
+            createHumanoid("Knight" .. i, 1, Color3.new(1, 1, 1), Color3.new(0, 0, 0), hrp.Position + Vector3.new(35 + i * 5, 0, 0))
+        
+        -- Simple horse body
+        local horseBody = Instance.new("Part")
+        horseBody.Size = Vector3.new(3, 2, 5)
+        horseBody.Color = Color3.fromRGB(139, 69, 19)
+        horseBody.Material = Enum.Material.Wood
+        horseBody.Anchored = true
+        horseBody.CanCollide = false
+        horseBody.Parent = knight
+        
+        local horseHead = Instance.new("Part")
+        horseHead.Size = Vector3.new(1.5, 2, 1.5)
+        horseHead.Color = Color3.fromRGB(139, 69, 19)
+        horseHead.Material = Enum.Material.Wood
+        horseHead.Anchored = true
+        horseHead.CanCollide = false
+        horseHead.Parent = knight
+        
+        table.insert(knights, {
+            model = knight,
+            torso = kTorso,
+            head = kHead,
+            leftArm = kLA,
+            rightArm = kRA,
+            leftLeg = kLL,
+            rightLeg = kRL,
+            horseBody = horseBody,
+            horseHead = horseHead
+        })
+    end
+    
+    -- Create 5 Pawns
+    local pawns = {}
+    for i = 1, 5 do
+        local pawn, pTorso, pHead, pLA, pRA, pLL, pRL = 
+            createHumanoid("Pawn" .. i, 0.5, Color3.new(1, 1, 1), Color3.new(0, 0, 0), hrp.Position + Vector3.new(40 + i * 3, 0, 0))
+        
+        -- Axe for Pawn
+        local axe = Instance.new("Part")
+        axe.Size = Vector3.new(0.3, 2, 0.5)
+        axe.Color = Color3.fromRGB(139, 69, 19)
+        axe.Material = Enum.Material.Wood
+        axe.Anchored = true
+        axe.CanCollide = false
+        axe.Parent = pawn
+        
+        local axeHead = Instance.new("Part")
+        axeHead.Size = Vector3.new(1, 0.3, 0.5)
+        axeHead.Color = Color3.fromRGB(192, 192, 192)
+        axeHead.Material = Enum.Material.Metal
+        axeHead.Anchored = true
+        axeHead.CanCollide = false
+        axeHead.Parent = pawn
+        
+        table.insert(pawns, {
+            model = pawn,
+            torso = pTorso,
+            head = pHead,
+            leftArm = pLA,
+            rightArm = pRA,
+            leftLeg = pLL,
+            rightLeg = pRL,
+            axe = axe,
+            axeHead = axeHead
+        })
+    end
+    
+    -- Timers
+    local kingAttackTimer = 0
+    local queenAttackTimer = 0
+    local bishopAttackTimer = 0
+    local rookAttackTimers = {0, 0, 0, 0}
+    local knightTimers = {0, 0}
+    local pawnAttackTimers = {0, 0, 0, 0, 0}
+    
+    -- Movement functions
+    local function updateBodyParts(torso, head, leftArm, rightArm, leftLeg, rightLeg, size)
+        head.Position = torso.Position + Vector3.new(0, 2 * size, 0)
+        leftArm.Position = torso.Position + torso.CFrame.RightVector * (-1.5 * size)
+        rightArm.Position = torso.Position + torso.CFrame.RightVector * (1.5 * size)
+        leftLeg.Position = torso.Position + Vector3.new(-0.5 * size, -2 * size, 0)
+        rightLeg.Position = torso.Position + Vector3.new(0.5 * size, -2 * size, 0)
+    end
+    
+    local function moveTowardsPlayer(torso, speed, dt)
+        local currentChar = player.Character
+        if currentChar and currentChar:FindFirstChild("HumanoidRootPart") then
+            local playerPos = currentChar.HumanoidRootPart.Position
+            local direction = (playerPos - torso.Position).Unit
+            torso.Position = torso.Position + direction * speed * dt
+            
+            local lookAt = Vector3.new(playerPos.X, torso.Position.Y, playerPos.Z)
+            torso.CFrame = CFrame.new(torso.Position, lookAt)
+            
+            return playerPos
+        end
+        return nil
+    end
+    
+    -- Main loop
+    local loop = RunService.Heartbeat:Connect(function(dt)
+        if not activeIllusions["King Chess Family"] then
+            if king and king.Parent then king:Destroy() end
+            if queen and queen.Parent then queen:Destroy() end
+            if bishop and bishop.Parent then bishop:Destroy() end
+            for _, rook in ipairs(rooks) do
+                if rook.model and rook.model.Parent then rook.model:Destroy() end
+            end
+            for _, knight in ipairs(knights) do
+                if knight.model and knight.model.Parent then knight.model:Destroy() end
+            end
+            for _, pawn in ipairs(pawns) do
+                if pawn.model and pawn.model.Parent then pawn.model:Destroy() end
+            end
+            loop:Disconnect()
+            return
+        end
+        
+        local currentChar = player.Character
+        if not currentChar or not currentChar:FindFirstChild("HumanoidRootPart") then return end
+        local playerPos = currentChar.HumanoidRootPart.Position
+        
+        -- King behavior
+        kingAttackTimer = kingAttackTimer + dt
+        moveTowardsPlayer(kingTorso, 10, dt)
+        updateBodyParts(kingTorso, kingHead, kingLeftArm, kingRightArm, kingLeftLeg, kingRightLeg, 2)
+        crown.Position = kingHead.Position + Vector3.new(0, 2, 0)
+        staff.Position = kingRightArm.Position + Vector3.new(0, -2, 0)
+        staff.CFrame = CFrame.new(staff.Position, staff.Position + Vector3.new(0, -1, 0))
+        staffTop.Position = staff.Position + Vector3.new(0, 4.75, 0)
+        
+        if kingAttackTimer >= 3 then
+            kingAttackTimer = 0
+            task.spawn(function()
+                local forcefield = Instance.new("Part")
+                forcefield.Shape = Enum.PartType.Ball
+                forcefield.Size = Vector3.new(40, 40, 40)
+                forcefield.Color = Color3.fromRGB(150, 150, 150)
+                forcefield.Material = Enum.Material.ForceField
+                forcefield.Transparency = 0.3
+                forcefield.CanCollide = false
+                forcefield.Anchored = true
+                forcefield.Position = kingTorso.Position
+                forcefield.Parent = workspace
+                
+                local dist = (playerPos - kingTorso.Position).Magnitude
+                if dist <= 20 then
+                    applyDamage("Grey", 30, 50)
+                end
+                
+                TweenService:Create(forcefield, TweenInfo.new(2), {Transparency = 1}):Play()
+                task.delay(2, function()
+                    if forcefield and forcefield.Parent then forcefield:Destroy() end
+                end)
+            end)
+        end
+        
+        -- Queen behavior
+        queenAttackTimer = queenAttackTimer + dt
+        moveTowardsPlayer(queenTorso, 16, dt)
+        updateBodyParts(queenTorso, queenHead, queenLeftArm, queenRightArm, queenLeftLeg, queenRightLeg, 2)
+        queenCrown.Position = queenHead.Position + Vector3.new(0, 2.25, 0)
+        queenSword.CFrame = CFrame.new(queenRightArm.Position + Vector3.new(0, -1.5, 0), queenRightArm.Position + Vector3.new(0, -3, 0))
+        
+        if queenAttackTimer >= 1 then
+            queenAttackTimer = 0
+            local dist = (playerPos - queenTorso.Position).Magnitude
+            if dist <= 5 then
+                applyDamage("White", 10, 30)
+            end
+        end
+        
+        -- Rooks behavior
+        for i, rook in ipairs(rooks) do
+            local distToKing = (kingTorso.Position - rook.torso.Position).Magnitude
+            local distToPlayer = (playerPos - rook.torso.Position).Magnitude
+            
+            if distToPlayer <= 20 and not rook.followingPlayer then
+                rook.followingPlayer = true
+            elseif distToPlayer > 20 and rook.followingPlayer then
+                rook.followingPlayer = false
+            end
+            
+            if rook.followingPlayer then
+                moveTowardsPlayer(rook.torso, 20, dt)
+                rookAttackTimers[i] = rookAttackTimers[i] + dt
+                
+                if rookAttackTimers[i] >= 2 then
+                    rookAttackTimers[i] = 0
+                    if distToPlayer <= 5 then
+                        applyDamage("Crimson", 10, 18)
+                    end
+                end
+            else
+                -- Circle around king
+                rook.angle = rook.angle + dt * 0.5
+                local offset = Vector3.new(math.cos(rook.angle) * 15, 0, math.sin(rook.angle) * 15)
+                rook.torso.Position = kingTorso.Position + offset
+                local lookAt = Vector3.new(kingTorso.Position.X, rook.torso.Position.Y, kingTorso.Position.Z)
+                rook.torso.CFrame = CFrame.new(rook.torso.Position, lookAt)
+            end
+            
+            updateBodyParts(rook.torso, rook.head, rook.leftArm, rook.rightArm, rook.leftLeg, rook.rightLeg, 1)
+            rook.sword.CFrame = CFrame.new(rook.rightArm.Position + Vector3.new(0, -1, 0), rook.rightArm.Position + Vector3.new(0, -2, 0))
+        end
+        
+        -- Bishop behavior
+        bishopAttackTimer = bishopAttackTimer + dt
+        moveTowardsPlayer(bishopTorso, 18, dt)
+        updateBodyParts(bishopTorso, bishopHead, bishopLeftArm, bishopRightArm, bishopLeftLeg, bishopRightLeg, 1)
+        bishopStaff.Position = bishopRightArm.Position + Vector3.new(0, -1.5, 0)
+        bishopStaff.CFrame = CFrame.new(bishopStaff.Position, bishopStaff.Position + Vector3.new(0, -1, 0))
+        
+        local distToBishop = (playerPos - bishopTorso.Position).Magnitude
+        if bishopAttackTimer >= 5 and distToBishop <= 30 then
+            bishopAttackTimer = 0
+            task.spawn(function()
+                -- Create giant beam
+                local beam = Instance.new("Part")
+                beam.Size = Vector3.new(8, 100, 8)
+                beam.Color = Color3.fromRGB(50, 120, 220)
+                beam.Material = Enum.Material.Neon
+                beam.Transparency = 0.3
+                beam.CanCollide = false
+                beam.Anchored = true
+                beam.Position = playerPos + Vector3.new(0, 50, 0)
+                beam.Parent = workspace
+                
+                applyDamage("Blue", 20, 30)
+                
+                TweenService:Create(beam, TweenInfo.new(2), {Transparency = 1}):Play()
+                task.delay(2, function()
+                    if beam and beam.Parent then beam:Destroy() end
+                end)
+            end)
+        end
+        
+        -- Knights behavior
+        for i, knight in ipairs(knights) do
+            knightTimers[i] = knightTimers[i] + dt
+            moveTowardsPlayer(knight.torso, 30, dt)
+            updateBodyParts(knight.torso, knight.head, knight.leftArm, knight.rightArm, knight.leftLeg, knight.rightLeg, 1)
+            
+            -- Update horse position
+            knight.horseBody.Position = knight.torso.Position + Vector3.new(0, -2, 0)
+            knight.horseBody.CFrame = knight.torso.CFrame * CFrame.new(0, -2, 0)
+            knight.horseHead.Position = knight.horseBody.Position + knight.horseBody.CFrame.LookVector * 3
+            knight.horseHead.CFrame = knight.horseBody.CFrame * CFrame.new(0, 0.5, 3)
+            
+            -- Check for collision (touch damage)
+            local distToKnight = (playerPos - knight.torso.Position).Magnitude
+            if distToKnight <= 5 and knightTimers[i] >= 1 then
+                knightTimers[i] = 0
+                applyDamage("Grey", 9, 30)
+                
+                -- Fling effect
+                if currentChar:FindFirstChild("HumanoidRootPart") then
+                    local flingDir = (playerPos - knight.torso.Position).Unit
+                    local bodyVelocity = Instance.new("BodyVelocity")
+                    bodyVelocity.MaxForce = Vector3.new(4000, 4000, 4000)
+                    bodyVelocity.Velocity = flingDir * 50 + Vector3.new(0, 30, 0)
+                    bodyVelocity.Parent = currentChar.HumanoidRootPart
+                    
+                    task.delay(0.1, function()
+                        if bodyVelocity and bodyVelocity.Parent then
+                            bodyVelocity:Destroy()
+                        end
+                    end)
+                end
+            end
+        end
+        
+        -- Pawns behavior
+        for i, pawn in ipairs(pawns) do
+            pawnAttackTimers[i] = pawnAttackTimers[i] + dt
+            moveTowardsPlayer(pawn.torso, 12, dt)
+            updateBodyParts(pawn.torso, pawn.head, pawn.leftArm, pawn.rightArm, pawn.leftLeg, pawn.rightLeg, 0.5)
+            
+            pawn.axe.Position = pawn.rightArm.Position + Vector3.new(0, -0.75, 0)
+            pawn.axe.CFrame = CFrame.new(pawn.axe.Position, pawn.axe.Position + Vector3.new(0, -1, 0))
+            pawn.axeHead.Position = pawn.axe.Position + Vector3.new(0, 1.15, 0)
+            pawn.axeHead.CFrame = pawn.axe.CFrame * CFrame.new(0, 1.15, 0)
+            
+            if pawnAttackTimers[i] >= 3 then
+                pawnAttackTimers[i] = 0
+                local distToPawn = (playerPos - pawn.torso.Position).Magnitude
+                if distToPawn <= 5 then
+                    applyDamage("Grey", 6, 10)
+                end
+            end
+        end
+    end)
+    
+    illusionLoops["King Chess Family"] = {loop}
+end
+
 -- Create Illusion Entries
 local illusions = {
     {
@@ -2136,6 +2132,14 @@ local illusions = {
         damageScale = "10 - 15 (purple forcefield)",
         danger = "LAMED",
         func = startMonolith
+    },
+    {
+        name = "King Chess Family",
+        desc = "The entire chess family: King with staff (Grey 30-50, speed 10), Queen with sword (White 10-30, speed 16), 4 Rooks circling King (Red 10-18, speed 20), Bishop with prayer beam (Blue 20-30, speed 18), 2 Knights on horses with fling (Grey 9-30, speed 30), and 5 Pawns with axes (Grey 6-10, speed 12).",
+        damageType = "Multiple",
+        damageScale = "6 - 50",
+        danger = "TZADEL",
+        func = startKingChessFamily
     }
 }
 
