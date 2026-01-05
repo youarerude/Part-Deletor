@@ -34,7 +34,8 @@ local damageColors = {
     Grey = Color3.fromRGB(150, 150, 150),
     White = Color3.new(1, 1, 1),
     Blue = Color3.fromRGB(50, 120, 220),
-    Crimson = Color3.fromRGB(220, 50, 50)
+    Crimson = Color3.fromRGB(220, 50, 50),
+    Purple = Color3.fromRGB(200, 100, 255)
 }
 
 -- Damage Type Display Names
@@ -42,7 +43,8 @@ local damageTypeNames = {
     Grey = "[GREY]",
     White = "[WHITE]",
     Blue = "[BLUE]",
-    Crimson = "[RED]"
+    Crimson = "[RED]",
+    Purple = "[PURPLE]"
 }
 
 -- Create ScreenGui
@@ -151,7 +153,8 @@ end)
 -- Danger Level Colors
 local dangerColors = {
     TZADEL = Color3.fromRGB(255, 105, 180),
-    SAMECH = Color3.fromRGB(255, 255, 100)
+    SAMECH = Color3.fromRGB(255, 255, 100),
+    ALEPH = Color3.fromRGB(255, 0, 0)
 }
 
 -- Get Damage Label
