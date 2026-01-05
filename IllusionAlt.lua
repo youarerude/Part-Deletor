@@ -828,12 +828,12 @@ local function startBonehiveDisease()
         termite.Color = Color3.fromRGB(139, 69, 19)
         termite.Material = Enum.Material.Neon
         termite.Anchored = false
-        termite.CanCollide = false
-        termite.Position = bonehive.Position + Vector3.new(math.random(-2, 2), 2, math.random(-2, 2))
+        termite.CanCollide = true
+        termite.Position = bonehive.Position + Vector3.new(math.random(-2, 2), 3, math.random(-2, 2))
         termite.Parent = workspace
         
         local bodyVel = Instance.new("BodyVelocity")
-        bodyVel.MaxForce = Vector3.new(4000, 0, 4000)
+        bodyVel.MaxForce = Vector3.new(4000, 4000, 4000)
         bodyVel.Parent = termite
         
         local bodyGyro = Instance.new("BodyGyro")
@@ -897,20 +897,15 @@ local function startBonehiveDisease()
                     playerBonehiveStates[player.UserId] = true
                     createBonehive(playerPos)
                     
-                    -- Freeze player temporarily
+                    -- Kill the player
                     if currentChar:FindFirstChild("Humanoid") then
-                        local humanoidRef = currentChar.Humanoid
-                        humanoidRef.WalkSpeed = 0
-                        humanoidRef.JumpPower = 0
-                        
-                        task.delay(3, function()
-                            if humanoidRef and humanoidRef.Parent then
-                                humanoidRef.WalkSpeed = 16
-                                humanoidRef.JumpPower = 50
-                            end
-                            playerBonehiveStates[player.UserId] = nil
-                        end)
+                        currentChar.Humanoid.Health = 0
                     end
+                    
+                    -- Reset the state after respawn
+                    task.delay(5, function()
+                        playerBonehiveStates[player.UserId] = nil
+                    end)
                 end
             end
         else
@@ -938,7 +933,7 @@ local function startBonehiveDisease()
                 
                 -- Move towards player
                 local dir = (playerPos - termite.part.Position).Unit
-                termite.vel.Velocity = Vector3.new(dir.X * 15, 0, dir.Z * 15)
+                termite.vel.Velocity = Vector3.new(dir.X * 15, -5, dir.Z * 15)
                 termite.gyro.CFrame = CFrame.new(termite.part.Position, termite.part.Position + dir)
                 
                 -- Attack if close
