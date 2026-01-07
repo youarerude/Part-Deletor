@@ -1188,6 +1188,9 @@ end
 
 -- Function to show ordeal intro
 local function showOrdealIntro(ordealName, descName, introDesc)
+    -- Wait a frame to ensure GUI is loaded
+    task.wait()
+    
     local introFrame = Instance.new("Frame")
     introFrame.Size = UDim2.new(0, 600, 0, 200)
     introFrame.Position = UDim2.new(0.5, -300, 0.5, -100)
@@ -1221,7 +1224,7 @@ local function showOrdealIntro(ordealName, descName, introDesc)
     introLabel.Size = UDim2.new(1, -20, 0, 100)
     introLabel.Position = UDim2.new(0, 10, 0, 90)
     introLabel.Text = '"' .. introDesc .. '"'
-    introLabel.Font = Enum.Font.GothamItalic
+    introLabel.Font = Enum.Font.Gotham
     introLabel.TextSize = 16
     introLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
     introLabel.BackgroundTransparency = 1
@@ -1230,14 +1233,19 @@ local function showOrdealIntro(ordealName, descName, introDesc)
     
     task.wait(3)
     
-    TweenService:Create(introFrame, TweenInfo.new(1), {BackgroundTransparency = 1}):Play()
-    TweenService:Create(ordealLabel, TweenInfo.new(1), {TextTransparency = 1}):Play()
-    TweenService:Create(descLabel, TweenInfo.new(1), {TextTransparency = 1}):Play()
-    TweenService:Create(introLabel, TweenInfo.new(1), {TextTransparency = 1}):Play()
-    
-    task.delay(1, function()
-        introFrame:Destroy()
-    end)
+    -- Check if frame still exists before tweening
+    if introFrame and introFrame.Parent then
+        TweenService:Create(introFrame, TweenInfo.new(1), {BackgroundTransparency = 1}):Play()
+        TweenService:Create(ordealLabel, TweenInfo.new(1), {TextTransparency = 1}):Play()
+        TweenService:Create(descLabel, TweenInfo.new(1), {TextTransparency = 1}):Play()
+        TweenService:Create(introLabel, TweenInfo.new(1), {TextTransparency = 1}):Play()
+        
+        task.delay(1, function()
+            if introFrame and introFrame.Parent then
+                introFrame:Destroy()
+            end
+        end)
+    end
 end
 
 -- Ordeal: Dawn of Purple
