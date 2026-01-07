@@ -23,11 +23,11 @@ local ordealLoops = {}
 local currentSuit = "Standard Suit"
 local suits = {
     ["Standard Suit"] = {
-        Crimson = 0.3,
-        Blue = 0.3,
-        Purple = 0.3,
-        White = 0.5,
-        Grey = 0.5
+        Crimson = 0.1,
+        Blue = 0.1,
+        Purple = 0.1,
+        White = 0.2,
+        Grey = 0.2
     }
 }
 
@@ -1888,14 +1888,6 @@ local function startMidnightOfPurple()
                 task.spawn(function()
                     local spawnPos = playerPos + Vector3.new(math.random(-50, 50), 50, math.random(-50, 50))
                     
-                    -- Play tentacle spawn sound
-                    local tentSound = Instance.new("Sound")
-                    tentSound.SoundId = "rbxassetid://140325083438865"
-                    tentSound.Volume = 0.6
-                    tentSound.Parent = workspace
-                    tentSound.Position = spawnPos
-                    tentSound:Play()
-                    
                     local portal = Instance.new("Part")
                     portal.Shape = Enum.PartType.Cylinder
                     portal.Size = Vector3.new(0.5, 10, 10)
@@ -1907,6 +1899,13 @@ local function startMidnightOfPurple()
                     portal.Position = spawnPos
                     portal.Orientation = Vector3.new(0, 0, 90)
                     portal.Parent = workspace
+                    
+                    -- Play tentacle spawn sound
+                    local tentSound = Instance.new("Sound")
+                    tentSound.SoundId = "rbxassetid://140325083438865"
+                    tentSound.Volume = 0.6
+                    tentSound.Parent = portal
+                    tentSound:Play()
                     
                     task.wait(0.5)
                     
@@ -1925,7 +1924,6 @@ local function startMidnightOfPurple()
                     end
                     
                     portal:Destroy()
-                    tentSound:Destroy()
                     
                     TweenService:Create(tentacle, TweenInfo.new(2), {Transparency = 1}):Play()
                     task.delay(2, function()
@@ -1938,14 +1936,6 @@ local function startMidnightOfPurple()
             if pillar.type == "Blue" and pillar.timer >= 25 then
                 pillar.timer = 0
                 task.spawn(function()
-                    -- Play spike spawn sound
-                    local spikeSound = Instance.new("Sound")
-                    spikeSound.SoundId = "rbxassetid://126711047271197"
-                    spikeSound.Volume = 0.7
-                    spikeSound.Parent = workspace
-                    spikeSound.Position = playerPos
-                    spikeSound:Play()
-                    
                     local spike = Instance.new("Part")
                     spike.Size = Vector3.new(15, 40, 15)
                     spike.Color = Color3.fromRGB(50, 120, 220)
@@ -1954,6 +1944,13 @@ local function startMidnightOfPurple()
                     spike.Anchored = true
                     spike.Position = playerPos + Vector3.new(0, 100, 0)
                     spike.Parent = workspace
+                    
+                    -- Play spike spawn sound
+                    local spikeSound = Instance.new("Sound")
+                    spikeSound.SoundId = "rbxassetid://126711047271197"
+                    spikeSound.Volume = 0.7
+                    spikeSound.Parent = spike
+                    spikeSound:Play()
                     
                     TweenService:Create(spike, TweenInfo.new(0.5), {Position = playerPos + Vector3.new(0, 7.5, 0)}):Play()
                     task.wait(0.5)
@@ -1993,8 +1990,6 @@ local function startMidnightOfPurple()
                             damageLoop:Disconnect()
                         end)
                     end
-                    
-                    spikeSound:Destroy()
                     
                     TweenService:Create(spike, TweenInfo.new(2), {Transparency = 1}):Play()
                     task.delay(2, function()
@@ -2058,13 +2053,6 @@ local function startMidnightOfPurple()
             if pillar.type == "Grey" and pillar.timer >= 53 then
                 pillar.timer = 0
                 task.spawn(function()
-                    -- Play grey tentacle sound
-                    local greyTentSound = Instance.new("Sound")
-                    greyTentSound.SoundId = "rbxassetid://7837537174"
-                    greyTentSound.Volume = 0.7
-                    greyTentSound.Parent = workspace
-                    greyTentSound:Play()
-                    
                     for i = 1, 3 do
                         local spawnPos = playerPos + Vector3.new(math.random(-70, 70), 50, math.random(-70, 70))
                         
@@ -2079,6 +2067,15 @@ local function startMidnightOfPurple()
                         portal.Position = spawnPos
                         portal.Orientation = Vector3.new(0, 0, 90)
                         portal.Parent = workspace
+                        
+                        -- Play grey tentacle sound on first tentacle
+                        if i == 1 then
+                            local greyTentSound = Instance.new("Sound")
+                            greyTentSound.SoundId = "rbxassetid://7837537174"
+                            greyTentSound.Volume = 0.7
+                            greyTentSound.Parent = portal
+                            greyTentSound:Play()
+                        end
                         
                         task.wait(1)
                         
@@ -2111,7 +2108,6 @@ local function startMidnightOfPurple()
                         end
                     end
                     
-                    greyTentSound:Destroy()
                     pillar.tentacles = {}
                 end)
             end
@@ -2138,6 +2134,324 @@ local function startMidnightOfPurple()
     end)
     
     ordealLoops["Midnight of Purple"] = {loop}
+end
+
+-- Ordeal: Midnight of Red
+local function startMidnightOfRed()
+    local char = player.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+    
+    showOrdealIntro("Midnight of Red", "The Harmony of Fun", "Let the games begin! Dance with us in this crimson carnival!")
+    
+    local hrp = char.HumanoidRootPart
+    
+    -- Create a carnival-themed chaos zone
+    local carnivalCenter = hrp.Position + Vector3.new(0, 0, 0)
+    
+    -- Spinning red blades
+    local blades = {}
+    for i = 1, 8 do
+        local blade = Instance.new("Part")
+        blade.Size = Vector3.new(2, 30, 0.5)
+        blade.Color = Color3.fromRGB(220, 50, 50)
+        blade.Material = Enum.Material.Neon
+        blade.Anchored = true
+        blade.CanCollide = false
+        blade.Position = carnivalCenter + Vector3.new(0, 15, 0)
+        blade.Parent = workspace
+        
+        table.insert(blades, {
+            part = blade,
+            angle = (i / 8) * math.pi * 2,
+            radius = 20
+        })
+    end
+    
+    -- Bouncing red balls
+    local balls = {}
+    for i = 1, 5 do
+        local ball = Instance.new("Part")
+        ball.Shape = Enum.PartType.Ball
+        ball.Size = Vector3.new(5, 5, 5)
+        ball.Color = Color3.fromRGB(255, 50, 50)
+        ball.Material = Enum.Material.Neon
+        ball.Anchored = false
+        ball.CanCollide = true
+        ball.Position = carnivalCenter + Vector3.new(math.random(-30, 30), 30, math.random(-30, 30))
+        ball.Parent = workspace
+        
+        local bodyVel = Instance.new("BodyVelocity")
+        bodyVel.MaxForce = Vector3.new(4000, 4000, 4000)
+        bodyVel.Velocity = Vector3.new(math.random(-20, 20), -10, math.random(-20, 20))
+        bodyVel.Parent = ball
+        
+        table.insert(balls, {part = ball, vel = bodyVel})
+    end
+    
+    local spinSpeed = 0
+    local explosionTimer = 0
+    
+    local loop = RunService.Heartbeat:Connect(function(dt)
+        if not activeOrdeals["Midnight of Red"] then
+            for _, blade in ipairs(blades) do
+                if blade.part and blade.part.Parent then blade.part:Destroy() end
+            end
+            for _, ball in ipairs(balls) do
+                if ball.part and ball.part.Parent then ball.part:Destroy() end
+            end
+            loop:Disconnect()
+            return
+        end
+        
+        local currentChar = player.Character
+        if not currentChar or not currentChar:FindFirstChild("HumanoidRootPart") then return end
+        local playerPos = currentChar.HumanoidRootPart.Position
+        
+        -- Spin blades faster over time
+        spinSpeed = spinSpeed + dt * 0.1
+        for _, blade in ipairs(blades) do
+            blade.angle = blade.angle + (2 + spinSpeed) * dt
+            local offset = Vector3.new(math.cos(blade.angle) * blade.radius, 0, math.sin(blade.angle) * blade.radius)
+            blade.part.Position = carnivalCenter + offset + Vector3.new(0, 15, 0)
+            blade.part.CFrame = CFrame.new(blade.part.Position) * CFrame.Angles(0, blade.angle, 0)
+            
+            -- Check collision with player
+            local distToBlade = (playerPos - blade.part.Position).Magnitude
+            if distToBlade <= 15 then
+                applyDamage("Crimson", 20, 40)
+            end
+        end
+        
+        -- Update bouncing balls
+        for _, ball in ipairs(balls) do
+            if ball.part and ball.part.Parent then
+                -- Bounce logic
+                if ball.part.Position.Y <= carnivalCenter.Y + 2 then
+                    ball.vel.Velocity = Vector3.new(ball.vel.Velocity.X, math.abs(ball.vel.Velocity.Y) * 0.8, ball.vel.Velocity.Z)
+                end
+                
+                -- Check collision with player
+                local distToBall = (playerPos - ball.part.Position).Magnitude
+                if distToBall <= 5 then
+                    applyDamage("Crimson", 15, 25)
+                end
+            end
+        end
+        
+        -- Random explosions
+        explosionTimer = explosionTimer + dt
+        if explosionTimer >= 3 then
+            explosionTimer = 0
+            local expPos = carnivalCenter + Vector3.new(math.random(-40, 40), 0, math.random(-40, 40))
+            
+            local explosion = Instance.new("Part")
+            explosion.Shape = Enum.PartType.Ball
+            explosion.Size = Vector3.new(1, 1, 1)
+            explosion.Color = Color3.fromRGB(255, 100, 0)
+            explosion.Material = Enum.Material.Neon
+            explosion.Transparency = 0.3
+            explosion.CanCollide = false
+            explosion.Anchored = true
+            explosion.Position = expPos
+            explosion.Parent = workspace
+            
+            TweenService:Create(explosion, TweenInfo.new(0.5), {Size = Vector3.new(20, 20, 20), Transparency = 1}):Play()
+            
+            local distToExp = (playerPos - expPos).Magnitude
+            if distToExp <= 10 then
+                applyDamage("Crimson", 30, 50)
+            end
+            
+            task.delay(0.5, function()
+                if explosion and explosion.Parent then explosion:Destroy() end
+            end)
+        end
+    end)
+    
+    ordealLoops["Midnight of Red"] = {loop}
+end
+
+-- Ordeal: Midnight of Blue
+local function startMidnightOfBlue()
+    local char = player.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+    
+    showOrdealIntro("Midnight of Blue", "Exalted Code", "We've way ahead from your time. We have evolved into an Advanced and Sentient AI.")
+    
+    local hrp = char.HumanoidRootPart
+    
+    -- Create floating code matrix
+    local codeBlocks = {}
+    for i = 1, 20 do
+        local block = Instance.new("Part")
+        block.Size = Vector3.new(3, 3, 0.5)
+        block.Color = Color3.fromRGB(0, 150, 255)
+        block.Material = Enum.Material.Neon
+        block.Anchored = true
+        block.CanCollide = false
+        block.Position = hrp.Position + Vector3.new(math.random(-50, 50), math.random(10, 40), math.random(-50, 50))
+        block.Parent = workspace
+        
+        local billboard = Instance.new("BillboardGui")
+        billboard.Size = UDim2.new(4, 0, 4, 0)
+        billboard.Adornee = block
+        billboard.AlwaysOnTop = false
+        billboard.Parent = block
+        
+        local textLabel = Instance.new("TextLabel")
+        textLabel.Size = UDim2.new(1, 0, 1, 0)
+        textLabel.BackgroundTransparency = 1
+        textLabel.Text = "01010" .. math.random(100, 999)
+        textLabel.TextColor3 = Color3.fromRGB(0, 255, 255)
+        textLabel.Font = Enum.Font.Code
+        textLabel.TextSize = 20
+        textLabel.Parent = billboard
+        
+        table.insert(codeBlocks, {
+            part = block,
+            billboard = billboard,
+            floatOffset = math.random() * math.pi * 2
+        })
+    end
+    
+    -- Create laser grid
+    local laserTimer = 0
+    local hackTimer = 0
+    local droneTimer = 0
+    local drones = {}
+    
+    local loop = RunService.Heartbeat:Connect(function(dt)
+        if not activeOrdeals["Midnight of Blue"] then
+            for _, block in ipairs(codeBlocks) do
+                if block.part and block.part.Parent then block.part:Destroy() end
+            end
+            for _, drone in ipairs(drones) do
+                if drone and drone.Parent then drone:Destroy() end
+            end
+            loop:Disconnect()
+            return
+        end
+        
+        local currentChar = player.Character
+        if not currentChar or not currentChar:FindFirstChild("HumanoidRootPart") then return end
+        local playerPos = currentChar.HumanoidRootPart.Position
+        
+        -- Float code blocks
+        for _, block in ipairs(codeBlocks) do
+            block.floatOffset = block.floatOffset + dt
+            block.part.Position = block.part.Position + Vector3.new(0, math.sin(block.floatOffset) * 0.02, 0)
+        end
+        
+        -- Spawn tracking drones
+        droneTimer = droneTimer + dt
+        if droneTimer >= 8 then
+            droneTimer = 0
+            
+            local drone = Instance.new("Part")
+            drone.Size = Vector3.new(3, 1, 3)
+            drone.Color = Color3.fromRGB(0, 150, 255)
+            drone.Material = Enum.Material.Neon
+            drone.Anchored = true
+            drone.CanCollide = false
+            drone.Position = playerPos + Vector3.new(math.random(-30, 30), 20, math.random(-30, 30))
+            drone.Parent = workspace
+            
+            table.insert(drones, drone)
+        end
+        
+        -- Update drones
+        for i = #drones, 1, -1 do
+            local drone = drones[i]
+            if drone and drone.Parent then
+                local dir = (playerPos - drone.Position).Unit
+                drone.Position = drone.Position + dir * 15 * dt
+                drone.CFrame = CFrame.new(drone.Position, playerPos)
+                
+                local distToDrone = (playerPos - drone.Position).Magnitude
+                if distToDrone <= 3 then
+                    applyDamage("Blue", 25, 40)
+                    drone:Destroy()
+                    table.remove(drones, i)
+                end
+            else
+                table.remove(drones, i)
+            end
+        end
+        
+        -- Laser grid every 10 seconds
+        laserTimer = laserTimer + dt
+        if laserTimer >= 10 then
+            laserTimer = 0
+            task.spawn(function()
+                local lasers = {}
+                for i = 1, 5 do
+                    local laser = Instance.new("Part")
+                    laser.Size = Vector3.new(100, 0.5, 0.5)
+                    laser.Color = Color3.fromRGB(0, 200, 255)
+                    laser.Material = Enum.Material.Neon
+                    laser.Transparency = 0.3
+                    laser.CanCollide = false
+                    laser.Anchored = true
+                    laser.Position = playerPos + Vector3.new(0, i * 5 - 10, 0)
+                    laser.Parent = workspace
+                    
+                    table.insert(lasers, laser)
+                end
+                
+                task.wait(2)
+                
+                for _, laser in ipairs(lasers) do
+                    if laser and laser.Parent then
+                        local distToLaser = math.abs(playerPos.Y - laser.Position.Y)
+                        if distToLaser <= 2.5 then
+                            applyDamage("Blue", 20, 35)
+                        end
+                        laser:Destroy()
+                    end
+                end
+            end)
+        end
+        
+        -- "Hacking" effect every 15 seconds
+        hackTimer = hackTimer + dt
+        if hackTimer >= 15 then
+            hackTimer = 0
+            
+            local hackFrame = Instance.new("Frame")
+            hackFrame.Size = UDim2.new(1, 0, 1, 0)
+            hackFrame.BackgroundColor3 = Color3.fromRGB(0, 100, 200)
+            hackFrame.BackgroundTransparency = 0.7
+            hackFrame.Parent = screenGui
+            
+            local hackText = Instance.new("TextLabel")
+            hackText.Size = UDim2.new(1, 0, 1, 0)
+            hackText.BackgroundTransparency = 1
+            hackText.Text = "SYSTEM COMPROMISED"
+            hackText.TextColor3 = Color3.fromRGB(255, 0, 0)
+            hackText.Font = Enum.Font.Code
+            hackText.TextSize = 48
+            hackText.Parent = hackFrame
+            
+            applyDamage("Blue", 30, 50)
+            
+            if currentChar and currentChar:FindFirstChild("Humanoid") then
+                local originalSpeed = currentChar.Humanoid.WalkSpeed
+                currentChar.Humanoid.WalkSpeed = originalSpeed * 0.5
+                
+                task.delay(3, function()
+                    if currentChar and currentChar:FindFirstChild("Humanoid") then
+                        currentChar.Humanoid.WalkSpeed = originalSpeed
+                    end
+                end)
+            end
+            
+            task.delay(3, function()
+                if hackFrame and hackFrame.Parent then hackFrame:Destroy() end
+            end)
+        end
+    end)
+    
+    ordealLoops["Midnight of Blue"] = {loop}
 end
 
 -- Create Illusion Entry
@@ -2260,6 +2574,22 @@ local ordeals = {
         introDesc = "We are the divine incarnations of desire. Witness our power.",
         ordealLevel = "MIDNIGHT",
         func = startMidnightOfPurple
+    },
+    {
+        name = "Midnight of Red",
+        desc = "A crimson carnival of chaos! 8 spinning blades (20-40 Crimson dmg), 5 bouncing balls (15-25 dmg), and random explosions (30-50 dmg) every 3 seconds. Spin speed increases over time. Pure chaotic fun!",
+        descName = "The Harmony of Fun",
+        introDesc = "Let the games begin! Dance with us in this crimson carnival!",
+        ordealLevel = "MIDNIGHT",
+        func = startMidnightOfRed
+    },
+    {
+        name = "Midnight of Blue",
+        desc = "Advanced AI ordeal with floating code blocks, tracking drones (25-40 Blue dmg), laser grids every 10s (20-35 dmg), and system hacks every 15s (30-50 dmg + 50% speed reduction for 3s).",
+        descName = "Exalted Code",
+        introDesc = "We've way ahead from your time. We have evolved into an Advanced and Sentient AI.",
+        ordealLevel = "MIDNIGHT",
+        func = startMidnightOfBlue
     }
 }
 
