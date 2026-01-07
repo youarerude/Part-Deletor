@@ -1338,10 +1338,13 @@ local function startDawnOfPurple()
                         -- Force walk to soul
                         if currentChar:FindFirstChild("Humanoid") then
                             local humanoidRef = currentChar.Humanoid
+                            local startTime = tick()
                             local forceWalkLoop = RunService.Heartbeat:Connect(function()
-                                if not forcefield or not forcefield.Parent then return end
-                                local dir = (soul.torso.Position - currentChar.HumanoidRootPart.Position).Unit
-                                humanoidRef:Move(dir)
+                                if tick() - startTime >= 2 or not forcefield or not forcefield.Parent then return end
+                                if currentChar and currentChar:FindFirstChild("HumanoidRootPart") then
+                                    local dir = (soul.torso.Position - currentChar.HumanoidRootPart.Position).Unit
+                                    humanoidRef:Move(dir)
+                                end
                             end)
                             
                             task.delay(2, function()
@@ -1519,15 +1522,21 @@ local function startNoonOfPurple()
         -- Update Loved Ones
         for _, loved in ipairs(lovedOnes) do
             if loved.model and loved.model.Parent then
-                local dir = (playerPos - loved.torso.Position).Unit
-                loved.torso.Position = loved.torso.Position + dir * 10 * dt
-                
-                loved.attackTimer = loved.attackTimer + dt
-                local distToPlayer = (playerPos - loved.torso.Position).Magnitude
-                
-                if distToPlayer <= 5 and loved.attackTimer >= 1 then
-                    loved.attackTimer = 0
-                    applyDamage("Purple", 3, 5)
+                if currentChar and currentChar:FindFirstChild("HumanoidRootPart") then
+                    local dir = (playerPos - loved.torso.Position).Unit
+                    loved.torso.Position = loved.torso.Position + dir * 10 * dt
+                    
+                    -- Make it face player
+                    local lookAt = Vector3.new(playerPos.X, loved.torso.Position.Y, playerPos.Z)
+                    loved.torso.CFrame = CFrame.new(loved.torso.Position, lookAt)
+                    
+                    loved.attackTimer = loved.attackTimer + dt
+                    local distToPlayer = (playerPos - loved.torso.Position).Magnitude
+                    
+                    if distToPlayer <= 5 and loved.attackTimer >= 1 then
+                        loved.attackTimer = 0
+                        applyDamage("Purple", 3, 5)
+                    end
                 end
             end
         end
@@ -1627,10 +1636,13 @@ local function startDuskOfPurple()
                     -- Force walk to building
                     if currentChar:FindFirstChild("Humanoid") then
                         local humanoidRef = currentChar.Humanoid
+                        local startTime = tick()
                         local forceWalkLoop = RunService.Heartbeat:Connect(function()
-                            if not forcefield or not forcefield.Parent then return end
-                            local dir = (buildingBody.Position - currentChar.HumanoidRootPart.Position).Unit
-                            humanoidRef:Move(dir)
+                            if tick() - startTime >= 3 or not forcefield or not forcefield.Parent then return end
+                            if currentChar and currentChar:FindFirstChild("HumanoidRootPart") then
+                                local dir = (buildingBody.Position - currentChar.HumanoidRootPart.Position).Unit
+                                humanoidRef:Move(dir)
+                            end
                         end)
                         
                         task.delay(3, function()
@@ -1714,6 +1726,334 @@ local function startDuskOfPurple()
     end)
     
     ordealLoops["Dusk of Purple"] = {loop}
+end
+
+-- Ordeal: Midnight of Purple
+local function startMidnightOfPurple()
+    local char = player.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+    
+    showOrdealIntro("Midnight of Purple", "God's Lust", "We are the divine incarnations of desire. Witness our power.")
+    
+    local hrp = char.HumanoidRootPart
+    
+    -- Create 5 Deity Pillars
+    local pillars = {}
+    local pillarData = {
+        {name = "Crimson Deity", color = Color3.fromRGB(220, 50, 50), type = "Crimson"},
+        {name = "Blue Deity", color = Color3.fromRGB(50, 120, 220), type = "Blue"},
+        {name = "Purple Deity", color = Color3.fromRGB(200, 100, 255), type = "Purple"},
+        {name = "Grey Deity", color = Color3.fromRGB(150, 150, 150), type = "Grey"},
+        {name = "White Deity", color = Color3.new(1, 1, 1), type = "White"}
+    }
+    
+    for i, data in ipairs(pillarData) do
+        local angle = (i / 5) * math.pi * 2
+        local dist = math.random(80, 150)
+        local pillarPos = hrp.Position + Vector3.new(math.cos(angle) * dist, 0, math.sin(angle) * dist)
+        
+        local pillar = Instance.new("Part")
+        pillar.Size = Vector3.new(15, 100, 15)
+        pillar.Color = data.color
+        pillar.Material = Enum.Material.Neon
+        pillar.Anchored = true
+        pillar.CanCollide = false
+        pillar.Position = pillarPos + Vector3.new(0, 50, 0)
+        pillar.Parent = workspace
+        
+        local nameLabel = Instance.new("BillboardGui")
+        nameLabel.Size = UDim2.new(0, 200, 0, 50)
+        nameLabel.Adornee = pillar
+        nameLabel.AlwaysOnTop = true
+        nameLabel.Parent = pillar
+        
+        local textLabel = Instance.new("TextLabel")
+        textLabel.Size = UDim2.new(1, 0, 1, 0)
+        textLabel.BackgroundTransparency = 1
+        textLabel.Text = data.name
+        textLabel.TextColor3 = data.color
+        textLabel.Font = Enum.Font.GothamBold
+        textLabel.TextSize = 24
+        textLabel.TextStrokeTransparency = 0.5
+        textLabel.Parent = nameLabel
+        
+        -- Add image for Purple Deity
+        local imageGui = nil
+        if data.type == "Purple" then
+            imageGui = Instance.new("BillboardGui")
+            imageGui.Size = UDim2.new(0, 300, 0, 300)
+            imageGui.Adornee = pillar
+            imageGui.AlwaysOnTop = false
+            imageGui.Parent = pillar
+            
+            local image = Instance.new("ImageLabel")
+            image.Size = UDim2.new(1, 0, 1, 0)
+            image.BackgroundTransparency = 1
+            image.Image = "rbxassetid://10154713819"
+            image.Parent = imageGui
+        end
+        
+        table.insert(pillars, {
+            part = pillar,
+            type = data.type,
+            timer = 0,
+            imageGui = imageGui,
+            tentacles = {}
+        })
+    end
+    
+    local blinding = false
+    local blindFrame = nil
+    
+    local loop = RunService.Heartbeat:Connect(function(dt)
+        if not activeOrdeals["Midnight of Purple"] then
+            for _, pillar in ipairs(pillars) do
+                if pillar.part and pillar.part.Parent then pillar.part:Destroy() end
+                for _, tent in ipairs(pillar.tentacles) do
+                    if tent and tent.Parent then tent:Destroy() end
+                end
+            end
+            if blindFrame and blindFrame.Parent then blindFrame:Destroy() end
+            loop:Disconnect()
+            return
+        end
+        
+        local currentChar = player.Character
+        if not currentChar or not currentChar:FindFirstChild("HumanoidRootPart") then return end
+        local playerPos = currentChar.HumanoidRootPart.Position
+        
+        for _, pillar in ipairs(pillars) do
+            pillar.timer = pillar.timer + dt
+            
+            -- Crimson Deity: Tentacle stab every 10 seconds
+            if pillar.type == "Crimson" and pillar.timer >= 10 then
+                pillar.timer = 0
+                task.spawn(function()
+                    local spawnPos = playerPos + Vector3.new(math.random(-50, 50), 50, math.random(-50, 50))
+                    
+                    local portal = Instance.new("Part")
+                    portal.Shape = Enum.PartType.Cylinder
+                    portal.Size = Vector3.new(0.5, 10, 10)
+                    portal.Color = Color3.fromRGB(220, 50, 50)
+                    portal.Material = Enum.Material.Neon
+                    portal.Transparency = 0.5
+                    portal.CanCollide = false
+                    portal.Anchored = true
+                    portal.Position = spawnPos
+                    portal.Orientation = Vector3.new(0, 0, 90)
+                    portal.Parent = workspace
+                    
+                    task.wait(0.5)
+                    
+                    local tentacle = Instance.new("Part")
+                    tentacle.Size = Vector3.new(5, 60, 5)
+                    tentacle.Color = Color3.fromRGB(200, 30, 30)
+                    tentacle.Material = Enum.Material.Neon
+                    tentacle.CanCollide = false
+                    tentacle.Anchored = true
+                    tentacle.Position = spawnPos + Vector3.new(0, -30, 0)
+                    tentacle.Parent = workspace
+                    
+                    local distToTent = (playerPos - tentacle.Position).Magnitude
+                    if distToTent <= 5 then
+                        applyDamage("Crimson", 50, 75)
+                    end
+                    
+                    portal:Destroy()
+                    
+                    TweenService:Create(tentacle, TweenInfo.new(2), {Transparency = 1}):Play()
+                    task.delay(2, function()
+                        if tentacle and tentacle.Parent then tentacle:Destroy() end
+                    end)
+                end)
+            end
+            
+            -- Blue Deity: Spike every 25 seconds
+            if pillar.type == "Blue" and pillar.timer >= 25 then
+                pillar.timer = 0
+                task.spawn(function()
+                    local spike = Instance.new("Part")
+                    spike.Size = Vector3.new(15, 40, 15)
+                    spike.Color = Color3.fromRGB(50, 120, 220)
+                    spike.Material = Enum.Material.Neon
+                    spike.CanCollide = false
+                    spike.Anchored = true
+                    spike.Position = playerPos + Vector3.new(0, 100, 0)
+                    spike.Parent = workspace
+                    
+                    TweenService:Create(spike, TweenInfo.new(0.5), {Position = playerPos + Vector3.new(0, 7.5, 0)}):Play()
+                    task.wait(0.5)
+                    
+                    local distToSpike = (playerPos - spike.Position).Magnitude
+                    if distToSpike <= 10 then
+                        local damageStart = tick()
+                        local damageLoop = RunService.Heartbeat:Connect(function()
+                            if tick() - damageStart >= 3 then return end
+                            if currentChar and currentChar:FindFirstChild("HumanoidRootPart") then
+                                applyDamage("Blue", 10, 30)
+                                
+                                if currentSP <= 0 then
+                                    -- Force walk to Blue Deity
+                                    if currentChar:FindFirstChild("Humanoid") then
+                                        local humanoidRef = currentChar.Humanoid
+                                        local forceStartTime = tick()
+                                        local forceLoop = RunService.Heartbeat:Connect(function()
+                                            if tick() - forceStartTime >= 1 then return end
+                                            if currentChar and currentChar:FindFirstChild("HumanoidRootPart") then
+                                                local dir = (pillar.part.Position - currentChar.HumanoidRootPart.Position).Unit
+                                                humanoidRef:Move(dir)
+                                                
+                                                applyDamage("Crimson", 25, 50)
+                                            end
+                                        end)
+                                        
+                                        task.delay(1, function()
+                                            forceLoop:Disconnect()
+                                        end)
+                                    end
+                                end
+                            end
+                        end)
+                        
+                        task.delay(3, function()
+                            damageLoop:Disconnect()
+                        end)
+                    end
+                    
+                    TweenService:Create(spike, TweenInfo.new(2), {Transparency = 1}):Play()
+                    task.delay(2, function()
+                        if spike and spike.Parent then spike:Destroy() end
+                    end)
+                end)
+            end
+            
+            -- Purple Deity: Blinding effect
+            if pillar.type == "Purple" then
+                local camera = workspace.CurrentCamera
+                local camCFrame = camera.CFrame
+                local dirToPillar = (pillar.part.Position - camCFrame.Position).Unit
+                local camLook = camCFrame.LookVector
+                local dot = dirToPillar:Dot(camLook)
+                
+                local isLooking = dot > 0.5
+                
+                if isLooking and not blinding then
+                    blinding = true
+                    blindFrame = Instance.new("Frame")
+                    blindFrame.Size = UDim2.new(1, 0, 1, 0)
+                    blindFrame.BackgroundColor3 = Color3.new(0, 0, 0)
+                    blindFrame.BackgroundTransparency = 0
+                    blindFrame.Parent = screenGui
+                    
+                    local blindLoop = RunService.Heartbeat:Connect(function()
+                        if not blinding then return end
+                        applyDamage("Purple", 43, 76)
+                        task.wait(1)
+                    end)
+                    
+                    task.spawn(function()
+                        while blinding and activeOrdeals["Midnight of Purple"] do
+                            local cam2 = workspace.CurrentCamera
+                            local camCFrame2 = cam2.CFrame
+                            local dirToPillar2 = (pillar.part.Position - camCFrame2.Position).Unit
+                            local camLook2 = camCFrame2.LookVector
+                            local dot2 = dirToPillar2:Dot(camLook2)
+                            
+                            if dot2 <= 0.5 then
+                                blinding = false
+                                blindLoop:Disconnect()
+                                if blindFrame and blindFrame.Parent then
+                                    blindFrame:Destroy()
+                                end
+                                break
+                            end
+                            task.wait(0.1)
+                        end
+                    end)
+                elseif not isLooking and blinding then
+                    blinding = false
+                    if blindFrame and blindFrame.Parent then
+                        blindFrame:Destroy()
+                    end
+                end
+            end
+            
+            -- Grey Deity: 3 Tentacles every 53 seconds
+            if pillar.type == "Grey" and pillar.timer >= 53 then
+                pillar.timer = 0
+                task.spawn(function()
+                    for i = 1, 3 do
+                        local spawnPos = playerPos + Vector3.new(math.random(-70, 70), 50, math.random(-70, 70))
+                        
+                        local portal = Instance.new("Part")
+                        portal.Shape = Enum.PartType.Cylinder
+                        portal.Size = Vector3.new(0.5, 15, 15)
+                        portal.Color = Color3.fromRGB(150, 150, 150)
+                        portal.Material = Enum.Material.Neon
+                        portal.Transparency = 0.5
+                        portal.CanCollide = false
+                        portal.Anchored = true
+                        portal.Position = spawnPos
+                        portal.Orientation = Vector3.new(0, 0, 90)
+                        portal.Parent = workspace
+                        
+                        task.wait(1)
+                        
+                        local tentacle = Instance.new("Part")
+                        tentacle.Size = Vector3.new(8, 80, 8)
+                        tentacle.Color = Color3.fromRGB(120, 120, 120)
+                        tentacle.Material = Enum.Material.Neon
+                        tentacle.CanCollide = false
+                        tentacle.Anchored = true
+                        tentacle.Position = spawnPos + Vector3.new(0, -40, 0)
+                        tentacle.Parent = workspace
+                        
+                        table.insert(pillar.tentacles, tentacle)
+                        portal:Destroy()
+                    end
+                    
+                    task.wait(0.5)
+                    
+                    for _, tent in ipairs(pillar.tentacles) do
+                        if tent and tent.Parent then
+                            local distToTent = (playerPos - tent.Position).Magnitude
+                            if distToTent <= 8 then
+                                applyDamage("Grey", 60, 80)
+                            end
+                            
+                            TweenService:Create(tent, TweenInfo.new(2), {Transparency = 1}):Play()
+                            task.delay(2, function()
+                                if tent and tent.Parent then tent:Destroy() end
+                            end)
+                        end
+                    end
+                    
+                    pillar.tentacles = {}
+                end)
+            end
+            
+            -- White Deity: All player damage every 1 minute
+            if pillar.type == "White" and pillar.timer >= 60 then
+                pillar.timer = 0
+                task.spawn(function()
+                    -- Play sound
+                    local sound = Instance.new("Sound")
+                    sound.SoundId = "rbxassetid://70542612197339"
+                    sound.Volume = 1
+                    sound.Parent = pillar.part
+                    sound:Play()
+                    
+                    applyDamage("White", 75, 120)
+                    
+                    task.delay(5, function()
+                        if sound and sound.Parent then sound:Destroy() end
+                    end)
+                end)
+            end
+        end
+    end)
+    
+    ordealLoops["Midnight of Purple"] = {loop}
 end
 
 -- Create Illusion Entry
@@ -1828,6 +2168,14 @@ local ordeals = {
         introDesc = "You make us complete. We cannot live without you.",
         ordealLevel = "DUSK",
         func = startDuskOfPurple
+    },
+    {
+        name = "Midnight of Purple",
+        desc = "5 GIANT deity pillars appear: Crimson (tentacle stab 50-75), Blue (spike crash 10-30/tick + force walk on SP=0), Purple (blinds + 43-76/sec when looking), Grey (3 tentacles 60-80), White (all players 75-120 every minute with sound).",
+        descName = "God's Lust",
+        introDesc = "We are the divine incarnations of desire. Witness our power.",
+        ordealLevel = "MIDNIGHT",
+        func = startMidnightOfPurple
     }
 }
 
