@@ -23,11 +23,11 @@ local ordealLoops = {}
 local currentSuit = "Standard Suit"
 local suits = {
     ["Standard Suit"] = {
-        Crimson = 0.1,
-        Blue = 0.1,
-        Purple = 0.1,
-        White = 0.1,
-        Grey = 0.1
+        Crimson = 0.001,
+        Blue = 0.001,
+        Purple = 0.001,
+        White = 0.001,
+        Grey = 0.001
     }
 }
 
