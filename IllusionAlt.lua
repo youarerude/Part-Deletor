@@ -7,8 +7,8 @@ local character = player.Character or player.CharacterAdded:Wait()
 local humanoid = character:WaitForChild("Humanoid")
 
 -- Stats
-local maxHP = 100
-local maxSP = 100
+local maxHP = 10000
+local maxSP = 10000
 local currentHP = maxHP
 local currentSP = maxSP
 local hasTrauma = false
@@ -23,11 +23,11 @@ local ordealLoops = {}
 local currentSuit = "Standard Suit"
 local suits = {
     ["Standard Suit"] = {
-        Crimson = 0.001,
-        Blue = 0.001,
-        Purple = 0.001,
-        White = 0.001,
-        Grey = 0.001
+        Crimson = 1,
+        Blue = 1,
+        Purple = 1.5,
+        White = 2,
+        Grey = 2
     }
 }
 
@@ -257,6 +257,27 @@ local function createDamagePopup(damageType, amount)
     damageLabel.TextStrokeTransparency = 0.5
     damageLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
     damageLabel.Parent = billboard
+    
+    -- Play damage sound based on damage label
+    local soundId = ""
+    local label = getDamageLabel(amount)
+    if label == "RESISTANT" or label == "WEAK" then
+        soundId = "76525344270919"
+    elseif label == "NORMAL" then
+        soundId = "7837536770"
+    elseif label == "VULNERABLE" or label == "STRONG" then
+        soundId = "82176913611683"
+    elseif label == "POWERFUL" then
+        soundId = "8164951181"
+    end
+    
+    if soundId ~= "" then
+        local sound = Instance.new("Sound")
+        sound.SoundId = "rbxassetid://" .. soundId
+        sound.Volume = 0.5
+        sound.Parent = part
+        sound:Play()
+    end
     
     local tweenInfo = TweenInfo.new(2, Enum.EasingStyle.Linear, Enum.EasingDirection.Out)
     local goal = {Position = part.Position + Vector3.new(0, 5, 0)}
@@ -1073,7 +1094,7 @@ local function startFalseGod()
             guna.greyGun.CFrame = CFrame.new(guna.leftArm.Position + Vector3.new(0, -1, 0), playerPos)
             guna.whiteGun.CFrame = CFrame.new(guna.rightArm.Position + Vector3.new(0, -1, 0), playerPos)
             
-            if guna.isBarraging then
+                            if guna.isBarraging then
                 guna.barrageTimer = guna.barrageTimer + dt
                 if guna.barrageTimer >= 0.05 then
                     guna.barrageTimer = 0
@@ -1092,6 +1113,13 @@ local function startFalseGod()
                         gun = math.random() > 0.5 and guna.greyGun or guna.whiteGun
                         damageType = gun == guna.greyGun and "Grey" or "White"
                     end
+                    
+                    -- Play barrage sound
+                    local barrageSound = Instance.new("Sound")
+                    barrageSound.SoundId = "rbxassetid://2811598570"
+                    barrageSound.Volume = 0.3
+                    barrageSound.Parent = gun
+                    barrageSound:Play()
                     
                     task.spawn(function()
                         local bullet = Instance.new("Part")
@@ -1123,6 +1151,10 @@ local function startFalseGod()
                         end)
                     end)
                     
+                    task.delay(0.2, function()
+                        if barrageSound and barrageSound.Parent then barrageSound:Destroy() end
+                    end)
+                    
                     if guna.barrageBulletCount >= 30 then
                         guna.isBarraging = false
                         guna.barrageBulletCount = 0
@@ -1137,6 +1169,17 @@ local function startFalseGod()
                     
                     local gun = guna.shootCount % 2 == 1 and guna.greyGun or guna.whiteGun
                     local damageType = gun == guna.greyGun and "Grey" or "White"
+                    
+                    -- Play shoot sound
+                    local shootSound = Instance.new("Sound")
+                    if damageType == "Grey" then
+                        shootSound.SoundId = "rbxassetid://1905367471"
+                    else
+                        shootSound.SoundId = "rbxassetid://1646327903"
+                    end
+                    shootSound.Volume = 0.4
+                    shootSound.Parent = gun
+                    shootSound:Play()
                     
                     task.spawn(function()
                         local bullet = Instance.new("Part")
@@ -1166,6 +1209,10 @@ local function startFalseGod()
                         task.delay(2, function()
                             if bullet and bullet.Parent then bullet:Destroy() end
                         end)
+                    end)
+                    
+                    task.delay(0.5, function()
+                        if shootSound and shootSound.Parent then shootSound:Destroy() end
                     end)
                     
                     if guna.shootCount >= 10 then
@@ -1190,6 +1237,13 @@ end
 local function showOrdealIntro(ordealName, descName, introDesc)
     -- Wait a frame to ensure GUI is loaded
     task.wait()
+    
+    -- Play ordeal intro sound
+    local introSound = Instance.new("Sound")
+    introSound.SoundId = "rbxassetid://98284928263992"
+    introSound.Volume = 0.7
+    introSound.Parent = screenGui
+    introSound:Play()
     
     local introFrame = Instance.new("Frame")
     introFrame.Size = UDim2.new(0, 600, 0, 200)
@@ -1243,6 +1297,9 @@ local function showOrdealIntro(ordealName, descName, introDesc)
         task.delay(1, function()
             if introFrame and introFrame.Parent then
                 introFrame:Destroy()
+            end
+            if introSound and introSound.Parent then
+                introSound:Destroy()
             end
         end)
     end
@@ -1831,6 +1888,14 @@ local function startMidnightOfPurple()
                 task.spawn(function()
                     local spawnPos = playerPos + Vector3.new(math.random(-50, 50), 50, math.random(-50, 50))
                     
+                    -- Play tentacle spawn sound
+                    local tentSound = Instance.new("Sound")
+                    tentSound.SoundId = "rbxassetid://140325083438865"
+                    tentSound.Volume = 0.6
+                    tentSound.Parent = workspace
+                    tentSound.Position = spawnPos
+                    tentSound:Play()
+                    
                     local portal = Instance.new("Part")
                     portal.Shape = Enum.PartType.Cylinder
                     portal.Size = Vector3.new(0.5, 10, 10)
@@ -1860,6 +1925,7 @@ local function startMidnightOfPurple()
                     end
                     
                     portal:Destroy()
+                    tentSound:Destroy()
                     
                     TweenService:Create(tentacle, TweenInfo.new(2), {Transparency = 1}):Play()
                     task.delay(2, function()
@@ -1872,6 +1938,14 @@ local function startMidnightOfPurple()
             if pillar.type == "Blue" and pillar.timer >= 25 then
                 pillar.timer = 0
                 task.spawn(function()
+                    -- Play spike spawn sound
+                    local spikeSound = Instance.new("Sound")
+                    spikeSound.SoundId = "rbxassetid://126711047271197"
+                    spikeSound.Volume = 0.7
+                    spikeSound.Parent = workspace
+                    spikeSound.Position = playerPos
+                    spikeSound:Play()
+                    
                     local spike = Instance.new("Part")
                     spike.Size = Vector3.new(15, 40, 15)
                     spike.Color = Color3.fromRGB(50, 120, 220)
@@ -1919,6 +1993,8 @@ local function startMidnightOfPurple()
                             damageLoop:Disconnect()
                         end)
                     end
+                    
+                    spikeSound:Destroy()
                     
                     TweenService:Create(spike, TweenInfo.new(2), {Transparency = 1}):Play()
                     task.delay(2, function()
@@ -1982,6 +2058,13 @@ local function startMidnightOfPurple()
             if pillar.type == "Grey" and pillar.timer >= 53 then
                 pillar.timer = 0
                 task.spawn(function()
+                    -- Play grey tentacle sound
+                    local greyTentSound = Instance.new("Sound")
+                    greyTentSound.SoundId = "rbxassetid://7837537174"
+                    greyTentSound.Volume = 0.7
+                    greyTentSound.Parent = workspace
+                    greyTentSound:Play()
+                    
                     for i = 1, 3 do
                         local spawnPos = playerPos + Vector3.new(math.random(-70, 70), 50, math.random(-70, 70))
                         
@@ -2028,6 +2111,7 @@ local function startMidnightOfPurple()
                         end
                     end
                     
+                    greyTentSound:Destroy()
                     pillar.tentacles = {}
                 end)
             end
