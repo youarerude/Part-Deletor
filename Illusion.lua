@@ -1,4 +1,4 @@
--- Illusion System Script (Client-Sided)
+-- Illusion System Script (Client-Sided) with Complete Sound Effects
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
@@ -19,7 +19,11 @@ local SOUNDS = {
     MimicryNearPlayer = "rbxassetid://104026368863454",
     MimicryPhase2Loop = "rbxassetid://131461792070501",
     MimicryDashSpeak = "rbxassetid://72209573879445",
-    MimicryAttackSpeak = "rbxassetid://74146743627850"
+    MimicryAttackSpeak = "rbxassetid://74146743627850",
+    GunDevilLeftShoot = "rbxassetid://1905367471",
+    GunDevilRightShoot = "rbxassetid://1646327903",
+    GunDevilBarrage = "rbxassetid://2811598570",
+    LiquidOrchestraSong = "rbxassetid://81937940722687"
 }
 
 -- Function to play sound
@@ -214,7 +218,7 @@ suitsBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
 suitsBtn.TextColor3 = Color3.new(1, 1, 1)
 suitsBtn.Parent = screenGui
 
--- Illusions GUI (Fixed size - 70% of screen height)
+-- Illusions GUI
 local illusionsGui = Instance.new("Frame")
 illusionsGui.Size = UDim2.new(0, 400, 0.7, 0)
 illusionsGui.Position = UDim2.new(0.5, -200, 0.15, 0)
@@ -341,7 +345,6 @@ local function createDamagePopup(damageType, amount)
         playSound(damageSound, hrp, 0.6, false)
     end
     
-    -- Create a part for the BillboardGui
     local part = Instance.new("Part")
     part.Size = Vector3.new(1, 1, 1)
     part.Transparency = 1
@@ -367,7 +370,6 @@ local function createDamagePopup(damageType, amount)
     damageLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
     damageLabel.Parent = billboard
     
-    -- Animate upward and fade
     local tweenInfo = TweenInfo.new(2, Enum.EasingStyle.Linear, Enum.EasingDirection.Out)
     local goal = {Position = part.Position + Vector3.new(0, 5, 0)}
     local tween = TweenService:Create(part, tweenInfo, goal)
@@ -406,10 +408,7 @@ local function resetStats()
 end
 
 local function applyDamage(damageType, minAmount, maxAmount)
-    -- Generate random damage with decimal
     local amount = math.random(minAmount * 10, maxAmount * 10) / 10
-    
-    -- Apply suit resistance
     local resistance = suits[currentSuit][damageType] or 1
     amount = amount * resistance
     
@@ -430,7 +429,6 @@ local function applyDamage(damageType, minAmount, maxAmount)
         currentSP = math.max(0, currentSP - finalDamage)
     end
     
-    -- Create damage popup
     createDamagePopup(damageType, finalDamage)
     
     if currentSP <= 0 and not hasTrauma then
@@ -438,7 +436,6 @@ local function applyDamage(damageType, minAmount, maxAmount)
         warn("TRAUMA ACQUIRED!")
     end
     
-    -- Check if player died
     if currentHP <= 0 then
         humanoid.Health = 0
         task.wait(5)
@@ -624,7 +621,6 @@ local function startBroodingDarkness()
     
     local hrp = char.HumanoidRootPart
     
-    -- Create humanoid-like enemy
     local enemy = Instance.new("Model")
     enemy.Name = "BroodingDarkness"
     enemy.Parent = workspace
@@ -688,7 +684,7 @@ local function startBroodingDarkness()
     local abilityTimer = 0
     local isForceWalking = false
     local forceWalkConnection = nil
-    local moveSpeed = 8 -- Studs per second
+    local moveSpeed = 8
     
     local function punchAttack()
         local currentChar = player.Character
@@ -698,7 +694,6 @@ local function startBroodingDarkness()
         local enemyPos = torso.Position
         local dist = (playerPos - enemyPos).Magnitude
         
-        -- Animate arms forward
         local leftGoal = {Position = leftArm.Position + (playerPos - enemyPos).Unit * 3}
         local rightGoal = {Position = rightArm.Position + (playerPos - enemyPos).Unit * 3}
         
@@ -710,19 +705,16 @@ local function startBroodingDarkness()
         
         task.wait(0.3)
         
-        -- Check if player is in range
         if dist <= 10 then
             applyDamage("Blue", 4, 7)
         end
         
-        -- Reset arms
         task.wait(0.2)
         TweenService:Create(leftArm, TweenInfo.new(0.3), {Position = torso.Position + Vector3.new(-1.5, 0, 0)}):Play()
         TweenService:Create(rightArm, TweenInfo.new(0.3), {Position = torso.Position + Vector3.new(1.5, 0, 0)}):Play()
     end
     
     local function useAbility()
-        -- Create blue forcefield
         local forcefield = Instance.new("Part")
         forcefield.Shape = Enum.PartType.Ball
         forcefield.Size = Vector3.new(100, 100, 100)
@@ -734,10 +726,8 @@ local function startBroodingDarkness()
         forcefield.Position = torso.Position
         forcefield.Parent = workspace
         
-        -- Fade forcefield over 3 seconds
         TweenService:Create(forcefield, TweenInfo.new(3), {Transparency = 1}):Play()
         
-        -- Check if player is in range
         local currentChar = player.Character
         if currentChar and currentChar:FindFirstChild("HumanoidRootPart") then
             local playerPos = currentChar.HumanoidRootPart.Position
@@ -746,7 +736,6 @@ local function startBroodingDarkness()
             if dist <= 50 then
                 applyDamage("Blue", 22, 28)
                 
-                -- Check if SP is 0 for force walk
                 if currentSP <= 0 and not isForceWalking then
                     isForceWalking = true
                     local humanoid = currentChar:FindFirstChild("Humanoid")
@@ -766,7 +755,6 @@ local function startBroodingDarkness()
                                 local direction = (torso.Position - currentHrp.Position).Unit
                                 humanoid:MoveTo(currentHrp.Position + direction * 5)
                                 
-                                -- Check if touched illusion
                                 local touchDist = (currentHrp.Position - torso.Position).Magnitude
                                 if touchDist <= 5 then
                                     applyDamage("Crimson", 80, 120)
@@ -800,37 +788,31 @@ local function startBroodingDarkness()
         attackTimer = attackTimer + dt
         abilityTimer = abilityTimer + dt
         
-        -- Attack every 3 seconds
         if attackTimer >= 3 then
             attackTimer = 0
             punchAttack()
         end
         
-        -- Use ability every 30 seconds
         if abilityTimer >= 30 then
             abilityTimer = 0
             useAbility()
         end
         
-        -- Follow and face player
         local currentChar = player.Character
         if currentChar and currentChar:FindFirstChild("HumanoidRootPart") then
             local playerPos = currentChar.HumanoidRootPart.Position
             local enemyPos = torso.Position
             local dist = (playerPos - enemyPos).Magnitude
             
-            -- Move towards player if too far
             if dist > 7 then
                 local direction = (playerPos - enemyPos).Unit
                 local newPos = enemyPos + direction * moveSpeed * dt
                 torso.Position = newPos
             end
             
-            -- Make enemy face player
             local lookAt = Vector3.new(playerPos.X, torso.Position.Y, playerPos.Z)
             torso.CFrame = CFrame.new(torso.Position, lookAt)
             
-            -- Update body parts positions relative to torso
             head.Position = torso.Position + Vector3.new(0, 2, 0)
             leftArm.Position = torso.Position + torso.CFrame.RightVector * -1.5
             rightArm.Position = torso.Position + torso.CFrame.RightVector * 1.5
@@ -842,14 +824,13 @@ local function startBroodingDarkness()
     illusionLoops["Brooding Darkness"] = {loop}
 end
 
--- Illusion: The Gun Devil
+-- Illusion: The Gun Devil (WITH SOUNDS)
 local function startGunDevil()
     local char = player.Character
     if not char or not char:FindFirstChild("HumanoidRootPart") then return end
     
     local hrp = char.HumanoidRootPart
     
-    -- Create grey humanoid
     local enemy = Instance.new("Model")
     enemy.Name = "GunDevil"
     enemy.Parent = workspace
@@ -891,7 +872,6 @@ local function startGunDevil()
     rightArm.Position = torso.Position + Vector3.new(1.5, 0, 0)
     rightArm.Parent = enemy
     
-    -- Gun parts on arms
     local leftGun = Instance.new("Part")
     leftGun.Size = Vector3.new(0.5, 0.5, 2)
     leftGun.Color = Color3.new(0.1, 0.1, 0.1)
@@ -934,14 +914,20 @@ local function startGunDevil()
     local abilityTimer = 0
     local moveSpeed = 6
     
-    local function shootBullet(gunPart, direction)
+    local function shootBullet(gunPart, direction, isLeftGun)
         local currentChar = player.Character
         if not currentChar or not currentChar:FindFirstChild("HumanoidRootPart") then return end
         
         local playerPos = currentChar.HumanoidRootPart.Position
         local targetPos = direction or playerPos
         
-        -- Create bullet
+        -- Play shooting sound based on which gun
+        if isLeftGun then
+            playSound(SOUNDS.GunDevilLeftShoot, gunPart, 0.5, false)
+        else
+            playSound(SOUNDS.GunDevilRightShoot, gunPart, 0.5, false)
+        end
+        
         local bullet = Instance.new("Part")
         bullet.Size = Vector3.new(0.3, 0.3, 1)
         bullet.Color = Color3.fromRGB(255, 200, 0)
@@ -952,7 +938,6 @@ local function startGunDevil()
         bullet.CFrame = CFrame.new(gunPart.Position, targetPos)
         bullet.Parent = workspace
         
-        -- Muzzle flash
         local flash = Instance.new("Part")
         flash.Size = Vector3.new(1, 1, 1)
         flash.Color = Color3.fromRGB(255, 150, 0)
@@ -987,20 +972,21 @@ local function startGunDevil()
     end
     
     local function circleBarrage()
-        -- Shoot 20 bullets in a circle pattern
+        -- Play barrage sound
+        playSound(SOUNDS.GunDevilBarrage, torso, 0.6, false)
+        
         for i = 1, 20 do
             local angle = (i / 20) * math.pi * 2
             local offset = Vector3.new(math.cos(angle) * 50, 0, math.sin(angle) * 50)
             local targetPos = torso.Position + offset
             
-            -- Alternate between guns for visual effect
             if i % 2 == 0 then
-                shootBullet(leftGun, targetPos)
+                shootBullet(leftGun, targetPos, true)
             else
-                shootBullet(rightGun, targetPos)
+                shootBullet(rightGun, targetPos, false)
             end
             
-            task.wait(0.05) -- Small delay between each shot for visual effect
+            task.wait(0.05)
         end
     end
     
@@ -1017,18 +1003,15 @@ local function startGunDevil()
             local enemyPos = torso.Position
             local dist = (playerPos - enemyPos).Magnitude
             
-            -- Move towards player if too far
             if dist > 20 then
                 local direction = (playerPos - enemyPos).Unit
                 local newPos = enemyPos + direction * moveSpeed * dt
                 torso.Position = newPos
             end
             
-            -- Make enemy face player
             local lookAt = Vector3.new(playerPos.X, torso.Position.Y, playerPos.Z)
             torso.CFrame = CFrame.new(torso.Position, lookAt)
             
-            -- Update body parts
             head.Position = torso.Position + Vector3.new(0, 2, 0)
             leftArm.Position = torso.Position + torso.CFrame.RightVector * -1.5
             rightArm.Position = torso.Position + torso.CFrame.RightVector * 1.5
@@ -1038,18 +1021,16 @@ local function startGunDevil()
             rightLeg.Position = torso.Position + Vector3.new(0.5, -2, 0)
         end
         
-        -- Shooting logic
         if isBarraging then
             barrageTimer = barrageTimer + dt
             if barrageTimer >= 0.1 then
                 barrageTimer = 0
                 barrageCount = barrageCount + 1
                 
-                -- Alternate between guns
                 if barrageCount % 2 == 0 then
-                    shootBullet(leftGun)
+                    shootBullet(leftGun, nil, true)
                 else
-                    shootBullet(rightGun)
+                    shootBullet(rightGun, nil, false)
                 end
                 
                 if barrageCount >= 20 then
@@ -1064,11 +1045,10 @@ local function startGunDevil()
                 shootTimer = 0
                 bulletCount = bulletCount + 1
                 
-                -- Alternate between guns
                 if bulletCount % 2 == 0 then
-                    shootBullet(leftGun)
+                    shootBullet(leftGun, nil, true)
                 else
-                    shootBullet(rightGun)
+                    shootBullet(rightGun, nil, false)
                 end
                 
                 if bulletCount >= 5 then
@@ -1077,7 +1057,6 @@ local function startGunDevil()
             end
         end
         
-        -- Circle barrage ability every 30 seconds
         abilityTimer = abilityTimer + dt
         if abilityTimer >= 30 then
             abilityTimer = 0
@@ -1097,7 +1076,6 @@ local function startEyeEater()
     
     local hrp = char.HumanoidRootPart
     
-    -- Create floating eye
     local eye = Instance.new("Part")
     eye.Shape = Enum.PartType.Ball
     eye.Size = Vector3.new(3, 3, 3)
@@ -1108,7 +1086,6 @@ local function startEyeEater()
     eye.Position = hrp.Position + Vector3.new(10, 5, 0)
     eye.Parent = workspace
     
-    -- Green pupil (normal state)
     local pupil = Instance.new("Part")
     pupil.Shape = Enum.PartType.Ball
     pupil.Size = Vector3.new(1.5, 1.5, 1.5)
@@ -1118,7 +1095,6 @@ local function startEyeEater()
     pupil.CanCollide = false
     pupil.Parent = eye
     
-    -- Particle emitter for purple state
     local particles = Instance.new("ParticleEmitter")
     particles.Texture = "rbxasset://textures/particles/smoke_main.dds"
     particles.Color = ColorSequence.new(Color3.fromRGB(200, 0, 255))
@@ -1144,7 +1120,6 @@ local function startEyeEater()
             pupil.Visible = false
         end
         
-        -- Check if player is close enough
         local currentChar = player.Character
         if currentChar and currentChar:FindFirstChild("HumanoidRootPart") then
             local dist = (currentChar.HumanoidRootPart.Position - eye.Position).Magnitude
@@ -1155,7 +1130,6 @@ local function startEyeEater()
         
         task.wait(0.5)
         
-        -- Transform back
         isMouth = false
         eye.Color = Color3.new(1, 1, 1)
         if pupil and pupil.Parent then
@@ -1164,7 +1138,6 @@ local function startEyeEater()
     end
     
     local function purpleAbility()
-        -- Turn purple with particles
         if pupil and pupil.Parent then
             pupil.Color = Color3.fromRGB(200, 0, 255)
         end
@@ -1196,14 +1169,11 @@ local function startEyeEater()
                     
                     local currentHrp = currentChar:FindFirstChild("HumanoidRootPart")
                     if currentHrp and humanoid then
-                        -- Force walk toward eye
                         local direction = (eye.Position - currentHrp.Position).Unit
                         humanoid:Move(direction)
                         
-                        -- Check if touched eye
                         local touchDist = (currentHrp.Position - eye.Position).Magnitude
                         if touchDist <= 5 then
-                            -- Transform to mouth and damage
                             if pupil and pupil.Parent then
                                 pupil.Color = Color3.fromRGB(0, 255, 0)
                                 pupil.Visible = false
@@ -1221,7 +1191,6 @@ local function startEyeEater()
                                 pupil.Visible = true
                             end
                             
-                            -- Reset speed and stop force walk
                             humanoid.WalkSpeed = originalSpeed
                             if forceWalkConnection then
                                 forceWalkConnection:Disconnect()
@@ -1233,7 +1202,6 @@ local function startEyeEater()
             end
         end
         
-        -- Reset after 10 seconds if player hasn't reached
         task.wait(10)
         if isForceWalking then
             if pupil and pupil.Parent then
@@ -1266,7 +1234,6 @@ local function startEyeEater()
         attackTimer = attackTimer + dt
         abilityTimer = abilityTimer + dt
         
-        -- Attack every 3 seconds
         if attackTimer >= 3 and not isMouth and not isForceWalking then
             attackTimer = 0
             task.spawn(function()
@@ -1274,7 +1241,6 @@ local function startEyeEater()
             end)
         end
         
-        -- Purple ability every 25 seconds
         if abilityTimer >= 25 and not isForceWalking then
             abilityTimer = 0
             task.spawn(function()
@@ -1282,21 +1248,18 @@ local function startEyeEater()
             end)
         end
         
-        -- Follow and look at player
         local currentChar = player.Character
         if currentChar and currentChar:FindFirstChild("HumanoidRootPart") then
             local playerPos = currentChar.HumanoidRootPart.Position
             local eyePos = eye.Position
             local dist = (playerPos - eyePos).Magnitude
             
-            -- Move towards player if too far
             if dist > 10 and not isForceWalking then
                 local direction = (playerPos - eyePos).Unit
                 local newPos = eyePos + direction * moveSpeed * dt
                 eye.Position = newPos
             end
             
-            -- Make pupil face player
             if pupil and pupil.Parent then
                 pupil.Position = eye.Position + (playerPos - eye.Position).Unit * 0.75
             end
@@ -1306,7 +1269,7 @@ local function startEyeEater()
     illusionLoops["Eye Eater"] = {loop}
 end
 
--- Illusion: Liquid Orchestra
+-- Illusion: Liquid Orchestra (WITH SOUNDS - ADJUSTED TIMINGS)
 local function startLiquidOrchestra()
     local liquid = Instance.new("Part")
     liquid.Size = Vector3.new(10, 1, 10)
@@ -1321,6 +1284,9 @@ local function startLiquidOrchestra()
     end
     liquid.Parent = workspace
     
+    -- Start the looping orchestra song
+    local orchestraSound = playSound(SOUNDS.LiquidOrchestraSong, liquid, 0.5, true)
+    
     local surfaceGui = Instance.new("SurfaceGui")
     surfaceGui.Face = Enum.NormalId.Top
     surfaceGui.Parent = liquid
@@ -1334,12 +1300,13 @@ local function startLiquidOrchestra()
     movementText.TextSize = 48
     movementText.Parent = surfaceGui
     
+    -- Adjusted movement timings: Move 1 (0:00), Move 2 (0:38), Move 3 (0:55), Move 4 (1:08), Move 5 (1:34)
     local movements = {
         {time = 0, color = Color3.fromRGB(150, 150, 150), size = 20, damage = "Grey", scale = {10, 30}, name = "Movement 1"},
-        {time = 25, color = Color3.new(1, 1, 1), size = 45, damage = "White", scale = {10, 30}, name = "Movement 2"},
-        {time = 60, color = Color3.fromRGB(200, 100, 255), size = 90, damage = "Purple", scale = {10, 30}, name = "Movement 3"},
-        {time = 150, color = Color3.fromRGB(220, 50, 50), size = 150, damage = "Crimson", scale = {10, 30}, name = "Movement 4"},
-        {time = 300, color = Color3.fromRGB(50, 120, 220), size = 300, damage = "Blue", scale = {10, 30}, name = "Movement 5"}
+        {time = 38, color = Color3.new(1, 1, 1), size = 45, damage = "White", scale = {10, 30}, name = "Movement 2"},
+        {time = 55, color = Color3.fromRGB(200, 100, 255), size = 90, damage = "Purple", scale = {10, 30}, name = "Movement 3"},
+        {time = 68, color = Color3.fromRGB(220, 50, 50), size = 150, damage = "Crimson", scale = {10, 30}, name = "Movement 4"},
+        {time = 94, color = Color3.fromRGB(50, 120, 220), size = 300, damage = "Blue", scale = {10, 30}, name = "Movement 5"}
     }
     
     local currentMovement = 1
@@ -1372,6 +1339,10 @@ local function startLiquidOrchestra()
         if not activeIllusions["Liquid Orchestra"] then
             if liquid and liquid.Parent then liquid:Destroy() end
             if forcefield and forcefield.Parent then forcefield:Destroy() end
+            if orchestraSound and orchestraSound.Parent then 
+                orchestraSound:Stop()
+                orchestraSound:Destroy() 
+            end
             loop:Disconnect()
             return
         end
@@ -1419,6 +1390,11 @@ local function startMimicry()
     local phase1Sound = playSound(SOUNDS.MimicryPhase1Loop, workspace, 0.4, true)
     
     local function createModel()
+        local enemy = Instance.new("Model")
+        enemy.Name = "Mimicry"
+        enemy.Parent = workspace
+        
+        local function createModel()
         local enemy = Instance.new("Model")
         enemy.Name = "Mimicry"
         enemy.Parent = workspace
@@ -2408,23 +2384,31 @@ local illusions = {
     },
     {
         name = "Brooding Darkness",
-        desc = "A dark humanoid entity that feeds on despair. It strikes with its shadowy fists and unleashes waves of mental anguish. Those with broken minds are drawn to it like moths to a flame, meeting their doom in its embrace.",
+        desc = "A dark humanoid entity that feeds on despair.",
         damageType = "Blue",
-        damageScale = "4 - 7 (Punch) / 22 - 28 (Ability) / 80 - 120 (Touch)",
+        damageScale = "4 - 7 / 22 - 28 / 80 - 120",
         danger = "LAMED",
         func = startBroodingDarkness
     },
     {
         name = "The Gun Devil",
-        desc = "A manifestation of humanity's fear of firearms. This metallic grey entity is armed with dual guns that never run out of ammunition. It stalks its prey relentlessly, firing with cold precision. After warming up with a few shots, it unleashes a devastating barrage that tears through flesh and bone. The sound of gunfire echoes as a grim reminder: nowhere is safe.",
+        desc = "A manifestation of humanity's fear of firearms.",
         damageType = "Crimson",
         damageScale = "8 - 17",
         danger = "SHIN",
         func = startGunDevil
     },
     {
+        name = "Eye Eater",
+        desc = "A floating eye that transforms and attacks.",
+        damageType = "Grey",
+        damageScale = "8 - 20",
+        danger = "LAMED",
+        func = startEyeEater
+    },
+    {
         name = "Liquid Orchestra",
-        desc = "Somewhere in the Flament Village, a deadly disease is around the village but nobody noticed. Then, a villager shouted: 'Hey! This liquid is producing music!' Everybody come to the liquid. And slowly, the music grew louder, and louder, and louder. The villagers are devoted to the music and then they start to melt and rot.",
+        desc = "A deadly disease producing hypnotic music.",
         damageType = "Variable",
         damageScale = "10 - 30",
         danger = "TZADEL",
@@ -2558,7 +2542,6 @@ local function refreshSuitButtons()
         frame.BorderSizePixel = 1
         frame.Parent = suitsScrollFrame
         
-        -- Suit Name
         local nameLabel = Instance.new("TextLabel")
         nameLabel.Size = UDim2.new(1, -10, 0, 25)
         nameLabel.Position = UDim2.new(0, 5, 0, 5)
@@ -2570,45 +2553,44 @@ local function refreshSuitButtons()
         nameLabel.TextColor3 = currentSuit == suitName and Color3.fromRGB(0, 200, 0) or Color3.new(0, 0, 0)
         nameLabel.Parent = frame
         
-        -- Resistances
         local resistanceText = string.format(
-    "Crimson: %.1f [%s]\nBlue: %.1f [%s]\nPurple: %.1f [%s]\nWhite: %.1f [%s]\nGrey: %.1f [%s]",
-    resistances.Crimson, getResistanceLabel(resistances.Crimson),
-    resistances.Blue, getResistanceLabel(resistances.Blue),
-    resistances.Purple, getResistanceLabel(resistances.Purple),
-    resistances.White, getResistanceLabel(resistances.White),
-    resistances.Grey, getResistanceLabel(resistances.Grey)
-)
-
-local resistanceLabel = Instance.new("TextLabel")
-resistanceLabel.Size = UDim2.new(1, -10, 0, 100)
-resistanceLabel.Position = UDim2.new(0, 5, 0, 35)
-resistanceLabel.Text = resistanceText
-resistanceLabel.Font = Enum.Font.Gotham
-resistanceLabel.TextSize = 12
-resistanceLabel.BackgroundTransparency = 1
-resistanceLabel.TextXAlignment = Enum.TextXAlignment.Left
-resistanceLabel.TextYAlignment = Enum.TextYAlignment.Top
-resistanceLabel.TextColor3 = Color3.new(0, 0, 0)
-resistanceLabel.Parent = frame
-
-local equipBtn = Instance.new("TextButton")
-equipBtn.Size = UDim2.new(0, 100, 0, 35)
-equipBtn.Position = UDim2.new(0.5, -50, 1, -40)
-equipBtn.Text = currentSuit == suitName and "EQUIPPED" or "EQUIP"
-equipBtn.Font = Enum.Font.GothamBold
-equipBtn.TextSize = 16
-equipBtn.BackgroundColor3 = currentSuit == suitName and Color3.fromRGB(100, 255, 100) or Color3.fromRGB(80, 160, 255)
-equipBtn.TextColor3 = Color3.new(1, 1, 1)
-equipBtn.Parent = frame
-
-equipBtn.MouseButton1Click:Connect(function()
-    currentSuit = suitName
-    refreshSuitButtons()
-end)
-end
-
-suitsScrollFrame.CanvasSize = UDim2.new(0, 0, 0, suitsListLayout.AbsoluteContentSize.Y + 20)
+            "Crimson: %.1f [%s]\nBlue: %.1f [%s]\nPurple: %.1f [%s]\nWhite: %.1f [%s]\nGrey: %.1f [%s]",
+            resistances.Crimson, getResistanceLabel(resistances.Crimson),
+            resistances.Blue, getResistanceLabel(resistances.Blue),
+            resistances.Purple, getResistanceLabel(resistances.Purple),
+            resistances.White, getResistanceLabel(resistances.White),
+            resistances.Grey, getResistanceLabel(resistances.Grey)
+        )
+        
+        local resistanceLabel = Instance.new("TextLabel")
+        resistanceLabel.Size = UDim2.new(1, -10, 0, 100)
+        resistanceLabel.Position = UDim2.new(0, 5, 0, 35)
+        resistanceLabel.Text = resistanceText
+        resistanceLabel.Font = Enum.Font.Gotham
+        resistanceLabel.TextSize = 12
+        resistanceLabel.BackgroundTransparency = 1
+        resistanceLabel.TextXAlignment = Enum.TextXAlignment.Left
+        resistanceLabel.TextYAlignment = Enum.TextYAlignment.Top
+        resistanceLabel.TextColor3 = Color3.new(0, 0, 0)
+        resistanceLabel.Parent = frame
+        
+        local equipBtn = Instance.new("TextButton")
+        equipBtn.Size = UDim2.new(0, 100, 0, 35)
+        equipBtn.Position = UDim2.new(0.5, -50, 1, -40)
+        equipBtn.Text = currentSuit == suitName and "EQUIPPED" or "EQUIP"
+        equipBtn.Font = Enum.Font.GothamBold
+        equipBtn.TextSize = 16
+        equipBtn.BackgroundColor3 = currentSuit == suitName and Color3.fromRGB(100, 255, 100) or Color3.fromRGB(80, 160, 255)
+        equipBtn.TextColor3 = Color3.new(1, 1, 1)
+        equipBtn.Parent = frame
+        
+        equipBtn.MouseButton1Click:Connect(function()
+            currentSuit = suitName
+            refreshSuitButtons()
+        end)
+    end
+    
+    suitsScrollFrame.CanvasSize = UDim2.new(0, 0, 0, suitsListLayout.AbsoluteContentSize.Y + 20)
 end
 
 refreshSuitButtons()
