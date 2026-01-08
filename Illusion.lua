@@ -2,26 +2,60 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
+local SoundService = game:GetService("SoundService")
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local humanoid = character:WaitForChild("Humanoid")
 
 -- Sound IDs
-local soundIds = {
-    Resistant = "76525344270919",
-    Weak = "76525344270919",
-    Normal = "7837536770",
-    Vulnerable = "82176913611683",
-    Strong = "82176913611683",
-    Powerful = "8164951181",
-    MimicryAttack = "77452678009271",
-    MimicryPhase1Idle = "2796806401",
-    MimicryEggHatch = "83494547160190",
-    MimicryNearPlayer = "104026368863454",
-    MimicryPhase2Idle = "131461792070501",
-    MimicryDash = "72209573879445",
-    MimicryBeforeAttack = "74146743627850"
+local SOUNDS = {
+    ResistantWeak = "rbxassetid://76525344270919",
+    Normal = "rbxassetid://7837536770",
+    VulnerableStrong = "rbxassetid://82176913611683",
+    Powerful = "rbxassetid://8164951181",
+    MimicryAttack = "rbxassetid://77452678009271",
+    MimicryPhase1Loop = "rbxassetid://2796806401",
+    MimicryEggHatch = "rbxassetid://83494547160190",
+    MimicryNearPlayer = "rbxassetid://104026368863454",
+    MimicryPhase2Loop = "rbxassetid://131461792070501",
+    MimicryDashSpeak = "rbxassetid://72209573879445",
+    MimicryAttackSpeak = "rbxassetid://74146743627850"
 }
+
+-- Function to play sound
+local function playSound(soundId, parent, volume, looped)
+    volume = volume or 0.5
+    looped = looped or false
+    
+    local sound = Instance.new("Sound")
+    sound.SoundId = soundId
+    sound.Volume = volume
+    sound.Looped = looped
+    sound.Parent = parent or SoundService
+    sound:Play()
+    
+    if not looped then
+        task.delay(10, function()
+            if sound and sound.Parent then
+                sound:Destroy()
+            end
+        end)
+    end
+    
+    return sound
+end
+
+-- Function to get damage sound based on amount
+local function getDamageSound(amount)
+    if amount == 0 then return nil
+    elseif amount <= 0.5 then return SOUNDS.ResistantWeak
+    elseif amount <= 1 then return SOUNDS.ResistantWeak
+    elseif amount <= 10 then return SOUNDS.Normal
+    elseif amount <= 30 then return SOUNDS.VulnerableStrong
+    elseif amount <= 75 then return SOUNDS.VulnerableStrong
+    else return SOUNDS.Powerful
+    end
+end
 
 -- Stats
 local maxHP = 100
@@ -294,27 +328,18 @@ local function getResistanceLabel(resistance)
     end
 end
 
--- Play damage sound
-local function playDamageSound(damageLevel)
-    local soundId = soundIds[damageLevel]
-    if soundId then
-        local sound = Instance.new("Sound")
-        sound.SoundId = "rbxassetid://" .. soundId
-        sound.Volume = 0.5
-        sound.Parent = game.SoundService
-        sound:Play()
-        sound.Ended:Connect(function()
-            sound:Destroy()
-        end)
-    end
-end
-
 -- Create 3D Damage Popup
 local function createDamagePopup(damageType, amount)
     local char = player.Character
     if not char or not char:FindFirstChild("HumanoidRootPart") then return end
     
     local hrp = char.HumanoidRootPart
+    
+    -- Play damage sound
+    local damageSound = getDamageSound(amount)
+    if damageSound then
+        playSound(damageSound, hrp, 0.6, false)
+    end
     
     -- Create a part for the BillboardGui
     local part = Instance.new("Part")
@@ -334,17 +359,13 @@ local function createDamagePopup(damageType, amount)
     local damageLabel = Instance.new("TextLabel")
     damageLabel.Size = UDim2.new(1, 0, 1, 0)
     damageLabel.BackgroundTransparency = 1
-    local damageLevelText = getDamageLabel(amount)
-    damageLabel.Text = string.format("%s %.1f %s", damageTypeNames[damageType], amount, damageLevelText)
+    damageLabel.Text = string.format("%s %.1f %s", damageTypeNames[damageType], amount, getDamageLabel(amount))
     damageLabel.TextColor3 = damageColors[damageType]
     damageLabel.Font = Enum.Font.GothamBold
     damageLabel.TextSize = 24
     damageLabel.TextStrokeTransparency = 0.5
     damageLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
     damageLabel.Parent = billboard
-    
-    -- Play appropriate damage sound
-    playDamageSound(damageLevelText)
     
     -- Animate upward and fade
     local tweenInfo = TweenInfo.new(2, Enum.EasingStyle.Linear, Enum.EasingDirection.Out)
@@ -1379,7 +1400,7 @@ local function startLiquidOrchestra()
     illusionLoops["Liquid Orchestra"] = {loop}
 end
 
--- Illusion: Mimicry
+-- Illusion: Mimicry (WITH SOUNDS)
 local function startMimicry()
     local char = player.Character
     if not char or not char:FindFirstChild("HumanoidRootPart") then return end
@@ -1394,20 +1415,8 @@ local function startMimicry()
     local sizeMultiplier = 1
     local attackCount = 0
     
-    -- Idle sounds
-    local phase1IdleSound = Instance.new("Sound")
-    phase1IdleSound.SoundId = "rbxassetid://" .. soundIds.MimicryPhase1Idle
-    phase1IdleSound.Volume = 0.5
-    phase1IdleSound.Looped = true
-    phase1IdleSound.Parent = game.SoundService
-    
-    local phase2IdleSound = Instance.new("Sound")
-    phase2IdleSound.SoundId = "rbxassetid://" .. soundIds.MimicryPhase2Idle
-    phase2IdleSound.Volume = 0.5
-    phase2IdleSound.Looped = true
-    phase2IdleSound.Parent = game.SoundService
-    
-    local nearPlayerSound = nil
+    -- Phase 1 looping sound
+    local phase1Sound = playSound(SOUNDS.MimicryPhase1Loop, workspace, 0.4, true)
     
     local function createModel()
         local enemy = Instance.new("Model")
@@ -1473,9 +1482,6 @@ local function startMimicry()
     
     local enemy, torso, leftArm, rightArm, head, leftLeg, rightLeg = createModel()
     
-    -- Start Phase 1 idle sound
-    phase1IdleSound:Play()
-    
     local eggPart = nil
     local eggTimer = 0
     local isEgg = false
@@ -1483,6 +1489,8 @@ local function startMimicry()
     local rushTimer = 0
     local isRushing = false
     local rushDirection = Vector3.new()
+    local nearPlayerSoundPlayed = false
+    local phase2Sound = nil
     
     local diedConnection = humanoid.Died:Connect(function()
         if phase == 1 and activeIllusions["Mimicry"] and not isEgg then
@@ -1492,8 +1500,11 @@ local function startMimicry()
                 if dist <= 10 then
                     if enemy and enemy.Parent then enemy:Destroy() end
                     
-                    -- Stop phase 1 idle sound
-                    phase1IdleSound:Stop()
+                    -- Stop phase 1 sound
+                    if phase1Sound and phase1Sound.Parent then
+                        phase1Sound:Stop()
+                        phase1Sound:Destroy()
+                    end
                     
                     eggPart = Instance.new("Part")
                     eggPart.Size = Vector3.new(3, 3, 3)
@@ -1518,40 +1529,22 @@ local function startMimicry()
         local enemyPos = torso.Position
         local dist = (playerPos - enemyPos).Magnitude
         
-        -- Play attack sound before attacking
-        local attackSound = Instance.new("Sound")
-        attackSound.SoundId = "rbxassetid://" .. soundIds.MimicryBeforeAttack
-        attackSound.Volume = 0.5
-        attackSound.Parent = game.SoundService
-        attackSound:Play()
-        attackSound.Ended:Connect(function()
-            attackSound:Destroy()
-        end)
+        -- Play attack speak sound
+        playSound(SOUNDS.MimicryAttackSpeak, torso, 0.5, false)
         
-        -- Animate right arm forward
         local armGoal = {Position = rightArm.Position + (playerPos - enemyPos).Unit * 3 * sizeMultiplier}
-        
         local punchTween = TweenService:Create(rightArm, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), armGoal)
         punchTween:Play()
         
         task.wait(0.3)
         
-        -- Damage if in range
+        -- Play attack sound
+        playSound(SOUNDS.MimicryAttack, torso, 0.6, false)
+        
         if dist <= 5 + 5 * (phase - 1) then
-            -- Play attack impact sound
-            local impactSound = Instance.new("Sound")
-            impactSound.SoundId = "rbxassetid://" .. soundIds.MimicryAttack
-            impactSound.Volume = 0.5
-            impactSound.Parent = game.SoundService
-            impactSound:Play()
-            impactSound.Ended:Connect(function()
-                impactSound:Destroy()
-            end)
-            
             applyDamage("Crimson", minDmg, maxDmg)
         end
         
-        -- Reset arm
         task.wait(0.2)
         TweenService:Create(rightArm, TweenInfo.new(0.3), {Position = torso.Position + torso.CFrame.RightVector * 1.5 * sizeMultiplier}):Play()
         
@@ -1564,15 +1557,8 @@ local function startMimicry()
                 rushDirection = torso.CFrame.LookVector
                 moveSpeed = moveSpeed + 10
                 
-                -- Play dash sound
-                local dashSound = Instance.new("Sound")
-                dashSound.SoundId = "rbxassetid://" .. soundIds.MimicryDash
-                dashSound.Volume = 0.5
-                dashSound.Parent = game.SoundService
-                dashSound:Play()
-                dashSound.Ended:Connect(function()
-                    dashSound:Destroy()
-                end)
+                -- Play dash speak sound
+                playSound(SOUNDS.MimicryDashSpeak, torso, 0.6, false)
             end
         end
     end
@@ -1582,9 +1568,14 @@ local function startMimicry()
             if enemy and enemy.Parent then enemy:Destroy() end
             if eggPart and eggPart.Parent then eggPart:Destroy() end
             if diedConnection then diedConnection:Disconnect() end
-            phase1IdleSound:Destroy()
-            phase2IdleSound:Destroy()
-            if nearPlayerSound then nearPlayerSound:Destroy() end
+            if phase1Sound and phase1Sound.Parent then 
+                phase1Sound:Stop()
+                phase1Sound:Destroy() 
+            end
+            if phase2Sound and phase2Sound.Parent then 
+                phase2Sound:Stop()
+                phase2Sound:Destroy() 
+            end
             loop:Disconnect()
             return
         end
@@ -1592,18 +1583,10 @@ local function startMimicry()
         if isEgg then
             eggTimer = eggTimer + dt
             if eggTimer >= 30 then
-                if eggPart and eggPart.Parent then eggPart:Destroy() end
-                
                 -- Play egg hatch sound
-                local hatchSound = Instance.new("Sound")
-                hatchSound.SoundId = "rbxassetid://" .. soundIds.MimicryEggHatch
-                hatchSound.Volume = 0.5
-                hatchSound.Parent = game.SoundService
-                hatchSound:Play()
-                hatchSound.Ended:Connect(function()
-                    hatchSound:Destroy()
-                end)
+                playSound(SOUNDS.MimicryEggHatch, eggPart, 0.7, false)
                 
+                if eggPart and eggPart.Parent then eggPart:Destroy() end
                 isEgg = false
                 phase = 2
                 sizeMultiplier = 1.5
@@ -1613,8 +1596,8 @@ local function startMimicry()
                 maxDmg = 75
                 enemy, torso, leftArm, rightArm, head, leftLeg, rightLeg = createModel()
                 
-                -- Start Phase 2 idle sound
-                phase2IdleSound:Play()
+                -- Start phase 2 looping sound
+                phase2Sound = playSound(SOUNDS.MimicryPhase2Loop, torso, 0.5, true)
             end
             return
         end
@@ -1640,20 +1623,12 @@ local function startMimicry()
             local enemyPos = torso.Position
             local dist = (playerPos - enemyPos).Magnitude
             
-            -- Check if player is within 30 studs and play sound
-            if dist <= 30 then
-                if not nearPlayerSound or not nearPlayerSound.Playing then
-                    if nearPlayerSound then nearPlayerSound:Destroy() end
-                    nearPlayerSound = Instance.new("Sound")
-                    nearPlayerSound.SoundId = "rbxassetid://" .. soundIds.MimicryNearPlayer
-                    nearPlayerSound.Volume = 0.4
-                    nearPlayerSound.Parent = game.SoundService
-                    nearPlayerSound:Play()
-                    nearPlayerSound.Ended:Connect(function()
-                        nearPlayerSound:Destroy()
-                        nearPlayerSound = nil
-                    end)
-                end
+            -- Check if within 30 studs and play sound once
+            if dist <= 30 and not nearPlayerSoundPlayed then
+                nearPlayerSoundPlayed = true
+                playSound(SOUNDS.MimicryNearPlayer, torso, 0.5, false)
+            elseif dist > 30 then
+                nearPlayerSoundPlayed = false
             end
             
             local direction
@@ -1679,6 +1654,11 @@ local function startMimicry()
             rightArm.Position = torso.Position + torso.CFrame.RightVector * 1.5 * sizeMultiplier
             leftLeg.Position = torso.Position + Vector3.new(-0.5 * sizeMultiplier, -2 * sizeMultiplier, 0)
             rightLeg.Position = torso.Position + Vector3.new(0.5 * sizeMultiplier, -2 * sizeMultiplier, 0)
+            
+            -- Update sound position for phase 2
+            if phase2Sound and phase2Sound.Parent then
+                phase2Sound.Parent = torso
+            end
         end
     end)
     
@@ -2443,14 +2423,6 @@ local illusions = {
         func = startGunDevil
     },
     {
-        name = "Eye Eater",
-        desc = "A floating eye that transforms into a mouth to bite. Can turn purple and force players to walk toward it.",
-        damageType = "Grey",
-        damageScale = "8 - 10 (Mouth) / 10 - 20 (Touch)",
-        danger = "LAMED",
-        func = startEyeEater
-    },
-    {
         name = "Liquid Orchestra",
         desc = "Somewhere in the Flament Village, a deadly disease is around the village but nobody noticed. Then, a villager shouted: 'Hey! This liquid is producing music!' Everybody come to the liquid. And slowly, the music grew louder, and louder, and louder. The villagers are devoted to the music and then they start to melt and rot.",
         damageType = "Variable",
@@ -2460,23 +2432,23 @@ local illusions = {
     },
     {
         name = "Mimicry",
-        desc = "A red humanoid player shaped that follows the player. Every 3 second It moves its arm to attack dealing 12 - 25 dmg. If it killed the player it will turn into an egg. A red block. After 30 second, the egg hatches and phase 2 mimicry appears. a bigger red humanoid player shaped appears. Every 1.5 seconds it moves its arm to attack dealing 45 - 75 dmg, the illusion speed is increased by 20 now its 26 speed. after 7 attack, it rushes forward with 10+ speed, while in rush it cant steer. After 1 second the illusion stops, then continues to follow the player with normal speed.",
+        desc = "A red humanoid that evolves after death.",
         damageType = "Crimson",
-        damageScale = "12 - 25 (Phase 1) / 45 - 75 (Phase 2)",
+        damageScale = "12 - 25 / 45 - 75",
         danger = "TZADEL",
         func = startMimicry
     },
     {
         name = "Monolith",
-        desc = "A giant pillar with purple outline that cant move. Every 3 second a purple 50 stud forcefield appears and purple damages player that are in it, it will slowly fades away. Every 30 second it will teleport to the player between 30 - 50 studs away. After 5th forcefield attack, a 100 stud green forcefield appears and every player in it gets [RED, BLUE, PURPLE, GREY, and WHITE] damage 3 - 5 every 0.2 seconds and it will fade away after 2 seconds.",
+        desc = "A giant purple pillar that teleports.",
         damageType = "Purple",
-        damageScale = "10 - 15 (Purple) / 3 - 5 (Multi)",
+        damageScale = "10 - 15 / 3 - 5",
         danger = "LAMED",
         func = startMonolith
     },
     {
         name = "King Chess Family",
-        desc = "The entire chess family: King with staff (Grey 30-50, speed 10), Queen with sword (White 10-30, speed 16), 4 Rooks circling King (Red 10-18, speed 20), Bishop with prayer beam (Blue 20-30, speed 18), 2 Knights on horses with fling (Grey 9-30, speed 30), and 5 Pawns with axes (Grey 6-10, speed 12).",
+        desc = "The entire chess family attacks.",
         damageType = "Multiple",
         damageScale = "6 - 50",
         danger = "TZADEL",
@@ -2484,9 +2456,9 @@ local illusions = {
     },
     {
         name = "Bonehive Disease",
-        desc = "A moving green fog that grows 1 stud every second. Players inside take 3-8 White damage per second (scales up to 100-200). If SP reaches 0 in the fog, player transforms into a bonehive (increases fog size by 5 studs). Every 10 seconds, bone termites spawn dealing 2-3 Crimson damage.",
+        desc = "A growing green fog with bone termites.",
         damageType = "White",
-        damageScale = "3 - 8 → 100 - 200",
+        damageScale = "3 - 200",
         danger = "SAMECH",
         func = startBonehiveDisease
     }
@@ -2552,7 +2524,6 @@ for _, illusion in ipairs(illusions) do
             toggleBtn.Text = "OFF"
             toggleBtn.BackgroundColor3 = Color3.fromRGB(255, 80, 80)
             
-            -- Clean up loops
             if illusionLoops[illusion.name] then
                 for _, loop in ipairs(illusionLoops[illusion.name]) do
                     if loop and loop.Connected then
@@ -2601,49 +2572,47 @@ local function refreshSuitButtons()
         
         -- Resistances
         local resistanceText = string.format(
-            "Crimson: %.1f [%s]\nBlue: %.1f [%s]\nPurple: %.1f [%s]\nWhite: %.1f [%s]\nGrey: %.1f [%s]",
-            resistances.Crimson, getResistanceLabel(resistances.Crimson),
-            resistances.Blue, getResistanceLabel(resistances.Blue),
-            resistances.Purple, getResistanceLabel(resistances.Purple),
-            resistances.White, getResistanceLabel(resistances.White),
-            resistances.Grey, getResistanceLabel(resistances.Grey)
-        )
-        
-        local resistanceLabel = Instance.new("TextLabel")
-        resistanceLabel.Size = UDim2.new(1, -10, 0, 100)
-        resistanceLabel.Position = UDim2.new(0, 5, 0, 35)
-        resistanceLabel.Text = resistanceText
-        resistanceLabel.Font = Enum.Font.Gotham
-        resistanceLabel.TextSize = 12
-        resistanceLabel.BackgroundTransparency = 1
-        resistanceLabel.TextXAlignment = Enum.TextXAlignment.Left
-        resistanceLabel.TextYAlignment = Enum.TextYAlignment.Top
-        resistanceLabel.TextColor3 = Color3.new(0, 0, 0)
-        resistanceLabel.Parent = frame
-        
-        -- Equip Button
-        local equipBtn = Instance.new("TextButton")
-        equipBtn.Size = UDim2.new(0, 100, 0, 35)
-        equipBtn.Position = UDim2.new(0.5, -50, 1, -40)
-        equipBtn.Text = currentSuit == suitName and "EQUIPPED" or "EQUIP"
-        equipBtn.Font = Enum.Font.GothamBold
-        equipBtn.TextSize = 16
-        equipBtn.BackgroundColor3 = currentSuit == suitName and Color3.fromRGB(100, 255, 100) or Color3.fromRGB(80, 160, 255)
-        equipBtn.TextColor3 = Color3.new(1, 1, 1)
-        equipBtn.Parent = frame
-        
-        equipBtn.MouseButton1Click:Connect(function()
-            currentSuit = suitName
-            refreshSuitButtons()
-        end)
-    end
-    
-    suitsScrollFrame.CanvasSize = UDim2.new(0, 0, 0, suitsListLayout.AbsoluteContentSize.Y + 20)
+    "Crimson: %.1f [%s]\nBlue: %.1f [%s]\nPurple: %.1f [%s]\nWhite: %.1f [%s]\nGrey: %.1f [%s]",
+    resistances.Crimson, getResistanceLabel(resistances.Crimson),
+    resistances.Blue, getResistanceLabel(resistances.Blue),
+    resistances.Purple, getResistanceLabel(resistances.Purple),
+    resistances.White, getResistanceLabel(resistances.White),
+    resistances.Grey, getResistanceLabel(resistances.Grey)
+)
+
+local resistanceLabel = Instance.new("TextLabel")
+resistanceLabel.Size = UDim2.new(1, -10, 0, 100)
+resistanceLabel.Position = UDim2.new(0, 5, 0, 35)
+resistanceLabel.Text = resistanceText
+resistanceLabel.Font = Enum.Font.Gotham
+resistanceLabel.TextSize = 12
+resistanceLabel.BackgroundTransparency = 1
+resistanceLabel.TextXAlignment = Enum.TextXAlignment.Left
+resistanceLabel.TextYAlignment = Enum.TextYAlignment.Top
+resistanceLabel.TextColor3 = Color3.new(0, 0, 0)
+resistanceLabel.Parent = frame
+
+local equipBtn = Instance.new("TextButton")
+equipBtn.Size = UDim2.new(0, 100, 0, 35)
+equipBtn.Position = UDim2.new(0.5, -50, 1, -40)
+equipBtn.Text = currentSuit == suitName and "EQUIPPED" or "EQUIP"
+equipBtn.Font = Enum.Font.GothamBold
+equipBtn.TextSize = 16
+equipBtn.BackgroundColor3 = currentSuit == suitName and Color3.fromRGB(100, 255, 100) or Color3.fromRGB(80, 160, 255)
+equipBtn.TextColor3 = Color3.new(1, 1, 1)
+equipBtn.Parent = frame
+
+equipBtn.MouseButton1Click:Connect(function()
+    currentSuit = suitName
+    refreshSuitButtons()
+end)
+end
+
+suitsScrollFrame.CanvasSize = UDim2.new(0, 0, 0, suitsListLayout.AbsoluteContentSize.Y + 20)
 end
 
 refreshSuitButtons()
 
--- Reset stats on respawn
 player.CharacterAdded:Connect(function(char)
     character = char
     humanoid = char:WaitForChild("Humanoid")
