@@ -6,6 +6,23 @@ local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local humanoid = character:WaitForChild("Humanoid")
 
+-- Sound IDs
+local soundIds = {
+    Resistant = "76525344270919",
+    Weak = "76525344270919",
+    Normal = "7837536770",
+    Vulnerable = "82176913611683",
+    Strong = "82176913611683",
+    Powerful = "8164951181",
+    MimicryAttack = "77452678009271",
+    MimicryPhase1Idle = "2796806401",
+    MimicryEggHatch = "83494547160190",
+    MimicryNearPlayer = "104026368863454",
+    MimicryPhase2Idle = "131461792070501",
+    MimicryDash = "72209573879445",
+    MimicryBeforeAttack = "74146743627850"
+}
+
 -- Stats
 local maxHP = 100
 local maxSP = 100
@@ -277,6 +294,21 @@ local function getResistanceLabel(resistance)
     end
 end
 
+-- Play damage sound
+local function playDamageSound(damageLevel)
+    local soundId = soundIds[damageLevel]
+    if soundId then
+        local sound = Instance.new("Sound")
+        sound.SoundId = "rbxassetid://" .. soundId
+        sound.Volume = 0.5
+        sound.Parent = game.SoundService
+        sound:Play()
+        sound.Ended:Connect(function()
+            sound:Destroy()
+        end)
+    end
+end
+
 -- Create 3D Damage Popup
 local function createDamagePopup(damageType, amount)
     local char = player.Character
@@ -302,13 +334,17 @@ local function createDamagePopup(damageType, amount)
     local damageLabel = Instance.new("TextLabel")
     damageLabel.Size = UDim2.new(1, 0, 1, 0)
     damageLabel.BackgroundTransparency = 1
-    damageLabel.Text = string.format("%s %.1f %s", damageTypeNames[damageType], amount, getDamageLabel(amount))
+    local damageLevelText = getDamageLabel(amount)
+    damageLabel.Text = string.format("%s %.1f %s", damageTypeNames[damageType], amount, damageLevelText)
     damageLabel.TextColor3 = damageColors[damageType]
     damageLabel.Font = Enum.Font.GothamBold
     damageLabel.TextSize = 24
     damageLabel.TextStrokeTransparency = 0.5
     damageLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
     damageLabel.Parent = billboard
+    
+    -- Play appropriate damage sound
+    playDamageSound(damageLevelText)
     
     -- Animate upward and fade
     local tweenInfo = TweenInfo.new(2, Enum.EasingStyle.Linear, Enum.EasingDirection.Out)
@@ -1358,6 +1394,21 @@ local function startMimicry()
     local sizeMultiplier = 1
     local attackCount = 0
     
+    -- Idle sounds
+    local phase1IdleSound = Instance.new("Sound")
+    phase1IdleSound.SoundId = "rbxassetid://" .. soundIds.MimicryPhase1Idle
+    phase1IdleSound.Volume = 0.5
+    phase1IdleSound.Looped = true
+    phase1IdleSound.Parent = game.SoundService
+    
+    local phase2IdleSound = Instance.new("Sound")
+    phase2IdleSound.SoundId = "rbxassetid://" .. soundIds.MimicryPhase2Idle
+    phase2IdleSound.Volume = 0.5
+    phase2IdleSound.Looped = true
+    phase2IdleSound.Parent = game.SoundService
+    
+    local nearPlayerSound = nil
+    
     local function createModel()
         local enemy = Instance.new("Model")
         enemy.Name = "Mimicry"
@@ -1422,6 +1473,9 @@ local function startMimicry()
     
     local enemy, torso, leftArm, rightArm, head, leftLeg, rightLeg = createModel()
     
+    -- Start Phase 1 idle sound
+    phase1IdleSound:Play()
+    
     local eggPart = nil
     local eggTimer = 0
     local isEgg = false
@@ -1437,6 +1491,10 @@ local function startMimicry()
                 local dist = (currentChar.HumanoidRootPart.Position - torso.Position).Magnitude
                 if dist <= 10 then
                     if enemy and enemy.Parent then enemy:Destroy() end
+                    
+                    -- Stop phase 1 idle sound
+                    phase1IdleSound:Stop()
+                    
                     eggPart = Instance.new("Part")
                     eggPart.Size = Vector3.new(3, 3, 3)
                     eggPart.Shape = Enum.PartType.Block
@@ -1460,6 +1518,16 @@ local function startMimicry()
         local enemyPos = torso.Position
         local dist = (playerPos - enemyPos).Magnitude
         
+        -- Play attack sound before attacking
+        local attackSound = Instance.new("Sound")
+        attackSound.SoundId = "rbxassetid://" .. soundIds.MimicryBeforeAttack
+        attackSound.Volume = 0.5
+        attackSound.Parent = game.SoundService
+        attackSound:Play()
+        attackSound.Ended:Connect(function()
+            attackSound:Destroy()
+        end)
+        
         -- Animate right arm forward
         local armGoal = {Position = rightArm.Position + (playerPos - enemyPos).Unit * 3 * sizeMultiplier}
         
@@ -1470,6 +1538,16 @@ local function startMimicry()
         
         -- Damage if in range
         if dist <= 5 + 5 * (phase - 1) then
+            -- Play attack impact sound
+            local impactSound = Instance.new("Sound")
+            impactSound.SoundId = "rbxassetid://" .. soundIds.MimicryAttack
+            impactSound.Volume = 0.5
+            impactSound.Parent = game.SoundService
+            impactSound:Play()
+            impactSound.Ended:Connect(function()
+                impactSound:Destroy()
+            end)
+            
             applyDamage("Crimson", minDmg, maxDmg)
         end
         
@@ -1485,6 +1563,16 @@ local function startMimicry()
                 rushTimer = 0
                 rushDirection = torso.CFrame.LookVector
                 moveSpeed = moveSpeed + 10
+                
+                -- Play dash sound
+                local dashSound = Instance.new("Sound")
+                dashSound.SoundId = "rbxassetid://" .. soundIds.MimicryDash
+                dashSound.Volume = 0.5
+                dashSound.Parent = game.SoundService
+                dashSound:Play()
+                dashSound.Ended:Connect(function()
+                    dashSound:Destroy()
+                end)
             end
         end
     end
@@ -1494,6 +1582,9 @@ local function startMimicry()
             if enemy and enemy.Parent then enemy:Destroy() end
             if eggPart and eggPart.Parent then eggPart:Destroy() end
             if diedConnection then diedConnection:Disconnect() end
+            phase1IdleSound:Destroy()
+            phase2IdleSound:Destroy()
+            if nearPlayerSound then nearPlayerSound:Destroy() end
             loop:Disconnect()
             return
         end
@@ -1502,6 +1593,17 @@ local function startMimicry()
             eggTimer = eggTimer + dt
             if eggTimer >= 30 then
                 if eggPart and eggPart.Parent then eggPart:Destroy() end
+                
+                -- Play egg hatch sound
+                local hatchSound = Instance.new("Sound")
+                hatchSound.SoundId = "rbxassetid://" .. soundIds.MimicryEggHatch
+                hatchSound.Volume = 0.5
+                hatchSound.Parent = game.SoundService
+                hatchSound:Play()
+                hatchSound.Ended:Connect(function()
+                    hatchSound:Destroy()
+                end)
+                
                 isEgg = false
                 phase = 2
                 sizeMultiplier = 1.5
@@ -1510,6 +1612,9 @@ local function startMimicry()
                 minDmg = 45
                 maxDmg = 75
                 enemy, torso, leftArm, rightArm, head, leftLeg, rightLeg = createModel()
+                
+                -- Start Phase 2 idle sound
+                phase2IdleSound:Play()
             end
             return
         end
@@ -1534,6 +1639,22 @@ local function startMimicry()
             local playerPos = currentChar.HumanoidRootPart.Position
             local enemyPos = torso.Position
             local dist = (playerPos - enemyPos).Magnitude
+            
+            -- Check if player is within 30 studs and play sound
+            if dist <= 30 then
+                if not nearPlayerSound or not nearPlayerSound.Playing then
+                    if nearPlayerSound then nearPlayerSound:Destroy() end
+                    nearPlayerSound = Instance.new("Sound")
+                    nearPlayerSound.SoundId = "rbxassetid://" .. soundIds.MimicryNearPlayer
+                    nearPlayerSound.Volume = 0.4
+                    nearPlayerSound.Parent = game.SoundService
+                    nearPlayerSound:Play()
+                    nearPlayerSound.Ended:Connect(function()
+                        nearPlayerSound:Destroy()
+                        nearPlayerSound = nil
+                    end)
+                end
+            end
             
             local direction
             if isRushing then
@@ -2322,6 +2443,14 @@ local illusions = {
         func = startGunDevil
     },
     {
+        name = "Eye Eater",
+        desc = "A floating eye that transforms into a mouth to bite. Can turn purple and force players to walk toward it.",
+        damageType = "Grey",
+        damageScale = "8 - 10 (Mouth) / 10 - 20 (Touch)",
+        danger = "LAMED",
+        func = startEyeEater
+    },
+    {
         name = "Liquid Orchestra",
         desc = "Somewhere in the Flament Village, a deadly disease is around the village but nobody noticed. Then, a villager shouted: 'Hey! This liquid is producing music!' Everybody come to the liquid. And slowly, the music grew louder, and louder, and louder. The villagers are devoted to the music and then they start to melt and rot.",
         damageType = "Variable",
@@ -2333,15 +2462,15 @@ local illusions = {
         name = "Mimicry",
         desc = "A red humanoid player shaped that follows the player. Every 3 second It moves its arm to attack dealing 12 - 25 dmg. If it killed the player it will turn into an egg. A red block. After 30 second, the egg hatches and phase 2 mimicry appears. a bigger red humanoid player shaped appears. Every 1.5 seconds it moves its arm to attack dealing 45 - 75 dmg, the illusion speed is increased by 20 now its 26 speed. after 7 attack, it rushes forward with 10+ speed, while in rush it cant steer. After 1 second the illusion stops, then continues to follow the player with normal speed.",
         damageType = "Crimson",
-        damageScale = "12 - 25 dmg (punch damage in phase 1)",
+        damageScale = "12 - 25 (Phase 1) / 45 - 75 (Phase 2)",
         danger = "TZADEL",
         func = startMimicry
     },
     {
         name = "Monolith",
         desc = "A giant pillar with purple outline that cant move. Every 3 second a purple 50 stud forcefield appears and purple damages player that are in it, it will slowly fades away. Every 30 second it will teleport to the player between 30 - 50 studs away. After 5th forcefield attack, a 100 stud green forcefield appears and every player in it gets [RED, BLUE, PURPLE, GREY, and WHITE] damage 3 - 5 every 0.2 seconds and it will fade away after 2 seconds.",
-        damageType = "purple",
-        damageScale = "10 - 15 (purple forcefield)",
+        damageType = "Purple",
+        damageScale = "10 - 15 (Purple) / 3 - 5 (Multi)",
         danger = "LAMED",
         func = startMonolith
     },
