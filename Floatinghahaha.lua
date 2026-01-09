@@ -1,6 +1,3 @@
--- Roblox Illusion Combat System
--- Place this in StarterPlayer > StarterPlayerScripts
-
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -358,15 +355,6 @@ local function damagePlayer(damageAmount, damageType)
         humanoid.WalkSpeed = 16
     end
 end
-
--- Reset stats on respawn
-humanoid.Died:Connect(function()
-    task.wait(5)
-    playerStats.hp = playerStats.maxHp
-    playerStats.sp = playerStats.maxSp
-    playerStats.pure = playerStats.maxPure
-    updateBars()
-end)
 
 -- Create Illusion Menu Button
 local illusionButton = Instance.new("TextButton")
@@ -1689,6 +1677,50 @@ for name, data in pairs(weaponData) do
 end
 
 weaponScroll.CanvasSize = UDim2.new(0, 0, 0, yPos)
+
+-- Handle character respawn
+local function onCharacterAdded(newCharacter)
+    character = newCharacter
+    humanoid = newCharacter:WaitForChild("Humanoid")
+    hrp = newCharacter:WaitForChild("HumanoidRootPart")
+    
+    -- Reset stats on respawn
+    playerStats.hp = playerStats.maxHp
+    playerStats.sp = playerStats.maxSp
+    playerStats.pure = playerStats.maxPure
+    playerStats.burning = false
+    updateBars()
+    
+    -- Re-equip current weapon
+    local currentWeaponTool = player.Backpack:FindFirstChild(playerStats.currentWeapon)
+    if currentWeaponTool then
+        humanoid:EquipTool(currentWeaponTool)
+    end
+    
+    -- Reset walk speed
+    humanoid.WalkSpeed = 16
+    
+    -- Connect died event
+    humanoid.Died:Connect(function()
+        print("You died!")
+        -- Cleanup any effects
+        if player.PlayerGui:FindFirstChild("BlindEffect") then
+            player.PlayerGui.BlindEffect:Destroy()
+        end
+        if schadenfreudeLoopSound then
+            schadenfreudeLoopSound:Destroy()
+            schadenfreudeLoopSound = nil
+        end
+        lookingAtSchadenfreude = false
+        playerBlinded = false
+    end)
+end
+
+-- Initial setup
+onCharacterAdded(character)
+
+-- Connect to CharacterAdded for future respawns
+player.CharacterAdded:Connect(onCharacterAdded)
 
 -- Update loop
 RunService.Heartbeat:Connect(function()
