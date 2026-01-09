@@ -1267,10 +1267,16 @@ local function damageIllusion(illusionName, damageAmount, damageType)
     if illusion.hp <= 0 then
         -- Special handling for Mimicry Phase 1
         if illusionName == "Mimicry" and illusion.phase == 1 then
-            local distance = (hrp.Position - illusion.torso.Position).Magnitude
-            if distance <= 20 then
-                transformMimicryToEgg(illusionName, illusion)
-                return
+            if illusion.torso and hrp then
+                local distance = (hrp.Position - illusion.torso.Position).Magnitude
+                print("Mimicry Phase 1 killed! Distance to player: " .. distance)
+                if distance <= 20 then
+                    print("Player within 20 studs, transforming to egg...")
+                    transformMimicryToEgg(illusionName, illusion)
+                    return
+                else
+                    print("Player too far, Mimicry will be removed")
+                end
             end
         end
         removeIllusion(illusionName)
