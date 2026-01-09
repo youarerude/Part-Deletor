@@ -83,7 +83,7 @@ local illusionData = {
         hp = 950,
         sp = 900,
         pure = 1055,
-        crawlSpeed = 18,
+        walkSpeed = 18,
         attackRange = 10,
         attackCooldown = 5,
         damageReductions = {Red = 0.3, Blue = 0.5, Purple = 0.6, Black = 0.6},
@@ -161,7 +161,6 @@ local attackCooldown = false
 local playerBlinded = false
 local lookingAtSchadenfreude = false
 local schadenfreudeLoopSound = nil
-local mimicryTextGui = nil
 
 -- GUI Creation
 local screenGui = Instance.new("ScreenGui")
@@ -741,39 +740,18 @@ function spawnIllusion(name, data)
     
     -- Special effects for Mimicry
     if name == "Mimicry" then
-        torso.BrickColor = BrickColor.new("Bright red")
-        head.BrickColor = BrickColor.new("Bright red")
-        leftArm.BrickColor = BrickColor.new("Bright red")
-        rightArm.BrickColor = BrickColor.new("Bright red")
+        torso.BrickColor = BrickColor.new("Really red")
+        head.BrickColor = BrickColor.new("Really red")
+        leftArm.BrickColor = BrickColor.new("Really red")
+        rightArm.BrickColor = BrickColor.new("Really red")
         
-        -- Add phase 1 sound loop
+        -- Phase 1 sound loop
         local phase1Sound = Instance.new("Sound")
-        phase1Sound.Name = "Phase1Sound"
         phase1Sound.SoundId = "rbxassetid://2796806401"
-        phase1Sound.Volume = 0.5
+        phase1Sound.Volume = 0.4
         phase1Sound.Looped = true
         phase1Sound.Parent = torso
         phase1Sound:Play()
-        
-        -- Create text GUI for Mimicry
-        local textGui = Instance.new("BillboardGui")
-        textGui.Name = "MimicryText"
-        textGui.Size = UDim2.new(0, 200, 0, 50)
-        textGui.StudsOffset = Vector3.new(0, 4, 0)
-        textGui.Adornee = head
-        textGui.AlwaysOnTop = true
-        textGui.Parent = head
-        
-        local textLabel = Instance.new("TextLabel")
-        textLabel.Size = UDim2.new(1, 0, 1, 0)
-        textLabel.BackgroundTransparency = 1
-        textLabel.Text = ""
-        textLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-        textLabel.TextScaled = true
-        textLabel.Font = Enum.Font.GothamBold
-        textLabel.TextStrokeTransparency = 0
-        textLabel.TextTransparency = 1
-        textLabel.Parent = textGui
     end
     
     illusionModel.Parent = workspace
@@ -861,165 +839,65 @@ function spawnIllusion(name, data)
         phase = data.phase or 1,
         attackCount = 0,
         eggTimer = 0,
-        isEgg = false,
-        iLoveYouTimer = 0
+        iLoveYouTimer = 0,
+        currentDialogue = nil
     }
     
-    -- Mimicry Phase 2 "I love you..." loop
-    if name == "Mimicry" then
-        task.spawn(function()
-            while activeIllusions[name] and activeIllusions[name].phase == 2 do
-                task.wait(2)
-                if activeIllusions[name] and activeIllusions[name].phase == 2 then
-                    showMimicryText(name, "I love you...", "rbxassetid://131461792070501")
-                end
+    -- Helper function to show Mimicry dialogue
+    local function showMimicryDialogue(text, sound)
+        local illusion = activeIllusions[name]
+        if not illusion then return end
+        
+        -- Remove current dialogue if exists
+        if illusion.currentDialogue then
+            illusion.currentDialogue:Destroy()
+        end
+        
+        -- Create new dialogue
+        local dialogueGui = Instance.new("BillboardGui")
+        dialogueGui.Size = UDim2.new(0, 200, 0, 50)
+        dialogueGui.StudsOffset = Vector3.new(0, 5, 0)
+        dialogueGui.Adornee = illusion.head
+        dialogueGui.AlwaysOnTop = true
+        dialogueGui.Parent = illusion.head
+        
+        local dialogueLabel = Instance.new("TextLabel")
+        dialogueLabel.Size = UDim2.new(1, 0, 1, 0)
+        dialogueLabel.BackgroundTransparency = 1
+        dialogueLabel.Text = text
+        dialogueLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+        dialogueLabel.TextScaled = true
+        dialogueLabel.Font = Enum.Font.GothamBold
+        dialogueLabel.TextStrokeTransparency = 0
+        dialogueLabel.Parent = dialogueGui
+        
+        illusion.currentDialogue = dialogueGui
+        
+        -- Play sound if provided
+        if sound then
+            local dialogueSound = Instance.new("Sound")
+            dialogueSound.SoundId = sound
+            dialogueSound.Volume = 0.5
+            dialogueSound.Parent = illusion.torso
+            dialogueSound:Play()
+        end
+        
+        -- Fade out after 1 second
+        task.delay(1, function()
+            if dialogueGui and dialogueGui.Parent then
+                local fadeTween = TweenService:Create(dialogueLabel, TweenInfo.new(0.3, Enum.EasingStyle.Linear), {TextTransparency = 1})
+                fadeTween:Play()
+                task.delay(0.3, function()
+                    dialogueGui:Destroy()
+                    if illusion.currentDialogue == dialogueGui then
+                        illusion.currentDialogue = nil
+                    end
+                end)
             end
         end)
     end
     
--- Show Mimicry Text
-local function showMimicryText(illusionName, text, soundId)
-    local illusion = activeIllusions[illusionName]
-    if not illusion or not illusion.head then return end
-    
-    local textGui = illusion.head:FindFirstChild("MimicryText")
-    if not textGui then return end
-    
-    local textLabel = textGui:FindFirstChildOfClass("TextLabel")
-    if not textLabel then return end
-    
-    -- Stop any ongoing fade
-    for _, tween in pairs(TweenService:GetChildren()) do
-        if tween.Instance == textLabel then
-            tween:Cancel()
-        end
-    end
-    
-    -- Set text and make visible
-    textLabel.Text = text
-    textLabel.TextTransparency = 0
-    
-    -- Play sound if provided
-    if soundId then
-        local sound = Instance.new("Sound")
-        sound.SoundId = soundId
-        sound.Volume = 0.5
-        sound.Parent = illusion.head
-        sound:Play()
-        sound.Ended:Connect(function()
-            sound:Destroy()
-        end)
-    end
-    
-    -- Fade out after 1 second
-    task.delay(1, function()
-        if textLabel then
-            local fadeTween = TweenService:Create(textLabel, TweenInfo.new(0.5, Enum.EasingStyle.Linear), {TextTransparency = 1})
-            fadeTween:Play()
-        end
-    end)
-end
-
--- Transform Mimicry to Egg
-local function transformToEgg(illusionName)
-    local illusion = activeIllusions[illusionName]
-    if not illusion or illusion.isEgg then return end
-    
-    illusion.isEgg = true
-    illusion.phase = "egg"
-    
-    -- Stop phase 1 sound
-    if illusion.torso:FindFirstChild("Phase1Sound") then
-        illusion.torso.Phase1Sound:Stop()
-    end
-    
-    -- Change appearance to egg
-    illusion.torso.Size = Vector3.new(4, 5, 4)
-    illusion.torso.Shape = Enum.PartType.Ball
-    illusion.torso.BrickColor = BrickColor.new("White")
-    
-    -- Hide other parts
-    illusion.head.Transparency = 1
-    illusion.leftArm.Transparency = 1
-    illusion.rightArm.Transparency = 1
-    
-    -- Update stats for egg phase
-    illusion.hp = 15000
-    illusion.sp = 14500
-    illusion.pure = 15300
-    illusion.maxHp = 15000
-    illusion.maxSp = 14500
-    illusion.maxPure = 15300
-    
-    -- Update damage reductions for egg
-    illusion.data.damageReductions = {Red = 0.0, Blue = 0.05, Purple = 0.1, Black = 0.15}
-    
-    -- Stop movement
-    illusion.humanoid.WalkSpeed = 0
-    
-    -- Start egg timer (60 seconds)
-    task.delay(60, function()
-        if activeIllusions[illusionName] and illusion.isEgg then
-            hatchEgg(illusionName)
-        end
-    end)
-end
-
--- Hatch Egg to Phase 2
-local function hatchEgg(illusionName)
-    local illusion = activeIllusions[illusionName]
-    if not illusion or not illusion.isEgg then return end
-    
-    -- Play hatch sound
-    local hatchSound = Instance.new("Sound")
-    hatchSound.SoundId = "rbxassetid://83494547160190"
-    hatchSound.Volume = 0.7
-    hatchSound.Parent = illusion.torso
-    hatchSound:Play()
-    
-    task.wait(1)
-    
-    illusion.isEgg = false
-    illusion.phase = 2
-    
-    -- Restore appearance
-    illusion.torso.Size = Vector3.new(2, 4, 1)
-    illusion.torso.Shape = Enum.PartType.Block
-    illusion.torso.BrickColor = BrickColor.new("Bright red")
-    
-    illusion.head.Transparency = 0
-    illusion.head.Size = Vector3.new(2, 2, 1)
-    illusion.leftArm.Transparency = 0
-    illusion.rightArm.Transparency = 0
-    
-    -- Update stats for phase 2
-    illusion.hp = 5300
-    illusion.sp = 6535
-    illusion.pure = 6000
-    illusion.maxHp = 5300
-    illusion.maxSp = 6535
-    illusion.maxPure = 6000
-    
-    -- Update damage reductions for phase 2
-    illusion.data.damageReductions = {Red = 0.1, Blue = 0.5, Purple = 0.4, Black = 0.1}
-    illusion.data.attackCooldown = 2
-    illusion.data.attackRange = 15
-    illusion.data.damageScale = {30, 70}
-    
-    -- Increase speed
-    illusion.humanoid.WalkSpeed = 25
-    illusion.attackCount = 0
-    
-    -- Start "I love you..." loop
-    task.spawn(function()
-        while activeIllusions[illusionName] and activeIllusions[illusionName].phase == 2 do
-            task.wait(2)
-            if activeIllusions[illusionName] and activeIllusions[illusionName].phase == 2 then
-                showMimicryText(illusionName, "I love you...", "rbxassetid://131461792070501")
-            end
-        end
-    end)
-end
+    -- AI Behavior
     task.spawn(function()
         while activeIllusions[name] and illusionModel.Parent do
             local illusion = activeIllusions[name]
@@ -1040,6 +918,111 @@ end
             illusionHumanoid.WalkSpeed = (data.crawlSpeed or data.walkSpeed or 16) * speedMultiplier
             
             local distance = (hrp.Position - torso.Position).Magnitude
+            
+            -- Mimicry special mechanics
+            if name == "Mimicry" then
+                -- Check if player died near Mimicry (Phase 1 -> Egg)
+                if illusion.phase == 1 and playerStats.hp <= 0 and distance <= 20 then
+                    -- Transform into egg
+                    illusion.phase = "egg"
+                    illusion.hp = 15000
+                    illusion.sp = 14500
+                    illusion.pure = 15300
+                    illusion.maxHp = 15000
+                    illusion.maxSp = 14500
+                    illusion.maxPure = 15300
+                    illusion.data.damageReductions = {Red = 0.0, Blue = 0.05, Purple = 0.1, Black = 0.15}
+                    illusion.eggTimer = 0
+                    
+                    -- Stop phase 1 sound
+                    for _, child in pairs(torso:GetChildren()) do
+                        if child:IsA("Sound") and child.Looped then
+                            child:Stop()
+                            child:Destroy()
+                        end
+                    end
+                    
+                    -- Change appearance to egg
+                    torso.Size = Vector3.new(4, 4, 4)
+                    torso.Shape = Enum.PartType.Ball
+                    torso.BrickColor = BrickColor.new("White")
+                    head.Transparency = 1
+                    leftArm.Transparency = 1
+                    rightArm.Transparency = 1
+                    
+                    illusionHumanoid.WalkSpeed = 0
+                end
+                
+                -- Egg hatching
+                if illusion.phase == "egg" then
+                    illusion.eggTimer = illusion.eggTimer + 0.1
+                    
+                    if illusion.eggTimer >= 60 then
+                        -- Hatch into Phase 2
+                        illusion.phase = 2
+                        illusion.hp = 5300
+                        illusion.sp = 6535
+                        illusion.pure = 6000
+                        illusion.maxHp = 5300
+                        illusion.maxSp = 6535
+                        illusion.maxPure = 6000
+                        illusion.data.damageReductions = {Red = 0.1, Blue = 0.5, Purple = 0.4, Black = 0.1}
+                        illusion.data.walkSpeed = 25
+                        illusion.data.attackRange = 15
+                        illusion.data.attackCooldown = 2
+                        illusion.data.damageScale = {30, 70}
+                        illusion.attackCount = 0
+                        
+                        -- Play hatch sound
+                        local hatchSound = Instance.new("Sound")
+                        hatchSound.SoundId = "rbxassetid://83494547160190"
+                        hatchSound.Volume = 0.6
+                        hatchSound.Parent = torso
+                        hatchSound:Play()
+                        
+                        -- Change to tall humanoid
+                        torso.Size = Vector3.new(2, 4, 1)
+                        torso.Shape = Enum.PartType.Block
+                        torso.BrickColor = BrickColor.new("Really red")
+                        head.Transparency = 0
+                        head.Size = Vector3.new(2, 2, 1)
+                        leftArm.Transparency = 0
+                        leftArm.Size = Vector3.new(1, 4, 1)
+                        rightArm.Transparency = 0
+                        rightArm.Size = Vector3.new(1, 4, 1)
+                        
+                        illusionHumanoid.WalkSpeed = 25
+                        
+                        -- Start "I love you..." loop sound
+                        local loveSound = Instance.new("Sound")
+                        loveSound.SoundId = "rbxassetid://131461792070501"
+                        loveSound.Volume = 0.4
+                        loveSound.Looped = true
+                        loveSound.Parent = torso
+                        loveSound:Play()
+                    end
+                end
+                
+                -- Phase 2 mechanics
+                if illusion.phase == 2 then
+                    -- "I love you..." dialogue every 2 seconds
+                    illusion.iLoveYouTimer = illusion.iLoveYouTimer + 0.1
+                    if illusion.iLoveYouTimer >= 2 then
+                        showMimicryDialogue("I love you...", nil)
+                        illusion.iLoveYouTimer = 0
+                    end
+                    
+                    -- "Hello?" when close to player
+                    if distance <= 20 and distance > 15 then
+                        if not illusion.shownHello then
+                            showMimicryDialogue("Hello?", "rbxassetid://119594199902437")
+                            illusion.shownHello = true
+                        end
+                    else
+                        illusion.shownHello = false
+                    end
+                end
+            end
             
             -- Schadenfreude looking mechanic
             if name == "Schadenfreude" then
@@ -1183,95 +1166,123 @@ end
                     if name == "Mimicry" and illusion.phase == 2 then
                         illusion.attackCount = illusion.attackCount + 1
                         
-                        -- 17th attack - Dash ability
+                        -- 17th attack: Dash ability
                         if illusion.attackCount >= 17 then
+                            showMimicryDialogue("Goodbye.", "rbxassetid://72209573879445")
                             illusion.attackCount = 0
-                            showMimicryText(name, "Goodbye.", "rbxassetid://72209573879445")
                             
                             -- Dash forward
-                            illusionHumanoid.WalkSpeed = 35
                             local dashDirection = (hrp.Position - torso.Position).Unit
-                            local dashGoal = torso.Position + dashDirection * 50
+                            illusionHumanoid.WalkSpeed = 35
                             
-                            local dashActive = true
+                            local dashTime = 0
+                            local dashing = true
                             task.spawn(function()
-                                local dashStart = tick()
-                                while dashActive and tick() - dashStart < 2 do
-                                    illusionHumanoid:MoveTo(dashGoal)
+                                while dashing and dashTime < 2 do
+                                    illusionHumanoid:MoveTo(torso.Position + dashDirection * 50)
                                     
-                                    -- Check for player collision
-                                    if (hrp.Position - torso.Position).Magnitude < 5 then
-                                        local hitSound = Instance.new("Sound")
-                                        hitSound.SoundId = "rbxassetid://124734278847105"
-                                        hitSound.Volume = 0.6
-                                        hitSound.Parent = hrp
-                                        hitSound:Play()
+                                    -- Check if player is caught in dash
+                                    local dashDistance = (hrp.Position - torso.Position).Magnitude
+                                    if dashDistance <= 5 then
+                                        local dashDamage = math.random(80, 175)
+                                        damagePlayer(dashDamage, "Black")
                                         
-                                        damagePlayer(math.random(80, 175), "Black")
+                                        -- Play dash hit sound
+                                        local dashHitSound = Instance.new("Sound")
+                                        dashHitSound.SoundId = "rbxassetid://124734278847105"
+                                        dashHitSound.Volume = 0.6
+                                        dashHitSound.Parent = hrp
+                                        dashHitSound:Play()
                                     end
+                                    
+                                    dashTime = dashTime + 0.1
                                     task.wait(0.1)
                                 end
-                                dashActive = false
+                                dashing = false
                                 illusionHumanoid.WalkSpeed = 25
                             end)
                             
-                            task.wait(2)
-                        -- 5th attack - Beam ability
+                        -- 5th attack: Beam ability
                         elseif illusion.attackCount % 5 == 0 then
-                            showMimicryText(name, "Help! Help!", "rbxassetid://74146743627850")
+                            showMimicryDialogue("Help! Help!", "rbxassetid://74146743627850")
                             
                             task.wait(1) -- 1 second delay
                             
                             -- Create beam
                             local beam = Instance.new("Part")
                             beam.Size = Vector3.new(5, 50, 5)
-                            beam.Position = hrp.Position
+                            beam.Position = hrp.Position + Vector3.new(0, 25, 0)
                             beam.Anchored = true
                             beam.CanCollide = false
-                            beam.Transparency = 0.3
                             beam.BrickColor = BrickColor.new("Really red")
                             beam.Material = Enum.Material.Neon
+                            beam.Transparency = 0.3
                             beam.Parent = workspace
                             
                             -- Check if player is in beam
-                            if (hrp.Position - beam.Position).Magnitude < 5 then
-                                local hitSound = Instance.new("Sound")
-                                hitSound.SoundId = "rbxassetid://74494429622344"
-                                hitSound.Volume = 0.6
-                                hitSound.Parent = hrp
-                                hitSound:Play()
-                                
-                                damagePlayer(math.random(65, 90), "Black")
+                            local beamDistance = (Vector3.new(hrp.Position.X, 0, hrp.Position.Z) - Vector3.new(beam.Position.X, 0, beam.Position.Z)).Magnitude
+                            if beamDistance <= 5 then
+                                local beamDamage = math.random(65, 90)
+                                damagePlayer(beamDamage, "Black")
                             end
                             
-                            task.delay(0.5, function()
+                            task.delay(1, function()
                                 beam:Destroy()
                             end)
+                            
                         else
                             -- Normal attack
-                            if (hrp.Position - torso.Position).Magnitude <= 15 then
+                            local armTween = TweenService:Create(leftArm, TweenInfo.new(0.3, Enum.EasingStyle.Quad), {CFrame = leftArm.CFrame * CFrame.Angles(math.rad(-90), 0, 0)})
+                            armTween:Play()
+                            local armTween2 = TweenService:Create(rightArm, TweenInfo.new(0.3, Enum.EasingStyle.Quad), {CFrame = rightArm.CFrame * CFrame.Angles(math.rad(-90), 0, 0)})
+                            armTween2:Play()
+                            
+                            task.wait(0.3)
+                            
+                            if (hrp.Position - torso.Position).Magnitude <= data.attackRange then
+                                local damage = math.random(data.damageScale[1], data.damageScale[2]) * damageMultiplier
+                                damagePlayer(damage, data.damageType)
+                                
+                                -- Play phase 2 hit sound
                                 local hitSound = Instance.new("Sound")
                                 hitSound.SoundId = "rbxassetid://74494429622344"
                                 hitSound.Volume = 0.5
                                 hitSound.Parent = hrp
                                 hitSound:Play()
-                                
-                                damagePlayer(math.random(30, 70) * damageMultiplier, "Black")
                             end
+                            
+                            task.wait(0.2)
+                            armTween:Cancel()
+                            armTween2:Cancel()
                         end
-                    -- Mimicry Phase 1 attack
+                        
                     elseif name == "Mimicry" and illusion.phase == 1 then
+                        -- Phase 1 attack
+                        local armTween = TweenService:Create(leftArm, TweenInfo.new(0.3, Enum.EasingStyle.Quad), {CFrame = leftArm.CFrame * CFrame.Angles(math.rad(-90), 0, 0)})
+                        armTween:Play()
+                        local armTween2 = TweenService:Create(rightArm, TweenInfo.new(0.3, Enum.EasingStyle.Quad), {CFrame = rightArm.CFrame * CFrame.Angles(math.rad(-90), 0, 0)})
+                        armTween2:Play()
+                        
+                        task.wait(0.3)
+                        
                         if (hrp.Position - torso.Position).Magnitude <= data.attackRange then
+                            local damage = math.random(data.damageScale[1], data.damageScale[2]) * damageMultiplier
+                            damagePlayer(damage, data.damageType)
+                            
+                            -- Play phase 1 hit sound
                             local hitSound = Instance.new("Sound")
                             hitSound.SoundId = "rbxassetid://6594869919"
                             hitSound.Volume = 0.5
                             hitSound.Parent = hrp
                             hitSound:Play()
-                            
-                            damagePlayer(math.random(14, 27) * damageMultiplier, "Black")
                         end
+                        
+                        task.wait(0.2)
+                        armTween:Cancel()
+                        armTween2:Cancel()
+                        
                     else
-                        -- Other illusions normal behavior
+                        -- Normal illusion attack (existing code)
                         -- Animate arms
                         local armTween = TweenService:Create(leftArm, TweenInfo.new(0.3, Enum.EasingStyle.Quad), {CFrame = leftArm.CFrame * CFrame.Angles(math.rad(-90), 0, 0)})
                         armTween:Play()
@@ -1279,74 +1290,74 @@ end
                         armTween2:Play()
                         
                         task.wait(0.3)
-                    
-                    -- Check if still in range
-                    if (hrp.Position - torso.Position).Magnitude <= data.attackRange then
-                        -- Play appropriate attack sound
-                        local attackSound = Instance.new("Sound")
-                        if name == "Schadenfreude" then
-                            attackSound.SoundId = "rbxassetid://117297744119258"
+                        
+                        -- Check if still in range
+                        if (hrp.Position - torso.Position).Magnitude <= data.attackRange then
+                            -- Play appropriate attack sound
+                            local attackSound = Instance.new("Sound")
+                            if name == "Schadenfreude" then
+                                attackSound.SoundId = "rbxassetid://117297744119258"
+                            else
+                                attackSound.SoundId = "rbxassetid://77452678009271"
+                            end
+                            attackSound.Volume = 0.5
+                            attackSound.Parent = torso
+                            attackSound:Play()
+                            
+                            local damage = math.random(data.damageScale[1], data.damageScale[2]) * damageMultiplier
+                            damagePlayer(damage, data.damageType)
+                            
+                            -- Play hit sound for Schadenfreude
+                            if name == "Schadenfreude" then
+                                local hitSound = Instance.new("Sound")
+                                hitSound.SoundId = "rbxassetid://935843979"
+                                hitSound.Volume = 0.5
+                                hitSound.Parent = hrp
+                                hitSound:Play()
+                            end
+                            
+                            -- Apply burning for Scorcher
+                            if name == "Scorcher" then
+                                playerStats.burning = true
+                                
+                                local litSound = Instance.new("Sound")
+                                litSound.SoundId = "rbxassetid://4403634269"
+                                litSound.Volume = 0.5
+                                litSound.Parent = hrp
+                                litSound:Play()
+                                
+                                local crackleSound = Instance.new("Sound")
+                                crackleSound.SoundId = "rbxassetid://9079463756"
+                                crackleSound.Volume = 0.3
+                                crackleSound.Looped = true
+                                crackleSound.Parent = hrp
+                                crackleSound:Play()
+                                
+                                task.spawn(function()
+                                    for i = 1, 5 do
+                                        if not playerStats.burning then break end
+                                        damagePlayer(math.random(2, 5), "Purple")
+                                        task.wait(1)
+                                    end
+                                    playerStats.burning = false
+                                    crackleSound:Stop()
+                                    task.wait(0.5)
+                                    crackleSound:Destroy()
+                                end)
+                            end
                         else
-                            attackSound.SoundId = "rbxassetid://77452678009271"
-                        end
-                        attackSound.Volume = 0.5
-                        attackSound.Parent = torso
-                        attackSound:Play()
-                        
-                        local damage = math.random(data.damageScale[1], data.damageScale[2]) * damageMultiplier
-                        damagePlayer(damage, data.damageType)
-                        
-                        -- Play hit sound for Schadenfreude
-                        if name == "Schadenfreude" then
-                            local hitSound = Instance.new("Sound")
-                            hitSound.SoundId = "rbxassetid://935843979"
-                            hitSound.Volume = 0.5
-                            hitSound.Parent = hrp
-                            hitSound:Play()
+                            -- Play scratch miss sound
+                            local missSound = Instance.new("Sound")
+                            missSound.SoundId = "rbxassetid://96785397624223"
+                            missSound.Volume = 0.5
+                            missSound.Parent = torso
+                            missSound:Play()
                         end
                         
-                        -- Apply burning for Scorcher
-                        if name == "Scorcher" then
-                            playerStats.burning = true
-                            
-                            local litSound = Instance.new("Sound")
-                            litSound.SoundId = "rbxassetid://4403634269"
-                            litSound.Volume = 0.5
-                            litSound.Parent = hrp
-                            litSound:Play()
-                            
-                            local crackleSound = Instance.new("Sound")
-                            crackleSound.SoundId = "rbxassetid://9079463756"
-                            crackleSound.Volume = 0.3
-                            crackleSound.Looped = true
-                            crackleSound.Parent = hrp
-                            crackleSound:Play()
-                            
-                            task.spawn(function()
-                                for i = 1, 5 do
-                                    if not playerStats.burning then break end
-                                    damagePlayer(math.random(2, 5), "Purple")
-                                    task.wait(1)
-                                end
-                                playerStats.burning = false
-                                crackleSound:Stop()
-                                task.wait(0.5)
-                                crackleSound:Destroy()
-                            end)
-                        end
-                    else
-                        -- Play scratch miss sound
-                        local missSound = Instance.new("Sound")
-                        missSound.SoundId = "rbxassetid://96785397624223"
-                        missSound.Volume = 0.5
-                        missSound.Parent = torso
-                        missSound:Play()
-                    end
-                    
-                    -- Reset arms
-                    task.wait(0.2)
-                    armTween:Cancel()
-                    armTween2:Cancel()
+                        -- Reset arms
+                        task.wait(0.2)
+                        armTween:Cancel()
+                        armTween2:Cancel()
                     end
                 end
             end
