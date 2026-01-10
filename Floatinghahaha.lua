@@ -114,6 +114,12 @@ local suitData = {
         reductions = {Red = 0.6, Blue = 0.2, Purple = 0.8, Black = 1},
         dangerClass = "WAW",
         enabled = false
+    },
+    ["Mimic Art Suit"] = {
+        reductions = {Red = 0.2, Blue = 0.5, Purple = 0.6, Black = 0.3},
+        dangerClass = "ALEPH",
+        enabled = false,
+        absorbChance = 0.3
     }
 }
 
@@ -149,6 +155,20 @@ local weaponData = {
         attackActiveSound = "rbxassetid://137396441027315",
         special = true,
         attackCount = 0
+    },
+    ["Mimic Art"] = {
+        damageType = "Black",
+        damageScale = {25, 53},
+        cooldown = 4,
+        dangerClass = "ALEPH",
+        hitSound = "rbxassetid://136833367092810",
+        abilityHitSound = "rbxassetid://102362803607982",
+        abilityActivateSound = "rbxassetid://72209573879445",
+        special = true,
+        abilityCooldown = 30,
+        abilityReady = true,
+        dashSpeed = 15,
+        dashDuration = 1
     }
 }
 
@@ -158,6 +178,7 @@ local attackCooldown = false
 local playerBlinded = false
 local lookingAtSchadenfreude = false
 local schadenfreudeLoopSound = nil
+local mimicArtAbilityGui = nil
 
 -- GUI Creation
 local screenGui = Instance.new("ScreenGui")
@@ -279,7 +300,7 @@ local function create3DDamageGui(position, damage, damageType, category)
     textLabel.TextStrokeTransparency = 0.5
     textLabel.Parent = billboardGui
     
-    -- Set text color based on damage type (no gradient)
+    -- Set text color based on damage type
     if damageType == "Red" then
         textLabel.TextColor3 = Color3.fromRGB(255, 0, 0)
     elseif damageType == "Blue" then
@@ -315,7 +336,16 @@ local function damagePlayer(damageAmount, damageType)
     local reduction = 1
     
     if currentSuit and suitData[currentSuit] then
-        reduction = suitData[currentSuit].reductions[damageType] or 1
+        -- Mimic Art Suit special: 30% chance to absorb
+        if currentSuit == "Mimic Art Suit" and suitData[currentSuit].absorbChance then
+            if math.random() < suitData[currentSuit].absorbChance then
+                reduction = -0.5
+            else
+                reduction = suitData[currentSuit].reductions[damageType] or 1
+            end
+        else
+            reduction = suitData[currentSuit].reductions[damageType] or 1
+        end
     end
     
     local finalDamage = damageAmount * reduction
@@ -327,16 +357,34 @@ local function damagePlayer(damageAmount, damageType)
     
     local category = getDamageCategory(finalDamage)
     
-    if damageType == "Red" then
-        playerStats.hp = math.max(0, playerStats.hp - finalDamage)
-    elseif damageType == "Blue" then
-        playerStats.sp = math.max(0, playerStats.sp - finalDamage)
-    elseif damageType == "Purple" then
-        playerStats.hp = math.max(0, playerStats.hp - finalDamage)
-        playerStats.sp = math.max(0, playerStats.sp - finalDamage)
-    elseif damageType == "Black" then
-        playerStats.hp = math.max(0, playerStats.hp - finalDamage)
-        playerStats.pure = math.max(0, playerStats.pure - finalDamage * 0.5)
+    -- Mimic Art Suit lifesteal
+    if currentSuit == "Mimic Art Suit" and finalDamage < 0 then
+        local heal = math.abs(finalDamage)
+        if damageType == "Red" then
+            playerStats.hp = math.min(playerStats.maxHp, playerStats.hp + heal)
+            playerStats.pure = math.min(playerStats.maxPure, playerStats.pure + heal)
+        elseif damageType == "Blue" then
+            playerStats.sp = math.min(playerStats.maxSp, playerStats.sp + heal)
+        elseif damageType == "Purple" then
+            playerStats.hp = math.min(playerStats.maxHp, playerStats.hp + heal)
+            playerStats.sp = math.min(playerStats.maxSp, playerStats.sp + heal)
+            playerStats.pure = math.min(playerStats.maxPure, playerStats.pure + heal)
+        elseif damageType == "Black" then
+            playerStats.hp = math.min(playerStats.maxHp, playerStats.hp + heal)
+            playerStats.pure = math.min(playerStats.maxPure, playerStats.pure + heal)
+        end
+    else
+        if damageType == "Red" then
+            playerStats.hp = math.max(0, playerStats.hp - finalDamage)
+        elseif damageType == "Blue" then
+            playerStats.sp = math.max(0, playerStats.sp - finalDamage)
+        elseif damageType == "Purple" then
+            playerStats.hp = math.max(0, playerStats.hp - finalDamage)
+            playerStats.sp = math.max(0, playerStats.sp - finalDamage)
+        elseif damageType == "Black" then
+            playerStats.hp = math.max(0, playerStats.hp - finalDamage)
+            playerStats.pure = math.max(0, playerStats.pure - finalDamage * 0.5)
+        end
     end
     
     updateBars()
@@ -1270,8 +1318,7 @@ function spawnIllusion(name, data)
                         armTween2:Cancel()
                         
                     else
-                        -- Normal illusion attack (existing code)
-                        -- Animate arms
+                        -- Normal illusion attack
                         local armTween = TweenService:Create(leftArm, TweenInfo.new(0.3, Enum.EasingStyle.Quad), {CFrame = leftArm.CFrame * CFrame.Angles(math.rad(-90), 0, 0)})
                         armTween:Play()
                         local armTween2 = TweenService:Create(rightArm, TweenInfo.new(0.3, Enum.EasingStyle.Quad), {CFrame = rightArm.CFrame * CFrame.Angles(math.rad(-90), 0, 0)})
@@ -1279,9 +1326,7 @@ function spawnIllusion(name, data)
                         
                         task.wait(0.3)
                         
-                        -- Check if still in range
                         if (hrp.Position - torso.Position).Magnitude <= data.attackRange then
-                            -- Play appropriate attack sound
                             local attackSound = Instance.new("Sound")
                             if name == "Schadenfreude" then
                                 attackSound.SoundId = "rbxassetid://117297744119258"
@@ -1295,7 +1340,6 @@ function spawnIllusion(name, data)
                             local damage = math.random(data.damageScale[1], data.damageScale[2]) * damageMultiplier
                             damagePlayer(damage, data.damageType)
                             
-                            -- Play hit sound for Schadenfreude
                             if name == "Schadenfreude" then
                                 local hitSound = Instance.new("Sound")
                                 hitSound.SoundId = "rbxassetid://935843979"
@@ -1304,7 +1348,6 @@ function spawnIllusion(name, data)
                                 hitSound:Play()
                             end
                             
-                            -- Apply burning for Scorcher
                             if name == "Scorcher" then
                                 playerStats.burning = true
                                 
@@ -1334,7 +1377,6 @@ function spawnIllusion(name, data)
                                 end)
                             end
                         else
-                            -- Play scratch miss sound
                             local missSound = Instance.new("Sound")
                             missSound.SoundId = "rbxassetid://96785397624223"
                             missSound.Volume = 0.5
@@ -1342,7 +1384,6 @@ function spawnIllusion(name, data)
                             missSound:Play()
                         end
                         
-                        -- Reset arms
                         task.wait(0.2)
                         armTween:Cancel()
                         armTween2:Cancel()
@@ -1378,7 +1419,6 @@ local function damageIllusion(illusionName, damageAmount, damageType)
     local reduction = illusion.data.damageReductions[damageType] or 1
     local finalDamage = damageAmount * reduction
     
-    -- Apply SP penalty if SP is 0
     if illusion.sp <= 0 then
         finalDamage = finalDamage * 0.5
     end
@@ -1397,7 +1437,6 @@ local function damageIllusion(illusionName, damageAmount, damageType)
         illusion.pure = math.max(0, illusion.pure - finalDamage * 0.5)
     end
     
-    -- Update bars
     local hpPercent = illusion.hp / illusion.maxHp
     local spPercent = illusion.sp / illusion.maxSp
     local purePercent = illusion.pure / illusion.maxPure
@@ -1406,14 +1445,12 @@ local function damageIllusion(illusionName, damageAmount, damageType)
     illusion.spBar.Size = UDim2.new(spPercent, 0, 1, 0)
     illusion.pureBar.Size = UDim2.new(purePercent, 0, 1, 0)
     
-    -- Show bars if damaged
     if hpPercent < 1 then
         illusion.billboardGui.Enabled = true
     end
     
     create3DDamageGui(illusion.torso.Position, finalDamage, damageType, category)
     
-    -- Check if dead
     if illusion.hp <= 0 then
         removeIllusion(illusionName)
     end
@@ -1433,12 +1470,10 @@ local function createWeaponTool(weaponName)
     handle.Material = Enum.Material.SmoothPlastic
     handle.Parent = tool
     
-    -- Add grip mesh for better look
     local mesh = Instance.new("CylinderMesh")
     mesh.Scale = Vector3.new(1, 1, 1)
     mesh.Parent = handle
     
-    -- Color based on weapon type
     if weaponName == "Baton" then
         handle.BrickColor = BrickColor.new("Dark stone grey")
     elseif weaponName == "Ground" then
@@ -1449,7 +1484,6 @@ local function createWeaponTool(weaponName)
         handle.Size = Vector3.new(0.6, 4.5, 0.6)
         handle.Material = Enum.Material.Neon
         
-        -- Add fire effect for 3rd Match
         local fire = Instance.new("Fire")
         fire.Size = 3
         fire.Heat = 5
@@ -1458,11 +1492,108 @@ local function createWeaponTool(weaponName)
         handle.BrickColor = BrickColor.new("Bright blue")
         handle.Size = Vector3.new(0.8, 4, 0.8)
         handle.Material = Enum.Material.Neon
+    elseif weaponName == "Mimic Art" then
+        handle.BrickColor = BrickColor.new("Really red")
+        handle.Size = Vector3.new(0.7, 5, 0.7)
+        handle.Material = Enum.Material.Neon
     end
     
     tool.Equipped:Connect(function()
         playerStats.currentWeapon = weaponName
         print("Equipped: " .. weaponName)
+        
+        -- Create Mimic Art ability button
+        if weaponName == "Mimic Art" then
+            if not mimicArtAbilityGui then
+                mimicArtAbilityGui = Instance.new("TextButton")
+                mimicArtAbilityGui.Size = UDim2.new(0, 100, 0, 50)
+                mimicArtAbilityGui.Position = UDim2.new(0, 20, 1, -70)
+                mimicArtAbilityGui.Text = "Goodbye"
+                mimicArtAbilityGui.Font = Enum.Font.GothamBold
+                mimicArtAbilityGui.TextScaled = true
+                mimicArtAbilityGui.BackgroundColor3 = Color3.fromRGB(200, 0, 0)
+                mimicArtAbilityGui.TextColor3 = Color3.new(1, 1, 1)
+                mimicArtAbilityGui.Parent = screenGui
+                
+                mimicArtAbilityGui.MouseButton1Click:Connect(function()
+                    local weaponInfo = weaponData["Mimic Art"]
+                    if not weaponInfo.abilityReady then return end
+                    
+                    weaponInfo.abilityReady = false
+                    
+                    -- Play activate sound
+                    local activateSound = Instance.new("Sound")
+                    activateSound.SoundId = weaponInfo.abilityActivateSound
+                    activateSound.Volume = 0.6
+                    activateSound.Parent = hrp
+                    activateSound:Play()
+                    
+                    -- Create red box
+                    local redBox = Instance.new("Part")
+                    redBox.Size = Vector3.new(45, 45, 45)
+                    redBox.Position = hrp.Position + hrp.CFrame.LookVector * 22.5
+                    redBox.Anchored = true
+                    redBox.CanCollide = false
+                    redBox.Transparency = 0.5
+                    redBox.BrickColor = BrickColor.new("Really red")
+                    redBox.Material = Enum.Material.Neon
+                    redBox.Parent = workspace
+                    
+                    -- Damage illusions in box
+                    local damageLoop = true
+                    task.spawn(function()
+                        while damageLoop do
+                            for name, illusion in pairs(activeIllusions) do
+                                if illusion.torso then
+                                    local pos = illusion.torso.Position
+                                    local boxPos = redBox.Position
+                                    local halfSize = 22.5
+                                    
+                                    if math.abs(pos.X - boxPos.X) <= halfSize and
+                                       math.abs(pos.Y - boxPos.Y) <= halfSize and
+                                       math.abs(pos.Z - boxPos.Z) <= halfSize then
+                                        local damage = math.random(12, 30)
+                                        damageIllusion(name, damage, "Red")
+                                        
+                                        -- Play hit sound
+                                        local hitSound = Instance.new("Sound")
+                                        hitSound.SoundId = weaponInfo.abilityHitSound
+                                        hitSound.Volume = 0.4
+                                        hitSound.Parent = illusion.torso
+                                        hitSound:Play()
+                                    end
+                                end
+                            end
+                            task.wait(0.5)
+                        end
+                    end)
+                    
+                    -- Destroy after 1 second
+                    task.delay(1, function()
+                        damageLoop = false
+                        redBox:Destroy()
+                    end)
+                    
+                    -- Cooldown
+                    mimicArtAbilityGui.Text = "30s"
+                    task.spawn(function()
+                        for i = 30, 1, -1 do
+                            mimicArtAbilityGui.Text = i .. "s"
+                            task.wait(1)
+                        end
+                        mimicArtAbilityGui.Text = "Goodbye"
+                        weaponInfo.abilityReady = true
+                    end)
+                end)
+            end
+            mimicArtAbilityGui.Visible = true
+        end
+    end)
+    
+    tool.Unequipped:Connect(function()
+        if mimicArtAbilityGui then
+            mimicArtAbilityGui.Visible = false
+        end
     end)
     
     tool.Activated:Connect(function()
@@ -1473,7 +1604,19 @@ local function createWeaponTool(weaponName)
         
         attackCooldown = true
         
-        -- Create attack hitbox in front of player
+        -- Mimic Art dash
+        if weaponName == "Mimic Art" then
+            local dashDirection = hrp.CFrame.LookVector
+            local bodyVelocity = Instance.new("BodyVelocity")
+            bodyVelocity.Velocity = dashDirection * weaponInfo.dashSpeed
+            bodyVelocity.MaxForce = Vector3.new(math.huge, 0, math.huge)
+            bodyVelocity.Parent = hrp
+            
+            task.delay(weaponInfo.dashDuration, function()
+                bodyVelocity:Destroy()
+            end)
+        end
+        
         local lookVector = hrp.CFrame.LookVector
         local hitPosition = hrp.Position + lookVector * 8 + Vector3.new(0, 2, 0)
         
@@ -1487,23 +1630,19 @@ local function createWeaponTool(weaponName)
         hitbox.Material = Enum.Material.Neon
         hitbox.Parent = workspace
         
-        -- Make it a sphere
         local mesh = Instance.new("SpecialMesh")
         mesh.MeshType = Enum.MeshType.Sphere
         mesh.Parent = hitbox
         
-        -- Sublock special mechanics
         if weaponName == "Sublock" then
             weaponInfo.attackCount = weaponInfo.attackCount + 1
             
-            -- Play attack active sound
             local activeSound = Instance.new("Sound")
             activeSound.SoundId = weaponInfo.attackActiveSound
             activeSound.Volume = 0.5
             activeSound.Parent = hitbox
             activeSound:Play()
             
-            -- Determine damage type (every 5th attack is Red)
             local currentDamageType = weaponInfo.damageType
             if weaponInfo.attackCount >= 5 then
                 currentDamageType = "Red"
@@ -1513,7 +1652,6 @@ local function createWeaponTool(weaponName)
                 hitbox.BrickColor = BrickColor.new("Bright blue")
             end
             
-            -- Continuous damage for 2 seconds
             local hitboxActive = true
             task.spawn(function()
                 local damageLoop = Instance.new("Sound")
@@ -1525,7 +1663,6 @@ local function createWeaponTool(weaponName)
                 
                 local startTime = tick()
                 while hitboxActive and tick() - startTime < 2 do
-                    -- Check for illusion hits every 0.1 seconds
                     for name, illusion in pairs(activeIllusions) do
                         if illusion.torso then
                             local distance = (illusion.torso.Position - hitPosition).Magnitude
@@ -1543,7 +1680,6 @@ local function createWeaponTool(weaponName)
                 hitboxActive = false
             end)
             
-            -- Fade out after 2 seconds
             task.delay(2, function()
                 hitboxActive = false
                 local fadeTween = TweenService:Create(hitbox, TweenInfo.new(0.5, Enum.EasingStyle.Linear), {Transparency = 1})
@@ -1553,8 +1689,6 @@ local function createWeaponTool(weaponName)
                 end)
             end)
         else
-            -- Normal weapon behavior
-            -- Check for illusion hits
             local hitSomething = false
             for name, illusion in pairs(activeIllusions) do
                 if illusion.torso then
@@ -1567,7 +1701,6 @@ local function createWeaponTool(weaponName)
                 end
             end
             
-            -- Play hit sound
             if hitSomething and weaponInfo.hitSound then
                 local hitSound = Instance.new("Sound")
                 hitSound.SoundId = weaponInfo.hitSound
@@ -1576,7 +1709,6 @@ local function createWeaponTool(weaponName)
                 hitSound:Play()
             end
             
-            -- Fade out hitbox quickly
             local fadeTween = TweenService:Create(hitbox, TweenInfo.new(0.5, Enum.EasingStyle.Linear), {Transparency = 1})
             fadeTween:Play()
             
@@ -1585,7 +1717,6 @@ local function createWeaponTool(weaponName)
             end)
         end
         
-        -- Cooldown with name update
         local cooldownTime = weaponInfo.cooldown
         task.spawn(function()
             for i = cooldownTime, 1, -1 do
@@ -1605,7 +1736,7 @@ for weaponName, _ in pairs(weaponData) do
     weaponTools[weaponName] = createWeaponTool(weaponName)
 end
 
--- Give starter weapon to player
+-- Give starter weapon
 if weaponTools["Baton"] then
     weaponTools["Baton"].Parent = player.Backpack
     task.wait(0.1)
@@ -1656,14 +1787,12 @@ for name, data in pairs(weaponData) do
     equipButton.MouseButton1Click:Connect(function()
         playerStats.currentWeapon = name
         
-        -- Unequip current tool
         for _, tool in pairs(character:GetChildren()) do
             if tool:IsA("Tool") then
                 tool.Parent = player.Backpack
             end
         end
         
-        -- Equip selected weapon
         if weaponTools[name] then
             weaponTools[name].Parent = player.Backpack
             task.wait(0.1)
@@ -1684,26 +1813,21 @@ local function onCharacterAdded(newCharacter)
     humanoid = newCharacter:WaitForChild("Humanoid")
     hrp = newCharacter:WaitForChild("HumanoidRootPart")
     
-    -- Reset stats on respawn
     playerStats.hp = playerStats.maxHp
     playerStats.sp = playerStats.maxSp
     playerStats.pure = playerStats.maxPure
     playerStats.burning = false
     updateBars()
     
-    -- Re-equip current weapon
     local currentWeaponTool = player.Backpack:FindFirstChild(playerStats.currentWeapon)
     if currentWeaponTool then
         humanoid:EquipTool(currentWeaponTool)
     end
     
-    -- Reset walk speed
     humanoid.WalkSpeed = 16
     
-    -- Connect died event
     humanoid.Died:Connect(function()
         print("You died!")
-        -- Cleanup any effects
         if player.PlayerGui:FindFirstChild("BlindEffect") then
             player.PlayerGui.BlindEffect:Destroy()
         end
@@ -1716,17 +1840,13 @@ local function onCharacterAdded(newCharacter)
     end)
 end
 
--- Initial setup
 onCharacterAdded(character)
-
--- Connect to CharacterAdded for future respawns
 player.CharacterAdded:Connect(onCharacterAdded)
 
 -- Update loop
 RunService.Heartbeat:Connect(function()
     updateBars()
     
-    -- Reduce pure based on health loss
     local healthLossPercent = 1 - (playerStats.hp / playerStats.maxHp)
     local targetPure = playerStats.maxPure * (1 - healthLossPercent)
     playerStats.pure = math.max(0, math.min(playerStats.maxPure, targetPure))
