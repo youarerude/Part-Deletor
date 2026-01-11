@@ -11,12 +11,12 @@ local hrp = character:WaitForChild("HumanoidRootPart")
 
 -- Player Stats
 local playerStats = {
-    hp = 100,
-    maxHp = 100,
-    sp = 100,
-    maxSp = 100,
-    pure = 100,
-    maxPure = 100,
+    hp = 10000,
+    maxHp = 10000,
+    sp = 10000,
+    maxSp = 10000,
+    pure = 10000,
+    maxPure = 10000,
     currentSuit = "Standard Uniform",
     currentWeapon = "Baton",
     burning = false,
@@ -1334,9 +1334,7 @@ function spawnIllusion(name, data)
             
             -- Move towards player
             if distance > data.attackRange then
-                if not (name == "Statue of Torture") then
-                    illusionHumanoid:MoveTo(hrp.Position)
-                end
+                illusionHumanoid:MoveTo(hrp.Position)
                 
                 -- Scorcher leaves fire trail
                 if name == "Scorcher" then
@@ -1679,7 +1677,7 @@ local function damageIllusion(illusionName, damageAmount, damageType)
             
             -- Spawn beams
             task.spawn(function()
-                for i = 1, 30 do
+                for i = 1, 10 do
                     -- Random position within 50 studs of player
                     local randomOffset = Vector3.new(
                         math.random(-50, 50),
@@ -1700,12 +1698,10 @@ local function damageIllusion(illusionName, damageAmount, damageType)
                     beam.Parent = workspace
                     
                     -- Check if player is in beam
-                    if hrp and hrp.Parent then
-                        local beamDistance = (Vector3.new(hrp.Position.X, 0, hrp.Position.Z) - Vector3.new(beamPosition.X, 0, beamPosition.Z)).Magnitude
-                        if beamDistance <= 5 then
-                            local beamDamage = math.random(30, 50)
-                            damagePlayer(beamDamage, "Purple")
-                        end
+                    local beamDistance = (Vector3.new(hrp.Position.X, 0, hrp.Position.Z) - Vector3.new(beamPosition.X, 0, beamPosition.Z)).Magnitude
+                    if beamDistance <= 5 then
+                        local beamDamage = math.random(30, 50)
+                        damagePlayer(beamDamage, "Purple")
                     end
                     
                     -- Beam lasts 4 seconds then disappears for 1 second
