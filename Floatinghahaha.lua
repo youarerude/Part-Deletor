@@ -93,9 +93,9 @@ local illusionData = {
     },
     ["Statue of Torture"] = {
         description = "A statue that moves when you're not looking...",
-        hp = 800,
-        sp = 750,
-        pure = 700,
+        hp = 5400,
+        sp = 5522,
+        pure = 5000,
         moveSpeed = 20,
         enragedSpeed = 50,
         attackRange = 5,
@@ -1712,7 +1712,7 @@ local function damageIllusion(illusionName, damageAmount, damageType)
                         end)
                     end)
                     
-                    task.wait(0.5)
+                    task.wait(0.1)
                 end
                 
                 illusion.abilityActive = false
