@@ -1677,7 +1677,7 @@ local function damageIllusion(illusionName, damageAmount, damageType)
             
             -- Spawn beams
             task.spawn(function()
-                for i = 1, 10 do
+                for i = 1, 30 do
                     -- Random position within 50 studs of player
                     local randomOffset = Vector3.new(
                         math.random(-50, 50),
@@ -2118,6 +2118,12 @@ RunService.Heartbeat:Connect(function()
     
     local healthLossPercent = 1 - (playerStats.hp / playerStats.maxHp)
     local targetPure = playerStats.maxPure * (1 - healthLossPercent)
+    playerStats.pure = math.max(0, math.min(playerStats.maxPure, targetPure))
+end)
+
+print("Illusion Combat System Loaded!")
+print("Current Weapon: " .. playerStats.currentWeapon)
+print("Current Suit: " .. playerStats.currentSuit)    local targetPure = playerStats.maxPure * (1 - healthLossPercent)
     playerStats.pure = math.max(0, math.min(playerStats.maxPure, targetPure))
 end)
 
