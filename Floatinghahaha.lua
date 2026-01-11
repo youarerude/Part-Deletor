@@ -90,6 +90,24 @@ local illusionData = {
         enabled = false,
         phase = 1,
         attackCount = 0
+    },
+    ["Statue of Torture"] = {
+        description = "A statue that moves when you're not looking...",
+        hp = 800,
+        sp = 750,
+        pure = 700,
+        moveSpeed = 20,
+        enragedSpeed = 50,
+        attackRange = 5,
+        damageReductions = {Red = 0.3, Blue = 0.3, Purple = 0.0, Black = 0.4},
+        damageType = "Purple",
+        damageScale = {90, 189},
+        dangerClass = "LAMMED",
+        enabled = false,
+        attackCount = 0,
+        isEnraged = false,
+        modelId = "12860242039",
+        abilityChance = 0.25
     }
 }
 
@@ -676,53 +694,99 @@ function spawnIllusion(name, data)
     local illusionModel = Instance.new("Model")
     illusionModel.Name = name
     
-    local torso = Instance.new("Part")
-    torso.Name = "Torso"
-    torso.Size = Vector3.new(2, 2, 1)
-    torso.Position = hrp.Position + Vector3.new(math.random(-30, 30), 0, math.random(-30, 30))
-    torso.Anchored = false
-    torso.CanCollide = true
-    torso.BrickColor = BrickColor.new("Bright red")
-    torso.Parent = illusionModel
+    local torso, head, leftArm, rightArm
     
-    local head = Instance.new("Part")
-    head.Name = "Head"
-    head.Size = Vector3.new(2, 1, 1)
-    head.Position = torso.Position + Vector3.new(0, 1.5, 0)
-    head.Anchored = false
-    head.CanCollide = true
-    head.BrickColor = BrickColor.new("Bright red")
-    head.Parent = illusionModel
-    
-    local leftArm = Instance.new("Part")
-    leftArm.Name = "LeftArm"
-    leftArm.Size = Vector3.new(1, 2, 1)
-    leftArm.Position = torso.Position + Vector3.new(-1.5, 0, 0)
-    leftArm.Anchored = false
-    leftArm.CanCollide = false
-    leftArm.BrickColor = BrickColor.new("Bright red")
-    leftArm.Parent = illusionModel
-    
-    local rightArm = Instance.new("Part")
-    rightArm.Name = "RightArm"
-    rightArm.Size = Vector3.new(1, 2, 1)
-    rightArm.Position = torso.Position + Vector3.new(1.5, 0, 0)
-    rightArm.Anchored = false
-    rightArm.CanCollide = false
-    rightArm.BrickColor = BrickColor.new("Bright red")
-    rightArm.Parent = illusionModel
-    
-    -- Weld parts together
-    local function weld(part0, part1)
-        local weld = Instance.new("WeldConstraint")
-        weld.Part0 = part0
-        weld.Part1 = part1
-        weld.Parent = part0
+    -- Special handling for Statue of Torture
+    if name == "Statue of Torture" then
+        -- Load the statue model
+        local InsertService = game:GetService("InsertService")
+        local success, statueModel = pcall(function()
+            return InsertService:LoadAsset(data.modelId)
+        end)
+        
+        if success and statueModel then
+            local actualModel = statueModel:GetChildren()[1]
+            if actualModel then
+                actualModel.Parent = illusionModel
+                actualModel:SetPrimaryPartCFrame(CFrame.new(hrp.Position + Vector3.new(math.random(-30, 30), 0, math.random(-30, 30))))
+                
+                -- Find the primary part or create one
+                torso = actualModel.PrimaryPart or actualModel:FindFirstChildWhichIsA("BasePart")
+                if not torso then
+                    torso = Instance.new("Part")
+                    torso.Name = "Torso"
+                    torso.Size = Vector3.new(2, 2, 2)
+                    torso.Anchored = false
+                    torso.CanCollide = true
+                    torso.Parent = actualModel
+                end
+                
+                head = torso
+            end
+            statueModel:Destroy()
+        else
+            -- Fallback if model doesn't load
+            torso = Instance.new("Part")
+            torso.Name = "Torso"
+            torso.Size = Vector3.new(3, 5, 3)
+            torso.Position = hrp.Position + Vector3.new(math.random(-30, 30), 0, math.random(-30, 30))
+            torso.Anchored = false
+            torso.CanCollide = true
+            torso.BrickColor = BrickColor.new("Dark stone grey")
+            torso.Material = Enum.Material.Concrete
+            torso.Parent = illusionModel
+            head = torso
+        end
+    else
+        -- Normal illusion creation
+        torso = Instance.new("Part")
+        torso.Name = "Torso"
+        torso.Size = Vector3.new(2, 2, 1)
+        torso.Position = hrp.Position + Vector3.new(math.random(-30, 30), 0, math.random(-30, 30))
+        torso.Anchored = false
+        torso.CanCollide = true
+        torso.BrickColor = BrickColor.new("Bright red")
+        torso.Parent = illusionModel
+        
+        head = Instance.new("Part")
+        head.Name = "Head"
+        head.Size = Vector3.new(2, 1, 1)
+        head.Position = torso.Position + Vector3.new(0, 1.5, 0)
+        head.Anchored = false
+        head.CanCollide = true
+        head.BrickColor = BrickColor.new("Bright red")
+        head.Parent = illusionModel
+        
+        leftArm = Instance.new("Part")
+        leftArm.Name = "LeftArm"
+        leftArm.Size = Vector3.new(1, 2, 1)
+        leftArm.Position = torso.Position + Vector3.new(-1.5, 0, 0)
+        leftArm.Anchored = false
+        leftArm.CanCollide = false
+        leftArm.BrickColor = BrickColor.new("Bright red")
+        leftArm.Parent = illusionModel
+        
+        rightArm = Instance.new("Part")
+        rightArm.Name = "RightArm"
+        rightArm.Size = Vector3.new(1, 2, 1)
+        rightArm.Position = torso.Position + Vector3.new(1.5, 0, 0)
+        rightArm.Anchored = false
+        rightArm.CanCollide = false
+        rightArm.BrickColor = BrickColor.new("Bright red")
+        rightArm.Parent = illusionModel
+        
+        -- Weld parts together
+        local function weld(part0, part1)
+            local weld = Instance.new("WeldConstraint")
+            weld.Part0 = part0
+            weld.Part1 = part1
+            weld.Parent = part0
+        end
+        
+        weld(torso, head)
+        weld(torso, leftArm)
+        weld(torso, rightArm)
     end
-    
-    weld(torso, head)
-    weld(torso, leftArm)
-    weld(torso, rightArm)
     
     local illusionHumanoid = Instance.new("Humanoid")
     illusionHumanoid.MaxHealth = data.hp
@@ -876,7 +940,10 @@ function spawnIllusion(name, data)
         attackCount = 0,
         eggTimer = 0,
         iLoveYouTimer = 0,
-        currentDialogue = nil
+        currentDialogue = nil,
+        isEnraged = false,
+        lookingAt = false,
+        abilityActive = false
     }
     
     -- Helper function to show Mimicry dialogue
@@ -954,6 +1021,151 @@ function spawnIllusion(name, data)
             illusionHumanoid.WalkSpeed = (data.crawlSpeed or data.walkSpeed or 16) * speedMultiplier
             
             local distance = (hrp.Position - torso.Position).Magnitude
+            
+            -- Statue of Torture mechanics
+            if name == "Statue of Torture" then
+                local camera = workspace.CurrentCamera
+                local cameraLook = camera.CFrame.LookVector
+                local toStatue = (torso.Position - camera.CFrame.Position).Unit
+                local dotProduct = cameraLook:Dot(toStatue)
+                
+                -- Check if player is looking at statue (dot product > 0.7)
+                local playerLookingAtStatue = dotProduct > 0.7 and distance < 60
+                illusion.lookingAt = playerLookingAtStatue
+                
+                -- Movement logic
+                if illusion.isEnraged then
+                    -- Enraged mode: always move
+                    illusionHumanoid.WalkSpeed = data.enragedSpeed
+                    illusionHumanoid:MoveTo(hrp.Position)
+                elseif playerLookingAtStatue then
+                    -- Player looking: freeze
+                    illusionHumanoid.WalkSpeed = 0
+                else
+                    -- Player not looking: move
+                    illusionHumanoid.WalkSpeed = data.moveSpeed
+                    illusionHumanoid:MoveTo(hrp.Position)
+                end
+                
+                -- Attack on touch
+                if distance <= data.attackRange then
+                    local currentTime = tick()
+                    if currentTime - illusion.lastAttack >= 1 then
+                        illusion.lastAttack = currentTime
+                        illusion.attackCount = illusion.attackCount + 1
+                        
+                        -- Check for enraged mode (every 5th attack)
+                        if illusion.attackCount >= 5 then
+                            illusion.attackCount = 0
+                            illusion.isEnraged = true
+                            
+                            -- Play enraged sound
+                            local enragedSound = Instance.new("Sound")
+                            enragedSound.SoundId = "rbxassetid://5673404366"
+                            enragedSound.Volume = 0.6
+                            enragedSound.Parent = torso
+                            enragedSound:Play()
+                            
+                            -- Create red fog
+                            local redFog = Instance.new("ColorCorrectionEffect")
+                            redFog.Name = "RedFog"
+                            redFog.TintColor = Color3.fromRGB(255, 0, 0)
+                            redFog.Saturation = 0.5
+                            redFog.Parent = game.Lighting
+                            
+                            -- Deal 3x damage
+                            local enragedDamage = math.random(data.damageScale[1], data.damageScale[2]) * 3
+                            damagePlayer(enragedDamage, data.damageType)
+                            
+                            -- Play touch sound
+                            local touchSound = Instance.new("Sound")
+                            touchSound.SoundId = "rbxassetid://70542612197339"
+                            touchSound.Volume = 0.5
+                            touchSound.Parent = hrp
+                            touchSound:Play()
+                            
+                            -- Blind and teleport
+                            local blindGui = Instance.new("ScreenGui")
+                            blindGui.Name = "StatueBlind"
+                            blindGui.Parent = player.PlayerGui
+                            
+                            local blindFrame = Instance.new("Frame")
+                            blindFrame.Size = UDim2.new(1, 0, 1, 0)
+                            blindFrame.BackgroundColor3 = Color3.new(0, 0, 0)
+                            blindFrame.BackgroundTransparency = 0
+                            blindFrame.Parent = blindGui
+                            
+                            -- Fade out blindness
+                            task.delay(0.5, function()
+                                local fadeTween = TweenService:Create(blindFrame, TweenInfo.new(1.5, Enum.EasingStyle.Linear), {BackgroundTransparency = 1})
+                                fadeTween:Play()
+                                task.delay(1.5, function()
+                                    blindGui:Destroy()
+                                end)
+                            end)
+                            
+                            -- Teleport player
+                            local teleportDistance = math.random(1, 100)
+                            local randomAngle = math.random() * math.pi * 2
+                            local teleportOffset = Vector3.new(
+                                math.cos(randomAngle) * teleportDistance,
+                                0,
+                                math.sin(randomAngle) * teleportDistance
+                            )
+                            hrp.CFrame = hrp.CFrame + teleportOffset
+                            
+                            -- End enraged mode after 2 seconds
+                            task.delay(2, function()
+                                illusion.isEnraged = false
+                                if redFog then
+                                    redFog:Destroy()
+                                end
+                            end)
+                        else
+                            -- Normal attack
+                            local normalDamage = math.random(data.damageScale[1], data.damageScale[2])
+                            damagePlayer(normalDamage, data.damageType)
+                            
+                            -- Play touch sound
+                            local touchSound = Instance.new("Sound")
+                            touchSound.SoundId = "rbxassetid://70542612197339"
+                            touchSound.Volume = 0.5
+                            touchSound.Parent = hrp
+                            touchSound:Play()
+                            
+                            -- Blind and teleport
+                            local blindGui = Instance.new("ScreenGui")
+                            blindGui.Name = "StatueBlind"
+                            blindGui.Parent = player.PlayerGui
+                            
+                            local blindFrame = Instance.new("Frame")
+                            blindFrame.Size = UDim2.new(1, 0, 1, 0)
+                            blindFrame.BackgroundColor3 = Color3.new(0, 0, 0)
+                            blindFrame.BackgroundTransparency = 0
+                            blindFrame.Parent = blindGui
+                            
+                            -- Fade out blindness
+                            task.delay(0.5, function()
+                                local fadeTween = TweenService:Create(blindFrame, TweenInfo.new(1.5, Enum.EasingStyle.Linear), {BackgroundTransparency = 1})
+                                fadeTween:Play()
+                                task.delay(1.5, function()
+                                    blindGui:Destroy()
+                                end)
+                            end)
+                            
+                            -- Teleport player
+                            local teleportDistance = math.random(1, 100)
+                            local randomAngle = math.random() * math.pi * 2
+                            local teleportOffset = Vector3.new(
+                                math.cos(randomAngle) * teleportDistance,
+                                0,
+                                math.sin(randomAngle) * teleportDistance
+                            )
+                            hrp.CFrame = hrp.CFrame + teleportOffset
+                        end
+                    end
+                end
+            end
             
             -- Mimicry special mechanics
             if name == "Mimicry" then
@@ -1450,6 +1662,63 @@ local function damageIllusion(illusionName, damageAmount, damageType)
     end
     
     create3DDamageGui(illusion.torso.Position, finalDamage, damageType, category)
+    
+    -- Statue of Torture ability trigger
+    if illusionName == "Statue of Torture" and not illusion.abilityActive then
+        if math.random() < illusion.data.abilityChance then
+            illusion.abilityActive = true
+            
+            -- Play ability sound
+            local abilitySound = Instance.new("Sound")
+            abilitySound.SoundId = "rbxassetid://129247666293361"
+            abilitySound.Volume = 0.6
+            abilitySound.Parent = illusion.torso
+            abilitySound:Play()
+            
+            -- Spawn beams
+            task.spawn(function()
+                for i = 1, 10 do
+                    -- Random position within 50 studs of player
+                    local randomOffset = Vector3.new(
+                        math.random(-50, 50),
+                        0,
+                        math.random(-50, 50)
+                    )
+                    local beamPosition = hrp.Position + randomOffset
+                    
+                    -- Create beam
+                    local beam = Instance.new("Part")
+                    beam.Size = Vector3.new(5, 100, 5)
+                    beam.Position = beamPosition + Vector3.new(0, 50, 0)
+                    beam.Anchored = true
+                    beam.CanCollide = false
+                    beam.BrickColor = BrickColor.new("Bright violet")
+                    beam.Material = Enum.Material.Neon
+                    beam.Transparency = 0.3
+                    beam.Parent = workspace
+                    
+                    -- Check if player is in beam
+                    local beamDistance = (Vector3.new(hrp.Position.X, 0, hrp.Position.Z) - Vector3.new(beamPosition.X, 0, beamPosition.Z)).Magnitude
+                    if beamDistance <= 5 then
+                        local beamDamage = math.random(30, 50)
+                        damagePlayer(beamDamage, "Purple")
+                    end
+                    
+                    -- Beam lasts 4 seconds then disappears for 1 second
+                    task.delay(4, function()
+                        beam.Transparency = 1
+                        task.delay(1, function()
+                            beam:Destroy()
+                        end)
+                    end)
+                    
+                    task.wait(0.5)
+                end
+                
+                illusion.abilityActive = false
+            end)
+        end
+    end
     
     if illusion.hp <= 0 then
         removeIllusion(illusionName)
