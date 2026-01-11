@@ -1334,7 +1334,9 @@ function spawnIllusion(name, data)
             
             -- Move towards player
             if distance > data.attackRange then
-                illusionHumanoid:MoveTo(hrp.Position)
+                if not (name == "Statue of Torture") then
+                    illusionHumanoid:MoveTo(hrp.Position)
+                end
                 
                 -- Scorcher leaves fire trail
                 if name == "Scorcher" then
@@ -1698,10 +1700,12 @@ local function damageIllusion(illusionName, damageAmount, damageType)
                     beam.Parent = workspace
                     
                     -- Check if player is in beam
-                    local beamDistance = (Vector3.new(hrp.Position.X, 0, hrp.Position.Z) - Vector3.new(beamPosition.X, 0, beamPosition.Z)).Magnitude
-                    if beamDistance <= 5 then
-                        local beamDamage = math.random(30, 50)
-                        damagePlayer(beamDamage, "Purple")
+                    if hrp and hrp.Parent then
+                        local beamDistance = (Vector3.new(hrp.Position.X, 0, hrp.Position.Z) - Vector3.new(beamPosition.X, 0, beamPosition.Z)).Magnitude
+                        if beamDistance <= 5 then
+                            local beamDamage = math.random(30, 50)
+                            damagePlayer(beamDamage, "Purple")
+                        end
                     end
                     
                     -- Beam lasts 4 seconds then disappears for 1 second
@@ -2118,12 +2122,6 @@ RunService.Heartbeat:Connect(function()
     
     local healthLossPercent = 1 - (playerStats.hp / playerStats.maxHp)
     local targetPure = playerStats.maxPure * (1 - healthLossPercent)
-    playerStats.pure = math.max(0, math.min(playerStats.maxPure, targetPure))
-end)
-
-print("Illusion Combat System Loaded!")
-print("Current Weapon: " .. playerStats.currentWeapon)
-print("Current Suit: " .. playerStats.currentSuit)    local targetPure = playerStats.maxPure * (1 - healthLossPercent)
     playerStats.pure = math.max(0, math.min(playerStats.maxPure, targetPure))
 end)
 
