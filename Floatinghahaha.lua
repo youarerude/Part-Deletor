@@ -140,7 +140,8 @@ local illusionData = {
         fogSize = 50,
         fogDamageMultiplier = 1,
         maxFogSize = 100,
-        maxFogMultiplier = 10
+        maxFogMultiplier = 10,
+        deathCount = 0
     },
     ["Big Wolf"] = {
         description = "A big wolf with a mirror on its back that reflects attacks.",
@@ -158,21 +159,6 @@ local illusionData = {
         reflectChance = 0.25,
         mirrorMode = false,
         mirrorTimer = 0
-    },
-    ["Disaster Wolf"] = {
-        description = "The legendary disaster wolf born from all four wolves.",
-        hp = 15000,
-        sp = 0,
-        pure = 0,
-        walkSpeed = 0,
-        attackRange = 0,
-        attackCooldown = 999,
-        damageReductions = {Red = 0.0, Blue = 0.0, Purple = 0.0, Black = 0.0},
-        damageType = "Black",
-        damageScale = {0, 0},
-        dangerClass = "ALEPH",
-        enabled = false,
-        canAttack = false
     }
 }
 
@@ -262,16 +248,10 @@ local playerBlinded = false
 local lookingAtSchadenfreude = false
 local schadenfreudeLoopSound = nil
 local mimicArtAbilityGui = nil
-local elkCityPortal = nil
-local disasterWolfEvent = {
-    active = false,
-    completed = false,
-    wolvesEntered = {},
-    dialogueGui = nil,
-    currentDialogue = "",
-    typingIndex = 0
-}
-local eggIllusions = {}
+local portalActive = false
+local portalEventTriggered = false
+local disasterWolfSpawned = false
+local dialogueGui = nil
 
 -- GUI Creation
 local screenGui = Instance.new("ScreenGui")
@@ -487,6 +467,14 @@ local function damagePlayer(damageAmount, damageType)
     if playerStats.hp <= 0 then
         humanoid.Health = 0
         print("You died!")
+        
+        -- Long Wolf fog enhancement on death
+        if activeIllusions["Long Wolf"] then
+            local illusion = activeIllusions["Long Wolf"]
+            illusion.deathCount = illusion.deathCount + 1
+            illusion.fogSize = math.min(illusion.fogSize + 5, illusion.maxFogSize)
+            illusion.fogDamageMultiplier = math.min(illusion.fogDamageMultiplier + 0.1, illusion.maxFogMultiplier)
+        end
     end
     
     -- Apply speed penalty if SP is 0
@@ -494,6 +482,308 @@ local function damagePlayer(damageAmount, damageType)
         humanoid.WalkSpeed = 8
     else
         humanoid.WalkSpeed = 16
+    end
+end
+
+-- Show Dialogue Function
+local function showDialogue(text)
+    if not dialogueGui then
+        dialogueGui = Instance.new("Frame")
+        dialogueGui.Size = UDim2.new(0, 800, 0, 100)
+        dialogueGui.Position = UDim2.new(0.5, -400, 1, -120)
+        dialogueGui.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+        dialogueGui.BorderSizePixel = 2
+        dialogueGui.Parent = screenGui
+        
+        local textLabel = Instance.new("TextLabel")
+        textLabel.Name = "DialogueText"
+        textLabel.Size = UDim2.new(1, -20, 1, -20)
+        textLabel.Position = UDim2.new(0, 10, 0, 10)
+        textLabel.BackgroundTransparency = 1
+        textLabel.Text = ""
+        textLabel.TextColor3 = Color3.new(1, 1, 1)
+        textLabel.Font = Enum.Font.Gotham
+        textLabel.TextSize = 20
+        textLabel.TextWrapped = true
+        textLabel.TextXAlignment = Enum.TextXAlignment.Left
+        textLabel.Parent = dialogueGui
+    end
+    
+    local textLabel = dialogueGui:FindFirstChild("DialogueText")
+    textLabel.Text = ""
+    
+    -- Type effect
+    task.spawn(function()
+        for i = 1, #text do
+            textLabel.Text = string.sub(text, 1, i)
+            task.wait(0.1)
+        end
+        task.wait(3)
+    end)
+end
+
+-- Check if all 4 wolves are spawned
+local function checkAllWolvesSpawned()
+    return activeIllusions["Small Wolf"] and 
+           activeIllusions["Wide Wolf"] and 
+           activeIllusions["Long Wolf"] and 
+           activeIllusions["Big Wolf"]
+end
+
+-- Spawn Portal
+local function spawnPortal()
+    if portalEventTriggered then return end
+    portalEventTriggered = true
+    portalActive = true
+    
+    -- Stop all wolves from attacking
+    for wolfName, _ in pairs(activeIllusions) do
+        if string.find(wolfName, "Wolf") then
+            local illusion = activeIllusions[wolfName]
+            if illusion then
+                illusion.goingToPortal = true
+            end
+        end
+    end
+    
+    -- Spawn portal at random direction
+    local angle = math.random() * math.pi * 2
+    local distance = math.random(50, 100)
+    local portalPos = hrp.Position + Vector3.new(math.cos(angle) * distance, 0, math.sin(angle) * distance)
+    
+    local portal = Instance.new("Part")
+    portal.Name = "ElkCityPortal"
+    portal.Size = Vector3.new(15, 20, 1)
+    portal.Position = portalPos
+    portal.Anchored = true
+    portal.CanCollide = false
+    portal.BrickColor = BrickColor.new("Bright violet")
+    portal.Material = Enum.Material.Neon
+    portal.Transparency = 0.3
+    portal.Parent = workspace
+    
+    -- Portal HP tracking
+    local portalData = {
+        hp = 7500,
+        maxHp = 7500,
+        model = portal,
+        wolvesEntered = {}
+    }
+    
+    activeIllusions["Portal"] = portalData
+    
+    showDialogue("Long ago, 4 wolf happily live in the elk city.")
+    
+    -- Check wolves entering portal
+    task.spawn(function()
+        while portalActive and portal.Parent do
+            for wolfName, illusion in pairs(activeIllusions) do
+                if string.find(wolfName, "Wolf") and not string.find(wolfName, "Disaster") then
+                    if illusion.goingToPortal and not portalData.wolvesEntered[wolfName] then
+                        if illusion.torso and (illusion.torso.Position - portal.Position).Magnitude <= 10 then
+                            portalData.wolvesEntered[wolfName] = true
+                            illusion.model:Destroy()
+                            activeIllusions[wolfName] = nil
+                            
+                            if wolfName == "Small Wolf" then
+                                showDialogue("Small Wolf's Claw and Teeth punishes those who sins.")
+                            elseif wolfName == "Wide Wolf" then
+                                showDialogue("Wide Wolf's Radio signal pulses occasionally detecting and guarding every animal's movement, caught those who sins.")
+                            elseif wolfName == "Long Wolf" then
+                                showDialogue("Long Wolf's Fog cures all past and future sins away from all animals, It is too late if the animal sins too much.")
+                            elseif wolfName == "Big Wolf" then
+                                showDialogue("Big Wolf's Mirror reflects all animal's past, present, and future sins.")
+                            end
+                        end
+                    end
+                end
+            end
+            
+            -- Check if all wolves entered
+            if portalData.wolvesEntered["Small Wolf"] and 
+               portalData.wolvesEntered["Wide Wolf"] and 
+               portalData.wolvesEntered["Long Wolf"] and 
+               portalData.wolvesEntered["Big Wolf"] and
+               not disasterWolfSpawned then
+                
+                showDialogue("Suddenly, a cry out from the Elk City far away occured :")
+                task.wait(4)
+                showDialogue("Its the beast! The big black Beast in the Dusky City!")
+                task.wait(4)
+                
+                spawnDisasterWolf(portalPos)
+            end
+            
+            task.wait(0.5)
+        end
+    end)
+end
+
+-- Spawn Disaster Wolf
+function spawnDisasterWolf(portalPos)
+    disasterWolfSpawned = true
+    
+    -- Play boss music
+    local bossMusic = Instance.new("Sound")
+    bossMusic.Name = "DisasterWolfMusic"
+    bossMusic.SoundId = "rbxassetid://107432939350823"
+    bossMusic.Volume = 0.5
+    bossMusic.Looped = true
+    bossMusic.Parent = workspace
+    bossMusic:Play()
+    
+    -- Create Disaster Wolf
+    local disasterModel = Instance.new("Model")
+    disasterModel.Name = "Disaster Wolf"
+    
+    local torso = Instance.new("Part")
+    torso.Name = "Torso"
+    torso.Size = Vector3.new(10, 10, 5)
+    torso.Position = portalPos + Vector3.new(0, 5, 20)
+    torso.Anchored = true
+    torso.CanCollide = false
+    torso.BrickColor = BrickColor.new("Really black")
+    torso.Parent = disasterModel
+    
+    disasterModel.Parent = workspace
+    
+    local disasterData = {
+        model = disasterModel,
+        torso = torso,
+        hp = 23000,
+        maxHp = 23000,
+        canAttack = false,
+        darkFogActive = false,
+        reflectActive = false,
+        lastAttack = 0,
+        eggsDead = 0
+    }
+    
+    activeIllusions["Disaster Wolf"] = disasterData
+    
+    -- Spawn eggs
+    spawnEgg("Small Claw", portalPos + Vector3.new(-15, 0, 0), {
+        hp = 7250,
+        reductions = {Red = -2, Blue = 0.4, Purple = 0.6, Black = 0.7},
+        ability = "attack"
+    })
+    
+    spawnEgg("Wide Eyes", portalPos + Vector3.new(15, 0, 0), {
+        hp = 5899,
+        reductions = {Red = 0.2, Blue = -2, Purple = 0.4, Black = 0.5},
+        ability = "pulse"
+    })
+    
+    spawnEgg("Long Body", portalPos + Vector3.new(0, 0, -15), {
+        hp = 6892,
+        reductions = {Red = 0.5, Blue = 0.4, Purple = -2, Black = 0.2},
+        ability = "fog"
+    })
+    
+    spawnEgg("Big Brain", portalPos + Vector3.new(0, 0, 15), {
+        hp = 8100,
+        reductions = {Red = 0.4, Blue = 0.4, Purple = 0.1, Black = -2},
+        ability = "reflect"
+    })
+    
+    -- Disaster Wolf AI
+    task.spawn(function()
+        while activeIllusions["Disaster Wolf"] and disasterData.hp > 0 do
+            local currentTime = tick()
+            
+            -- Attack every 4 seconds if Small Claw alive
+            if disasterData.canAttack and currentTime - disasterData.lastAttack >= 4 then
+                disasterData.lastAttack = currentTime
+                local damage = math.random(75, 100)
+                damagePlayer(damage, "Red")
+            end
+            
+            task.wait(0.1)
+        end
+        
+        if disasterData.hp <= 0 then
+            showDialogue("But there was nothing. There were no creatures, no sun and moon, and no beast. All that was left was just a wolf and the Elk City.")
+            disasterModel:Destroy()
+            if bossMusic then bossMusic:Stop() bossMusic:Destroy() end
+        end
+    end)
+end
+
+-- Spawn Egg
+function spawnEgg(name, position, data)
+    local egg = Instance.new("Part")
+    egg.Name = name
+    egg.Size = Vector3.new(3, 4, 3)
+    egg.Shape = Enum.PartType.Ball
+    egg.Position = position
+    egg.Anchored = true
+    egg.CanCollide = false
+    egg.BrickColor = BrickColor.new("White")
+    egg.Parent = workspace
+    
+    local eggData = {
+        model = egg,
+        hp = data.hp,
+        maxHp = data.hp,
+        reductions = data.reductions,
+        ability = data.ability,
+        pulseTimer = 0,
+        reflectTimer = 0
+    }
+    
+    activeIllusions[name] = eggData
+    
+    -- Egg abilities
+    if data.ability == "attack" then
+        activeIllusions["Disaster Wolf"].canAttack = true
+    elseif data.ability == "pulse" then
+        task.spawn(function()
+            while activeIllusions[name] do
+                eggData.pulseTimer = eggData.pulseTimer + 0.1
+                if eggData.pulseTimer >= 10 then
+                    eggData.pulseTimer = 0
+                    local damage = math.random(45, 80)
+                    damagePlayer(damage, "Blue")
+                    
+                    -- Teleport player
+                    if activeIllusions["Disaster Wolf"] then
+                        hrp.CFrame = CFrame.new(activeIllusions["Disaster Wolf"].torso.Position + Vector3.new(math.random(-20, 20), 0, math.random(-20, 20)))
+                    end
+                end
+                task.wait(0.1)
+            end
+        end)
+    elseif data.ability == "fog" then
+        activeIllusions["Disaster Wolf"].darkFogActive = true
+        
+        -- Create dark fog around all eggs and disaster wolf
+        local fog = Instance.new("Part")
+        fog.Name = "DarkFog"
+        fog.Size = Vector3.new(100, 100, 100)
+        fog.Shape = Enum.PartType.Ball
+        fog.Position = position
+        fog.Anchored = true
+        fog.CanCollide = false
+        fog.Transparency = 0.7
+        fog.BrickColor = BrickColor.new("Really black")
+        fog.Material = Enum.Material.Neon
+        fog.Parent = workspace
+        
+        eggData.fog = fog
+    elseif data.ability == "reflect" then
+        task.spawn(function()
+            while activeIllusions[name] do
+                if math.random() < 0.13 then
+                    local damage = math.random(50, 75)
+                    damagePlayer(damage, "Black")
+                    
+                    activeIllusions["Disaster Wolf"].reflectActive = true
+                    task.wait(10)
+                    activeIllusions["Disaster Wolf"].reflectActive = false
+                end
+                task.wait(1)
+            end
+        end)
     end
 end
 
@@ -761,144 +1051,6 @@ weaponButton.MouseButton1Click:Connect(function()
     illusionMenu.Visible = false
     suitMenu.Visible = false
 end)
-
--- Create Dialogue GUI for Disaster Wolf Event
-local function createDialogueGui()
-    if disasterWolfEvent.dialogueGui then return end
-    
-    local dialogueFrame = Instance.new("Frame")
-    dialogueFrame.Size = UDim2.new(0.8, 0, 0, 100)
-    dialogueFrame.Position = UDim2.new(0.1, 0, 1, -120)
-    dialogueFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-    dialogueFrame.BorderSizePixel = 2
-    dialogueFrame.BorderColor3 = Color3.fromRGB(255, 255, 255)
-    dialogueFrame.Parent = screenGui
-    
-    local dialogueLabel = Instance.new("TextLabel")
-    dialogueLabel.Name = "DialogueText"
-    dialogueLabel.Size = UDim2.new(1, -20, 1, -20)
-    dialogueLabel.Position = UDim2.new(0, 10, 0, 10)
-    dialogueLabel.BackgroundTransparency = 1
-    dialogueLabel.Text = ""
-    dialogueLabel.TextColor3 = Color3.new(1, 1, 1)
-    dialogueLabel.TextScaled = false
-    dialogueLabel.TextSize = 20
-    dialogueLabel.Font = Enum.Font.Gotham
-    dialogueLabel.TextWrapped = true
-    dialogueLabel.TextXAlignment = Enum.TextXAlignment.Left
-    dialogueLabel.TextYAlignment = Enum.TextYAlignment.Top
-    dialogueLabel.Parent = dialogueFrame
-    
-    disasterWolfEvent.dialogueGui = dialogueFrame
-end
-
--- Show Dialogue with Typing Animation
-local function showDialogue(text)
-    if not disasterWolfEvent.dialogueGui then
-        createDialogueGui()
-    end
-    
-    local dialogueLabel = disasterWolfEvent.dialogueGui:FindFirstChild("DialogueText")
-    if not dialogueLabel then return end
-    
-    disasterWolfEvent.currentDialogue = text
-    disasterWolfEvent.typingIndex = 0
-    dialogueLabel.Text = ""
-    
-    task.spawn(function()
-        for i = 1, #text do
-            if disasterWolfEvent.currentDialogue ~= text then break end
-            dialogueLabel.Text = string.sub(text, 1, i)
-            task.wait(0.1)
-        end
-        task.wait(3)
-        if disasterWolfEvent.currentDialogue == text then
-            dialogueLabel.Text = ""
-        end
-    end)
-end
-
--- Check if all 4 wolves are spawned
-local function checkForDisasterWolfEvent()
-    if disasterWolfEvent.completed then return end
-    
-    local wolvesActive = {
-        ["Small Wolf"] = activeIllusions["Small Wolf"] ~= nil,
-        ["Wide Wolf"] = activeIllusions["Wide Wolf"] ~= nil,
-        ["Long Wolf"] = activeIllusions["Long Wolf"] ~= nil,
-        ["Big Wolf"] = activeIllusions["Big Wolf"] ~= nil
-    }
-    
-    local allActive = wolvesActive["Small Wolf"] and wolvesActive["Wide Wolf"] and 
-                     wolvesActive["Long Wolf"] and wolvesActive["Big Wolf"]
-    
-    if allActive and not disasterWolfEvent.active then
-        disasterWolfEvent.active = true
-        spawnElkCityPortal()
-    end
-end
-
--- Spawn Elk City Portal
-function spawnElkCityPortal()
-    if elkCityPortal then return end
-    
-    local angle = math.random() * math.pi * 2
-    local distance = math.random(50, 100)
-    local portalPos = hrp.Position + Vector3.new(
-        math.cos(angle) * distance,
-        0,
-        math.sin(angle) * distance
-    )
-    
-    local portal = Instance.new("Part")
-    portal.Name = "ElkCityPortal"
-    portal.Size = Vector3.new(10, 15, 1)
-    portal.Position = portalPos
-    portal.Anchored = true
-    portal.CanCollide = false
-    portal.BrickColor = BrickColor.new("Bright violet")
-    portal.Material = Enum.Material.Neon
-    portal.Parent = workspace
-    
-    elkCityPortal = {
-        part = portal,
-        hp = 7500,
-        maxHp = 7500
-    }
-    
-    -- Create HP bar for portal
-    local billboardGui = Instance.new("BillboardGui")
-    billboardGui.Size = UDim2.new(0, 200, 0, 30)
-    billboardGui.Adornee = portal
-    billboardGui.AlwaysOnTop = true
-    billboardGui.Parent = portal
-    
-    local hpBarBg = Instance.new("Frame")
-    hpBarBg.Size = UDim2.new(1, 0, 1, 0)
-    hpBarBg.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-    hpBarBg.BorderSizePixel = 0
-    hpBarBg.Parent = billboardGui
-    
-    local hpBar = Instance.new("Frame")
-    hpBar.Name = "HPBar"
-    hpBar.Size = UDim2.new(1, 0, 1, 0)
-    hpBar.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
-    hpBar.BorderSizePixel = 0
-    hpBar.Parent = hpBarBg
-    
-    elkCityPortal.hpBar = hpBar
-    
-    showDialogue("Long ago, 4 wolf happily live in the elk city.")
-    
-    -- Make all wolves move to portal
-    for wolfName, illusion in pairs(activeIllusions) do
-        if wolfName == "Small Wolf" or wolfName == "Wide Wolf" or 
-           wolfName == "Long Wolf" or wolfName == "Big Wolf" then
-            illusion.movingToPortal = true
-            illusion.stoppedAttacking = true
-        end
-    end
-end
 
 -- Spawn Illusion Function
 function spawnIllusion(name, data)
@@ -1424,8 +1576,8 @@ function spawnIllusion(name, data)
                         
                         -- Check if player died in fog
                         if playerStats.hp <= 0 then
-                            illusion.fogSize = math.min(illusion.fogSize + 5, data.maxFogSize or 100)
-                            illusion.fogDamageMultiplier = math.min(illusion.fogDamageMultiplier + 0.1, data.maxFogMultiplier or 10)
+                            illusion.fogSize = math.min(illusion.fogSize + 5, illusion.maxFogSize)
+                            illusion.fogDamageMultiplier = math.min(illusion.fogDamageMultiplier + 0.1, illusion.maxFogMultiplier)
                         end
                     else
                         illusion.inFog = false
@@ -1672,50 +1824,14 @@ function spawnIllusion(name, data)
             
             -- Move towards player
             if distance > data.attackRange then
-                -- Check if moving to portal
-                if illusion.movingToPortal and elkCityPortal then
-                    illusionHumanoid:MoveTo(elkCityPortal.part.Position)
-                    
-                    -- Check if reached portal
-                    if (torso.Position - elkCityPortal.part.Position).Magnitude <= 5 then
-                        -- Wolf enters portal
-                        if not disasterWolfEvent.wolvesEntered[name] then
-                            disasterWolfEvent.wolvesEntered[name] = true
-                            
-                            if name == "Small Wolf" then
-                                showDialogue("Small Wolf's Claw and Teeth punishes those who sins.")
-                            elseif name == "Wide Wolf" then
-                                showDialogue("Wide Wolf's Radio signal pulses occasionally detecting and guarding every animal's movement, caught those who sins.")
-                            elseif name == "Long Wolf" then
-                                showDialogue("Long Wolf's Fog cures all past and future sins away from all animals, It is too late if the animal sins too much.")
-                            elseif name == "Big Wolf" then
-                                showDialogue("Big Wolf's Mirror reflects all animal's past, present, and future sins.")
-                            end
-                            
-                            -- Hide wolf
-                            illusionModel.Parent = nil
-                            
-                            -- Check if all wolves entered
-                            local allEntered = disasterWolfEvent.wolvesEntered["Small Wolf"] and
-                                             disasterWolfEvent.wolvesEntered["Wide Wolf"] and
-                                             disasterWolfEvent.wolvesEntered["Long Wolf"] and
-                                             disasterWolfEvent.wolvesEntered["Big Wolf"]
-                            
-                            if allEntered then
-                                task.wait(3)
-                                showDialogue("Suddenly, a cry out from the Elk City far away occured :")
-                                task.wait(6)
-                                showDialogue("Its the beast! The big black Beast in the Dusky City!")
-                                task.wait(6)
-                                spawnDisasterWolf()
-                            end
-                        end
+                -- Check if wolf should go to portal
+                if illusion.goingToPortal and activeIllusions["Portal"] then
+                    local portal = activeIllusions["Portal"].model
+                    if portal then
+                        illusionHumanoid:MoveTo(portal.Position)
                     end
                 else
-                    -- Normal movement
-                    if not illusion.stoppedAttacking then
-                        illusionHumanoid:MoveTo(hrp.Position)
-                    end
+                    illusionHumanoid:MoveTo(hrp.Position)
                 end
                 
                 -- Scorcher leaves fire trail
@@ -1789,7 +1905,7 @@ function spawnIllusion(name, data)
             else
                 -- Attack player
                 local currentTime = tick()
-                if currentTime - illusion.lastAttack >= data.attackCooldown and not illusion.stoppedAttacking then
+                if currentTime - illusion.lastAttack >= data.attackCooldown then
                     illusion.lastAttack = currentTime
                     
                     -- Mimicry Phase 2 special attacks
@@ -1996,320 +2112,8 @@ function spawnIllusion(name, data)
     end)
 end
 
--- Spawn Disaster Wolf and Eggs
-function spawnDisasterWolf()
-    -- Spawn Disaster Wolf at portal location
-    local disasterPos = elkCityPortal.part.Position
-    
-    local disasterModel = Instance.new("Model")
-    disasterModel.Name = "Disaster Wolf"
-    
-    local torso = Instance.new("Part")
-    torso.Name = "Torso"
-    torso.Size = Vector3.new(10, 10, 5)
-    torso.Position = disasterPos
-    torso.Anchored = true
-    torso.CanCollide = true
-    torso.BrickColor = BrickColor.new("Really black")
-    torso.Material = Enum.Material.Neon
-    torso.Parent = disasterModel
-    
-    local head = Instance.new("Part")
-    head.Name = "Head"
-    head.Size = Vector3.new(10, 5, 5)
-    head.Position = torso.Position + Vector3.new(0, 7.5, 0)
-    head.Anchored = true
-    head.CanCollide = true
-    head.BrickColor = BrickColor.new("Really black")
-    head.Material = Enum.Material.Neon
-    head.Parent = disasterModel
-    
-    disasterModel.Parent = workspace
-    
-    local disasterHumanoid = Instance.new("Humanoid")
-    disasterHumanoid.MaxHealth = 15000
-    disasterHumanoid.Health = 15000
-    disasterHumanoid.WalkSpeed = 0
-    disasterHumanoid.Parent = disasterModel
-    
-    -- Create HP bar
-    local billboardGui = Instance.new("BillboardGui")
-    billboardGui.Size = UDim2.new(0, 400, 0, 40)
-    billboardGui.Adornee = head
-    billboardGui.AlwaysOnTop = true
-    billboardGui.Parent = head
-    
-    local hpBarBg = Instance.new("Frame")
-    hpBarBg.Size = UDim2.new(1, 0, 1, 0)
-    hpBarBg.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-    hpBarBg.BorderSizePixel = 0
-    hpBarBg.Parent = billboardGui
-    
-    local hpBar = Instance.new("Frame")
-    hpBar.Name = "HPBar"
-    hpBar.Size = UDim2.new(1, 0, 1, 0)
-    hpBar.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
-    hpBar.BorderSizePixel = 0
-    hpBar.Parent = hpBarBg
-    
-    activeIllusions["Disaster Wolf"] = {
-        model = disasterModel,
-        humanoid = disasterHumanoid,
-        torso = torso,
-        head = head,
-        data = illusionData["Disaster Wolf"],
-        hp = 15000,
-        maxHp = 15000,
-        hpBar = hpBar,
-        canAttack = false
-    }
-    
-    -- Spawn 4 eggs around Disaster Wolf
-    local eggNames = {"Small Claw", "Wide Eyes", "Long Body", "Big Brain"}
-    local eggPositions = {
-        Vector3.new(15, 0, 0),
-        Vector3.new(-15, 0, 0),
-        Vector3.new(0, 0, 15),
-        Vector3.new(0, 0, -15)
-    }
-    
-    for i, eggName in ipairs(eggNames) do
-        spawnEgg(eggName, disasterPos + eggPositions[i])
-    end
-end
-
--- Spawn Individual Egg
-function spawnEgg(eggName, position)
-    local eggModel = Instance.new("Model")
-    eggModel.Name = eggName
-    
-    local eggPart = Instance.new("Part")
-    eggPart.Name = "Egg"
-    eggPart.Size = Vector3.new(4, 6, 4)
-    eggPart.Shape = Enum.PartType.Ball
-    eggPart.Position = position
-    eggPart.Anchored = true
-    eggPart.CanCollide = true
-    eggPart.Parent = eggModel
-    
-    if eggName == "Small Claw" then
-        eggPart.BrickColor = BrickColor.new("Brown")
-    elseif eggName == "Wide Eyes" then
-        eggPart.BrickColor = BrickColor.new("Light blue")
-    elseif eggName == "Long Body" then
-        eggPart.BrickColor = BrickColor.new("Dark stone grey")
-    elseif eggName == "Big Brain" then
-        eggPart.BrickColor = BrickColor.new("Black")
-    end
-    
-    eggModel.Parent = workspace
-    
-    local eggHumanoid = Instance.new("Humanoid")
-    eggHumanoid.MaxHealth = 2000
-    eggHumanoid.Health = 2000
-    eggHumanoid.Parent = eggModel
-    
-    -- Create HP bar
-    local billboardGui = Instance.new("BillboardGui")
-    billboardGui.Size = UDim2.new(0, 200, 0, 30)
-    billboardGui.Adornee = eggPart
-    billboardGui.AlwaysOnTop = true
-    billboardGui.Parent = eggPart
-    
-    local hpBarBg = Instance.new("Frame")
-    hpBarBg.Size = UDim2.new(1, 0, 1, 0)
-    hpBarBg.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-    hpBarBg.BorderSizePixel = 0
-    hpBarBg.Parent = billboardGui
-    
-    local hpBar = Instance.new("Frame")
-    hpBar.Name = "HPBar"
-    hpBar.Size = UDim2.new(1, 0, 1, 0)
-    hpBar.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
-    hpBar.BorderSizePixel = 0
-    hpBar.Parent = hpBarBg
-    
-    -- Create dark fog for Long Body
-    local fog = nil
-    if eggName == "Long Body" then
-        fog = Instance.new("Part")
-        fog.Name = "Fog"
-        fog.Size = Vector3.new(50, 50, 50)
-        fog.Shape = Enum.PartType.Ball
-        fog.Position = position
-        fog.Anchored = true
-        fog.CanCollide = false
-        fog.Transparency = 0.7
-        fog.BrickColor = BrickColor.new("Really black")
-        fog.Material = Enum.Material.Neon
-        fog.Parent = eggModel
-    end
-    
-    eggIllusions[eggName] = {
-        model = eggModel,
-        humanoid = eggHumanoid,
-        part = eggPart,
-        hp = 2000,
-        maxHp = 2000,
-        hpBar = hpBar,
-        fog = fog,
-        lastAbility = 0
-    }
-    
-    -- Egg abilities
-    task.spawn(function()
-        while eggIllusions[eggName] and eggIllusions[eggName].hp > 0 do
-            local currentTime = tick()
-            
-            if eggName == "Small Claw" then
-                -- Enable Disaster Wolf attack
-                if activeIllusions["Disaster Wolf"] then
-                    activeIllusions["Disaster Wolf"].canAttack = true
-                end
-                
-            elseif eggName == "Wide Eyes" then
-                -- Damage and teleport every 10 seconds
-                if currentTime - eggIllusions[eggName].lastAbility >= 10 then
-                    eggIllusions[eggName].lastAbility = currentTime
-                    
-                    local damage = math.random(45, 80)
-                    damagePlayer(damage, "Blue")
-                    
-                    -- Teleport near Disaster Wolf
-                    if activeIllusions["Disaster Wolf"] then
-                        local disasterPos = activeIllusions["Disaster Wolf"].torso.Position
-                        local angle = math.random() * math.pi * 2
-                        local newPos = disasterPos + Vector3.new(math.cos(angle) * 20, 0, math.sin(angle) * 20)
-                        eggPart.Position = newPos
-                        if fog then fog.Position = newPos end
-                    end
-                end
-                
-            elseif eggName == "Long Body" then
-                -- Protect with fog
-                if fog then
-                    -- Check if player or eggs in fog
-                    for name, egg in pairs(eggIllusions) do
-                        if egg.part and (egg.part.Position - fog.Position).Magnitude <= 25 then
-                            -- Eggs are protected
-                        end
-                    end
-                    
-                    if (hrp.Position - fog.Position).Magnitude <= 25 then
-                        if not eggIllusions[eggName].playerInFog then
-                            eggIllusions[eggName].playerInFog = true
-                            task.spawn(function()
-                                while eggIllusions[eggName] and eggIllusions[eggName].playerInFog do
-                                    damagePlayer(math.random(7, 10), "Purple")
-                                    task.wait(0.5)
-                                    
-                                    if (hrp.Position - fog.Position).Magnitude > 25 then
-                                        eggIllusions[eggName].playerInFog = false
-                                    end
-                                end
-                            end)
-                        end
-                    else
-                        eggIllusions[eggName].playerInFog = false
-                    end
-                end
-                
-            elseif eggName == "Big Brain" then
-                -- 13% chance to damage and reflect
-                if math.random() < 0.13 and currentTime - eggIllusions[eggName].lastAbility >= 1 then
-                    eggIllusions[eggName].lastAbility = currentTime
-                    
-                    local damage = math.random(50, 75)
-                    damagePlayer(damage, "Black")
-                    
-                    -- Activate reflect for 10 seconds
-                    eggIllusions[eggName].reflecting = true
-                    task.delay(10, function()
-                        if eggIllusions[eggName] then
-                            eggIllusions[eggName].reflecting = false
-                        end
-                    end)
-                end
-            end
-            
-            task.wait(0.1)
-        end
-    end)
-end
-
--- Damage Egg
-local function damageEgg(eggName, damageAmount)
-    local egg = eggIllusions[eggName]
-    if not egg then return end
-    
-    -- Big Brain reflect
-    if eggName == "Big Brain" and egg.reflecting then
-        damagePlayer(damageAmount, "Black")
-        return
-    end
-    
-    -- Long Body fog protection
-    if egg.fog then
-        local inFog = false
-        for name, otherEgg in pairs(eggIllusions) do
-            if otherEgg.part and (otherEgg.part.Position - egg.fog.Position).Magnitude <= 25 then
-                -- Reduce damage for eggs in fog
-                if name == eggName then
-                    damageAmount = damageAmount * 0.5
-                end
-            end
-        end
-    end
-    
-    egg.hp = math.max(0, egg.hp - damageAmount)
-    
-    local hpPercent = egg.hp / egg.maxHp
-    egg.hpBar.Size = UDim2.new(hpPercent, 0, 1, 0)
-    
-    create3DDamageGui(egg.part.Position, damageAmount, "Red", getDamageCategory(damageAmount))
-    
-    if egg.hp <= 0 then
-        removeEgg(eggName)
-    end
-end
-
--- Remove Egg
-function removeEgg(eggName)
-    if eggIllusions[eggName] then
-        if eggIllusions[eggName].model then
-            eggIllusions[eggName].model:Destroy()
-        end
-        eggIllusions[eggName] = nil
-        
-        -- Show death dialogue
-        if eggName == "Small Claw" then
-            showDialogue("Small Wolf's Claw has been cutted and Its teeth now straighten before, when it was sharp.")
-            if activeIllusions["Disaster Wolf"] then
-                activeIllusions["Disaster Wolf"].canAttack = false
-            end
-        elseif eggName == "Wide Eyes" then
-            showDialogue("Wide Wolf's Signal were interrupted and cut off.")
-        elseif eggName == "Long Body" then
-            showDialogue("Long Wolf's Dark Fog were shined away by the sun.")
-        elseif eggName == "Big Brain" then
-            showDialogue("Big Wolf's Mirror were shattered.")
-        end
-        
-        -- Check if all eggs destroyed
-        local allDestroyed = true
-        for name, egg in pairs(eggIllusions) do
-            if egg then
-                allDestroyed = false
-                break
-            end
-        end
-        
-        if allDestroyed and activeIllusions["Disaster Wolf"] then
-            -- Disaster Wolf can now be damaged
-            activeIllusions["Disaster Wolf"].data.damageReductions = {Red = 0.3, Blue = 0.3, Purple = 0.3, Black = 0.3}
-        end
-    end
-end
+-- Remove Illusion
+function removeIllusion(name)
     if activeIllusions[name] then
         local illusion = activeIllusions[name]
         if illusion.model then
@@ -2328,17 +2132,91 @@ local function damageIllusion(illusionName, damageAmount, damageType)
     local illusion = activeIllusions[illusionName]
     if not illusion then return end
     
-    -- Disaster Wolf is immune until all eggs destroyed
-    if illusionName == "Disaster Wolf" then
-        local anyEggsAlive = false
-        for name, egg in pairs(eggIllusions) do
-            if egg then
-                anyEggsAlive = true
-                break
+    -- Portal damage
+    if illusionName == "Portal" then
+        illusion.hp = math.max(0, illusion.hp - damageAmount)
+        
+        if illusion.hp <= 0 then
+            portalActive = false
+            illusion.model:Destroy()
+            activeIllusions["Portal"] = nil
+            
+            -- Respawn all wolves
+            if not activeIllusions["Small Wolf"] then
+                illusionData["Small Wolf"].enabled = true
+                spawnIllusion("Small Wolf", illusionData["Small Wolf"])
+            end
+            if not activeIllusions["Wide Wolf"] then
+                illusionData["Wide Wolf"].enabled = true
+                spawnIllusion("Wide Wolf", illusionData["Wide Wolf"])
+            end
+            if not activeIllusions["Long Wolf"] then
+                illusionData["Long Wolf"].enabled = true
+                spawnIllusion("Long Wolf", illusionData["Long Wolf"])
+            end
+            if not activeIllusions["Big Wolf"] then
+                illusionData["Big Wolf"].enabled = true
+                spawnIllusion("Big Wolf", illusionData["Big Wolf"])
             end
         end
+        return
+    end
+    
+    -- Egg damage
+    if illusionName == "Small Claw" or illusionName == "Wide Eyes" or illusionName == "Long Body" or illusionName == "Big Brain" then
+        local reduction = illusion.reductions[damageType] or 1
+        local finalDamage = damageAmount * reduction
         
-        if anyEggsAlive then
+        illusion.hp = math.max(0, illusion.hp - finalDamage)
+        
+        local category = getDamageCategory(finalDamage)
+        create3DDamageGui(illusion.model.Position, finalDamage, damageType, category)
+        
+        if illusion.hp <= 0 then
+            -- Damage Disaster Wolf
+            if activeIllusions["Disaster Wolf"] then
+                activeIllusions["Disaster Wolf"].hp = math.max(0, activeIllusions["Disaster Wolf"].hp - 5750)
+                activeIllusions["Disaster Wolf"].eggsDead = activeIllusions["Disaster Wolf"].eggsDead + 1
+                create3DDamageGui(activeIllusions["Disaster Wolf"].torso.Position, 5750, "Red", "POWERFUL")
+            end
+            
+            -- Show dialogue
+            if illusionName == "Small Claw" then
+                showDialogue("Small Wolf's Claw has been cutted and Its teeth now straighten before, when it was sharp.")
+                if activeIllusions["Disaster Wolf"] then
+                    activeIllusions["Disaster Wolf"].canAttack = false
+                end
+            elseif illusionName == "Wide Eyes" then
+                showDialogue("Wide Wolf's Signal were interrupted and cut off.")
+            elseif illusionName == "Long Body" then
+                showDialogue("Long Wolf's Dark Fog were shined away by the sun.")
+                if illusion.fog then
+                    illusion.fog:Destroy()
+                end
+                if activeIllusions["Disaster Wolf"] then
+                    activeIllusions["Disaster Wolf"].darkFogActive = false
+                end
+            elseif illusionName == "Big Brain" then
+                showDialogue("Big Wolf's Mirror were shattered.")
+                if activeIllusions["Disaster Wolf"] then
+                    activeIllusions["Disaster Wolf"].reflectActive = false
+                end
+            end
+            
+            illusion.model:Destroy()
+            activeIllusions[illusionName] = nil
+        end
+        return
+    end
+    
+    -- Disaster Wolf damage (with reflect)
+    if illusionName == "Disaster Wolf" then
+        if illusion.reflectActive then
+            damagePlayer(damageAmount, damageType)
+            create3DDamageGui(illusion.torso.Position, 0, damageType, "IMMUNE")
+            return
+        else
+            -- Immune to all damage types
             create3DDamageGui(illusion.torso.Position, 0, damageType, "IMMUNE")
             return
         end
@@ -2391,18 +2269,14 @@ local function damageIllusion(illusionName, damageAmount, damageType)
     end
     
     local hpPercent = illusion.hp / illusion.maxHp
-    local spPercent = illusion.sp and illusion.sp / illusion.maxSp or 1
-    local purePercent = illusion.pure and illusion.pure / illusion.maxPure or 1
+    local spPercent = illusion.sp / illusion.maxSp
+    local purePercent = illusion.pure / illusion.maxPure
     
     illusion.hpBar.Size = UDim2.new(hpPercent, 0, 1, 0)
-    if illusion.spBar then
-        illusion.spBar.Size = UDim2.new(spPercent, 0, 1, 0)
-    end
-    if illusion.pureBar then
-        illusion.pureBar.Size = UDim2.new(purePercent, 0, 1, 0)
-    end
+    illusion.spBar.Size = UDim2.new(spPercent, 0, 1, 0)
+    illusion.pureBar.Size = UDim2.new(purePercent, 0, 1, 0)
     
-    if hpPercent < 1 and illusion.billboardGui then
+    if hpPercent < 1 then
         illusion.billboardGui.Enabled = true
     end
     
@@ -2658,49 +2532,6 @@ local function createWeaponTool(weaponName)
                 end
             end
             
-            -- Check for egg hits
-            for eggName, egg in pairs(eggIllusions) do
-                if egg.part then
-                    local distance = (egg.part.Position - hitPosition).Magnitude
-                    if distance <= 10 then
-                        local damage = math.random(weaponInfo.damageScale[1], weaponInfo.damageScale[2]) * getPureMultiplier()
-                        damageEgg(eggName, damage)
-                        hitSomething = true
-                    end
-                end
-            end
-            
-            -- Check for portal hit
-            if elkCityPortal and elkCityPortal.part then
-                local distance = (elkCityPortal.part.Position - hitPosition).Magnitude
-                if distance <= 10 then
-                    local damage = math.random(weaponInfo.damageScale[1], weaponInfo.damageScale[2]) * getPureMultiplier()
-                    elkCityPortal.hp = math.max(0, elkCityPortal.hp - damage)
-                    
-                    local hpPercent = elkCityPortal.hp / elkCityPortal.maxHp
-                    elkCityPortal.hpBar.Size = UDim2.new(hpPercent, 0, 1, 0)
-                    
-                    create3DDamageGui(elkCityPortal.part.Position, damage, weaponInfo.damageType, getDamageCategory(damage))
-                    hitSomething = true
-                    
-                    -- Portal destroyed
-                    if elkCityPortal.hp <= 0 then
-                        elkCityPortal.part:Destroy()
-                        elkCityPortal = nil
-                        
-                        -- All wolves return to attacking
-                        for wolfName, illusion in pairs(activeIllusions) do
-                            if wolfName == "Small Wolf" or wolfName == "Wide Wolf" or 
-                               wolfName == "Long Wolf" or wolfName == "Big Wolf" then
-                                illusion.movingToPortal = false
-                                illusion.stoppedAttacking = false
-                                illusion.model.Parent = workspace
-                            end
-                        end
-                    end
-                end
-            end
-            
             if hitSomething and weaponInfo.hitSound then
                 local hitSound = Instance.new("Sound")
                 hitSound.SoundId = weaponInfo.hitSound
@@ -2851,8 +2682,10 @@ RunService.Heartbeat:Connect(function()
     local targetPure = playerStats.maxPure * (1 - healthLossPercent)
     playerStats.pure = math.max(0, math.min(playerStats.maxPure, targetPure))
     
-    -- Check for disaster wolf event
-    checkForDisasterWolfEvent()
+    -- Check if all wolves are spawned for portal event
+    if not portalEventTriggered and checkAllWolvesSpawned() then
+        spawnPortal()
+    end
 end)
 
 print("Illusion Combat System Loaded!")
