@@ -226,7 +226,7 @@ local suitData = {
         enabled = false,
         reflectChance = 0.5,
         absorbRedBlueChance = 0.2,
-        lowHpMode = false
+        lowHpBoost = false
     }
 }
 
@@ -277,8 +277,8 @@ local weaponData = {
         dashSpeed = 15,
         dashDuration = 1
     },
-    ["Cerberus"] = {
-        damageType = "All",
+    Cerberus = {
+        damageTypes = {"Red", "Blue", "Purple", "Black"},
         damageScale = {50, 125},
         cooldown = 5,
         dangerClass = "LAMMED",
@@ -286,10 +286,10 @@ local weaponData = {
         special = true,
         hitboxRange = 20,
         abilities = {
-            smallClaw = {cooldown = 15, ready = true},
-            wideEyes = {cooldown = 30, ready = true},
-            longBody = {cooldown = 120, ready = true, active = false, timer = 0},
-            bigBrain = {cooldown = 60, ready = true}
+            smallClaw = {ready = true, cooldown = 15},
+            wideEyes = {ready = true, cooldown = 30},
+            longBody = {ready = true, cooldown = 120},
+            bigBrain = {ready = true, cooldown = 60}
         }
     }
 }
@@ -302,8 +302,9 @@ local lookingAtSchadenfreude = false
 local schadenfreudeLoopSound = nil
 local mimicArtAbilityGui = nil
 local cerberusAbilityGuis = {}
-local playerShadowFog = nil
 local playerTroops = {}
+local cerberusFog = nil
+local cerberusFogActive = false
 
 -- GUI Creation
 local screenGui = Instance.new("ScreenGui")
@@ -388,42 +389,7 @@ local function showDialogue(text)
         else
             dialogueFrame.Visible = false
         end
-        -- Update player shadow fog
-    if playerShadowFog and playerStats.currentSuit == "Cerberus Suit" and suitData["Cerberus Suit"].lowHpMode then
-        playerShadowFog.Position = hrp.Position
-    end
-    
-    -- Update Cerberus Long Body ability fog
-    if weaponData["Cerberus"] and weaponData["Cerberus"].abilities.longBody.active then
-        weaponData["Cerberus"].abilities.longBody.timer = weaponData["Cerberus"].abilities.longBody.timer + (1/60)
-        
-        if weaponData["Cerberus"].abilities.longBody.timer >= 60 then
-            weaponData["Cerberus"].abilities.longBody.active = false
-            weaponData["Cerberus"].abilities.longBody.timer = 0
-            if workspace:FindFirstChild("CerberusLongBodyFog") then
-                workspace.CerberusLongBodyFog:Destroy()
-            end
-        else
-            local fog = workspace:FindFirstChild("CerberusLongBodyFog")
-            if fog then
-                fog.Position = hrp.Position
-                
-                -- Damage illusions in fog
-                for name, illusion in pairs(activeIllusions) do
-                    if illusion.torso then
-                        local distance = (illusion.torso.Position - fog.Position).Magnitude
-                        if distance <= 25 then
-                            if math.random() < 0.008 then
-                                local damage = math.random(20, 50)
-                                damageIllusion(name, damage, "Purple")
-                            end
-                        end
-                    end
-                end
-            end
-        end
-    end
-end)
+    end)
 end
 
 -- Function to queue dialogue
@@ -450,22 +416,14 @@ local function updateBars()
     pureLabel.Text = string.format("PURE: %.0f/%.0f", playerStats.pure, playerStats.maxPure)
 end
 
--- Get Damage Multiplier from Pure (with Cerberus Suit bonus)
+-- Get Damage Multiplier from Pure
 local function getPureMultiplier()
     local purePercent = playerStats.pure / playerStats.maxPure
-    local baseMultiplier
     if purePercent <= 0 then
-        baseMultiplier = 11
+        return 11
     else
-        baseMultiplier = 1 + (1 - purePercent) * 10
+        return 1 + (1 - purePercent) * 10
     end
-    
-    -- Cerberus Suit low HP mode: 5x damage
-    if playerStats.currentSuit == "Cerberus Suit" and suitData["Cerberus Suit"].lowHpMode then
-        return baseMultiplier * 5
-    end
-    
-    return baseMultiplier
 end
 
 -- Get Damage Category
@@ -560,17 +518,37 @@ local function damagePlayer(damageAmount, damageType)
     local reduction = 1
     
     if currentSuit and suitData[currentSuit] then
-        -- Cerberus Suit special
+        -- Cerberus Suit special mechanics
         if currentSuit == "Cerberus Suit" then
+            -- 50% chance to reflect
+            if math.random() < suitData[currentSuit].reflectChance then
+                -- Reflect damage back (handled in damageIllusion function)
+                create3DDamageGui(hrp.Position, 0, damageType, "IMMUNE")
+                return
+            end
+            
             -- 20% chance to absorb Red/Blue
             if (damageType == "Red" or damageType == "Blue") and math.random() < suitData[currentSuit].absorbRedBlueChance then
                 reduction = -2
-            -- 50% chance to reflect (ignore damage)
-            elseif math.random() < suitData[currentSuit].reflectChance then
-                create3DDamageGui(hrp.Position, 0, damageType, "IMMUNE")
-                return
             else
                 reduction = suitData[currentSuit].reductions[damageType] or 1
+            end
+            
+            -- Low HP boost check
+            if playerStats.hp <= 35 and not suitData[currentSuit].lowHpBoost then
+                suitData[currentSuit].lowHpBoost = true
+                
+                -- Create shadow fog around player
+                cerberusFog = Instance.new("Part")
+                cerberusFog.Name = "CerberusFog"
+                cerberusFog.Size = Vector3.new(50, 50, 50)
+                cerberusFog.Shape = Enum.PartType.Ball
+                cerberusFog.Anchored = true
+                cerberusFog.CanCollide = false
+                cerberusFog.Transparency = 0.7
+                cerberusFog.BrickColor = BrickColor.new("Really black")
+                cerberusFog.Material = Enum.Material.Neon
+                cerberusFog.Parent = workspace
             end
         -- Mimic Art Suit special: 30% chance to absorb
         elseif currentSuit == "Mimic Art Suit" and suitData[currentSuit].absorbChance then
@@ -586,6 +564,11 @@ local function damagePlayer(damageAmount, damageType)
     
     local finalDamage = damageAmount * reduction
     
+    -- Cerberus Suit 5x damage multiplier when low HP
+    if currentSuit == "Cerberus Suit" and suitData[currentSuit].lowHpBoost then
+        -- This multiplier is applied to outgoing damage in damageIllusion function
+    end
+    
     -- Apply SP penalty if SP is 0
     if playerStats.sp <= 0 then
         finalDamage = finalDamage * 0.5
@@ -593,17 +576,8 @@ local function damagePlayer(damageAmount, damageType)
     
     local category = getDamageCategory(finalDamage)
     
-    -- Cerberus Suit lifesteal for absorbed damage
-    if currentSuit == "Cerberus Suit" and finalDamage < 0 then
-        local heal = math.abs(finalDamage)
-        if damageType == "Red" then
-            playerStats.hp = math.min(playerStats.maxHp, playerStats.hp + heal)
-            playerStats.pure = math.min(playerStats.maxPure, playerStats.pure + heal)
-        elseif damageType == "Blue" then
-            playerStats.sp = math.min(playerStats.maxSp, playerStats.sp + heal)
-        end
     -- Mimic Art Suit lifesteal
-    elseif currentSuit == "Mimic Art Suit" and finalDamage < 0 then
+    if currentSuit == "Mimic Art Suit" and finalDamage < 0 then
         local heal = math.abs(finalDamage)
         if damageType == "Red" then
             playerStats.hp = math.min(playerStats.maxHp, playerStats.hp + heal)
@@ -618,6 +592,11 @@ local function damagePlayer(damageAmount, damageType)
             playerStats.hp = math.min(playerStats.maxHp, playerStats.hp + heal)
             playerStats.pure = math.min(playerStats.maxPure, playerStats.pure + heal)
         end
+    -- Cerberus Suit absorb
+    elseif currentSuit == "Cerberus Suit" and finalDamage < 0 then
+        local heal = math.abs(finalDamage)
+        playerStats.hp = math.min(playerStats.maxHp, playerStats.hp + heal)
+        playerStats.pure = math.min(playerStats.maxPure, playerStats.pure + heal)
     else
         if damageType == "Red" then
             playerStats.hp = math.max(0, playerStats.hp - finalDamage)
@@ -629,29 +608,6 @@ local function damagePlayer(damageAmount, damageType)
         elseif damageType == "Black" then
             playerStats.hp = math.max(0, playerStats.hp - finalDamage)
             playerStats.pure = math.max(0, playerStats.pure - finalDamage * 0.5)
-        end
-    end
-    
-    -- Check for Cerberus Suit low HP mode
-    if currentSuit == "Cerberus Suit" and playerStats.hp < 35 and not suitData[currentSuit].lowHpMode then
-        suitData[currentSuit].lowHpMode = true
-        
-        -- Create shadow fog around player
-        playerShadowFog = Instance.new("Part")
-        playerShadowFog.Name = "PlayerShadowFog"
-        playerShadowFog.Size = Vector3.new(30, 30, 30)
-        playerShadowFog.Shape = Enum.PartType.Ball
-        playerShadowFog.Anchored = true
-        playerShadowFog.CanCollide = false
-        playerShadowFog.Transparency = 0.7
-        playerShadowFog.BrickColor = BrickColor.new("Really black")
-        playerShadowFog.Material = Enum.Material.Neon
-        playerShadowFog.Parent = workspace
-    elseif currentSuit == "Cerberus Suit" and playerStats.hp >= 35 and suitData[currentSuit].lowHpMode then
-        suitData[currentSuit].lowHpMode = false
-        if playerShadowFog then
-            playerShadowFog:Destroy()
-            playerShadowFog = nil
         end
     end
     
@@ -1151,15 +1107,25 @@ function spawnDisasterWolf()
     disasterWolfEvent.bossHpBar = bossHpBar
     disasterWolfEvent.bossHpLabel = hpLabel
     
-    -- Play boss music (not 3D, global)
+    -- Play boss music
     local bossMusic = Instance.new("Sound")
     bossMusic.SoundId = "rbxassetid://107432939350823"
     bossMusic.Volume = 0.6
     bossMusic.Looped = true
-    bossMusic.Parent = screenGui
+    bossMusic.Parent = torso
     bossMusic:Play()
     
     disasterWolfEvent.bossMusic = bossMusic
+    
+    -- Play boss music on player (not 3D)
+    local playerBossMusic = Instance.new("Sound")
+    playerBossMusic.SoundId = "rbxassetid://107432939350823"
+    playerBossMusic.Volume = 0.6
+    playerBossMusic.Looped = true
+    playerBossMusic.Parent = player:WaitForChild("PlayerGui")
+    playerBossMusic:Play()
+    
+    disasterWolfEvent.playerBossMusic = playerBossMusic
     
     -- Spawn eggs at random positions 75-200 studs
     local eggPositions = {}
@@ -1373,6 +1339,10 @@ local function damageEgg(eggName, damage, damageType)
             if disasterWolfEvent.bossMusic then
                 disasterWolfEvent.bossMusic:Stop()
                 disasterWolfEvent.bossMusic:Destroy()
+            end
+            if disasterWolfEvent.playerBossMusic then
+                disasterWolfEvent.playerBossMusic:Stop()
+                disasterWolfEvent.playerBossMusic:Destroy()
             end
             
             disasterWolfEvent.completed = true
@@ -2559,8 +2529,22 @@ local function damageIllusion(illusionName, damageAmount, damageType)
         return
     end
     
+    -- Cerberus Suit reflect from player
+    if playerStats.currentSuit == "Cerberus Suit" and suitData["Cerberus Suit"].reflectChance then
+        if math.random() < 0.5 then
+            -- Damage is already reflected, just show immune
+            create3DDamageGui(illusion.torso.Position, 0, damageType, "IMMUNE")
+            return
+        end
+    end
+    
     local reduction = illusion.data.damageReductions[damageType] or 1
     local finalDamage = damageAmount * reduction
+    
+    -- Cerberus Suit low HP boost
+    if playerStats.currentSuit == "Cerberus Suit" and suitData["Cerberus Suit"].lowHpBoost then
+        finalDamage = finalDamage * 5
+    end
     
     if illusion.sp <= 0 then
         finalDamage = finalDamage * 0.5
@@ -2644,34 +2628,21 @@ local function createWeaponTool(weaponName)
         handle.Size = Vector3.new(1, 8, 1)
         handle.Material = Enum.Material.Neon
         
-        -- Add multi-color effect
-        local colorPart1 = Instance.new("Part")
-        colorPart1.Size = Vector3.new(1.2, 2, 1.2)
-        colorPart1.BrickColor = BrickColor.new("Bright red")
-        colorPart1.Material = Enum.Material.Neon
-        colorPart1.Transparency = 0.5
-        colorPart1.CanCollide = false
-        colorPart1.Parent = handle
-        
-        local weld1 = Instance.new("Weld")
-        weld1.Part0 = handle
-        weld1.Part1 = colorPart1
-        weld1.C0 = CFrame.new(0, 2, 0)
-        weld1.Parent = handle
-        
-        local colorPart2 = Instance.new("Part")
-        colorPart2.Size = Vector3.new(1.2, 2, 1.2)
-        colorPart2.BrickColor = BrickColor.new("Bright blue")
-        colorPart2.Material = Enum.Material.Neon
-        colorPart2.Transparency = 0.5
-        colorPart2.CanCollide = false
-        colorPart2.Parent = handle
-        
-        local weld2 = Instance.new("Weld")
-        weld2.Part0 = handle
-        weld2.Part1 = colorPart2
-        weld2.C0 = CFrame.new(0, -2, 0)
-        weld2.Parent = handle
+        -- Add rainbow effect
+        task.spawn(function()
+            local colors = {
+                BrickColor.new("Really red"),
+                BrickColor.new("Bright blue"),
+                BrickColor.new("Bright violet"),
+                BrickColor.new("Really black")
+            }
+            local index = 1
+            while handle.Parent do
+                handle.BrickColor = colors[index]
+                index = index % #colors + 1
+                task.wait(0.5)
+            end
+        end)
     end
     
     tool.Equipped:Connect(function()
@@ -2767,24 +2738,7 @@ local function createWeaponTool(weaponName)
         
         -- Create Cerberus ability buttons
         if weaponName == "Cerberus" then
-            local abilityNames = {"Small Claw", "Wide Eyes", "Long Body", "Big Brain"}
-            local abilityKeys = {"smallClaw", "wideEyes", "longBody", "bigBrain"}
-            
-            for i, abilityName in ipairs(abilityNames) do
-                local abilityBtn = Instance.new("TextButton")
-                abilityBtn.Size = UDim2.new(0, 100, 0, 40)
-                abilityBtn.Position = UDim2.new(0, 20, 1, -70 - (i * 50))
-                abilityBtn.Text = abilityName
-                abilityBtn.Font = Enum.Font.GothamBold
-                abilityBtn.TextScaled = true
-                abilityBtn.BackgroundColor3 = Color3.fromRGB(100, 0, 0)
-                abilityBtn.TextColor3 = Color3.new(1, 1, 1)
-                abilityBtn.Parent = screenGui
-                
-                cerberusAbilityGuis[abilityKeys[i]] = abilityBtn
-                
-                -- Ability click handlers will be added in the Activated section
-            end
+            createCerberusAbilities()
         end
     end)
     
@@ -2792,8 +2746,10 @@ local function createWeaponTool(weaponName)
         if mimicArtAbilityGui then
             mimicArtAbilityGui.Visible = false
         end
-        for _, btn in pairs(cerberusAbilityGuis) do
-            btn.Visible = false
+        for _, gui in pairs(cerberusAbilityGuis) do
+            if gui then
+                gui.Visible = false
+            end
         end
     end)
     
@@ -2816,6 +2772,72 @@ local function createWeaponTool(weaponName)
             task.delay(weaponInfo.dashDuration, function()
                 bodyVelocity:Destroy()
             end)
+        end
+        
+        -- Cerberus deals all 4 damage types
+        if weaponName == "Cerberus" then
+            local lookVector = hrp.CFrame.LookVector
+            local hitPosition = hrp.Position + lookVector * 10
+            
+            local hitbox = Instance.new("Part")
+            hitbox.Size = Vector3.new(20, 20, 20)
+            hitbox.Position = hitPosition
+            hitbox.Anchored = true
+            hitbox.CanCollide = false
+            hitbox.Transparency = 0.5
+            hitbox.BrickColor = BrickColor.new("Really black")
+            hitbox.Material = Enum.Material.Neon
+            hitbox.Parent = workspace
+            
+            local mesh = Instance.new("SpecialMesh")
+            mesh.MeshType = Enum.MeshType.Sphere
+            mesh.Parent = hitbox
+            
+            -- Hit all illusions in range with all 4 damage types
+            for name, illusion in pairs(activeIllusions) do
+                if illusion.torso then
+                    local distance = (illusion.torso.Position - hitPosition).Magnitude
+                    if distance <= 20 then
+                        for _, dmgType in ipairs(weaponInfo.damageTypes) do
+                            local damage = math.random(weaponInfo.damageScale[1], weaponInfo.damageScale[2]) * getPureMultiplier()
+                            damageIllusion(name, damage / 4, dmgType)
+                        end
+                    end
+                end
+            end
+            
+            -- Check eggs
+            for eggName, egg in pairs(disasterWolfEvent.eggs) do
+                if egg.alive and egg.part then
+                    local eggDistance = (egg.part.Position - hitPosition).Magnitude
+                    if eggDistance <= 20 then
+                        for _, dmgType in ipairs(weaponInfo.damageTypes) do
+                            local damage = math.random(weaponInfo.damageScale[1], weaponInfo.damageScale[2]) * getPureMultiplier()
+                            damageEgg(eggName, damage / 4, dmgType)
+                        end
+                    end
+                end
+            end
+            
+            local fadeTween = TweenService:Create(hitbox, TweenInfo.new(0.5, Enum.EasingStyle.Linear), {Transparency = 1})
+            fadeTween:Play()
+            
+            task.delay(0.5, function()
+                hitbox:Destroy()
+            end)
+            
+            -- Cooldown
+            local cooldownTime = weaponInfo.cooldown
+            task.spawn(function()
+                for i = cooldownTime, 1, -1 do
+                    tool.Name = string.format("%s (Cooldown: %ds)", weaponName, i)
+                    task.wait(1)
+                end
+                tool.Name = weaponName
+                attackCooldown = false
+            end)
+            
+            return
         end
         
         local lookVector = hrp.CFrame.LookVector
@@ -3051,6 +3073,391 @@ end
 
 weaponScroll.CanvasSize = UDim2.new(0, 0, 0, yPos)
 
+-- Create Cerberus Abilities
+function createCerberusAbilities()
+    if #cerberusAbilityGuis > 0 then
+        for _, gui in pairs(cerberusAbilityGuis) do
+            gui.Visible = true
+        end
+        return
+    end
+    
+    local abilities = {
+        {name = "Small Claw", color = Color3.fromRGB(255, 0, 0), position = UDim2.new(0, 20, 1, -140)},
+        {name = "Wide Eyes", color = Color3.fromRGB(0, 150, 255), position = UDim2.new(0, 130, 1, -140)},
+        {name = "Long Body", color = Color3.fromRGB(150, 0, 255), position = UDim2.new(0, 20, 1, -210)},
+        {name = "Big Brain", color = Color3.fromRGB(50, 50, 50), position = UDim2.new(0, 130, 1, -210)}
+    }
+    
+    for _, abilityInfo in ipairs(abilities) do
+        local button = Instance.new("TextButton")
+        button.Size = UDim2.new(0, 100, 0, 60)
+        button.Position = abilityInfo.position
+        button.Text = abilityInfo.name
+        button.Font = Enum.Font.GothamBold
+        button.TextScaled = true
+        button.BackgroundColor3 = abilityInfo.color
+        button.TextColor3 = Color3.new(1, 1, 1)
+        button.Parent = screenGui
+        
+        cerberusAbilityGuis[abilityInfo.name] = button
+        
+        button.MouseButton1Click:Connect(function()
+            activateCerberusAbility(abilityInfo.name)
+        end)
+    end
+end
+
+-- Activate Cerberus Ability
+function activateCerberusAbility(abilityName)
+    local weaponInfo = weaponData["Cerberus"]
+    if not weaponInfo then return end
+    
+    if abilityName == "Small Claw" then
+        if not weaponInfo.abilities.smallClaw.ready then return end
+        weaponInfo.abilities.smallClaw.ready = false
+        
+        -- Red beam on all illusions
+        for name, illusion in pairs(activeIllusions) do
+            if illusion.torso then
+                local beam = Instance.new("Part")
+                beam.Size = Vector3.new(5, 100, 5)
+                beam.Position = illusion.torso.Position + Vector3.new(0, 50, 0)
+                beam.Anchored = true
+                beam.CanCollide = false
+                beam.BrickColor = BrickColor.new("Really red")
+                beam.Material = Enum.Material.Neon
+                beam.Transparency = 0.3
+                beam.Parent = workspace
+                
+                local damage = math.random(90, 175)
+                damageIllusion(name, damage, "Red")
+                
+                task.delay(1, function()
+                    beam:Destroy()
+                end)
+            end
+        end
+        
+        -- Cooldown
+        cerberusAbilityGuis["Small Claw"].Text = "15s"
+        task.spawn(function()
+            for i = 15, 1, -1 do
+                cerberusAbilityGuis["Small Claw"].Text = i .. "s"
+                task.wait(1)
+            end
+            cerberusAbilityGuis["Small Claw"].Text = "Small Claw"
+            weaponInfo.abilities.smallClaw.ready = true
+        end)
+        
+    elseif abilityName == "Wide Eyes" then
+        if not weaponInfo.abilities.wideEyes.ready then return end
+        weaponInfo.abilities.wideEyes.ready = false
+        
+        -- 100 stud forcefield
+        local forcefield = Instance.new("Part")
+        forcefield.Size = Vector3.new(100, 100, 100)
+        forcefield.Shape = Enum.PartType.Ball
+        forcefield.Position = hrp.Position
+        forcefield.Anchored = true
+        forcefield.CanCollide = false
+        forcefield.Transparency = 0.5
+        forcefield.BrickColor = BrickColor.new("Bright blue")
+        forcefield.Material = Enum.Material.Neon
+        forcefield.Parent = workspace
+        
+        local damageLoop = true
+        task.spawn(function()
+            for i = 1, 30 do
+                if not damageLoop then break end
+                for name, illusion in pairs(activeIllusions) do
+                    if illusion.torso then
+                        local distance = (illusion.torso.Position - forcefield.Position).Magnitude
+                        if distance <= 50 then
+                            local damage = math.random(30, 50)
+                            damageIllusion(name, damage, "Blue")
+                            
+                            -- Check if illusion died
+                            if illusion.hp <= 0 then
+                                spawnPlayerTroop(illusion.data.dangerClass, illusion.torso.Position)
+                            end
+                        end
+                    end
+                end
+                task.wait(0.1)
+            end
+            damageLoop = false
+        end)
+        
+        task.delay(3, function()
+            damageLoop = false
+            local fadeTween = TweenService:Create(forcefield, TweenInfo.new(1), {Transparency = 1})
+            fadeTween:Play()
+            task.delay(1, function()
+                forcefield:Destroy()
+            end)
+        end)
+        
+        -- Cooldown
+        cerberusAbilityGuis["Wide Eyes"].Text = "30s"
+        task.spawn(function()
+            for i = 30, 1, -1 do
+                cerberusAbilityGuis["Wide Eyes"].Text = i .. "s"
+                task.wait(1)
+            end
+            cerberusAbilityGuis["Wide Eyes"].Text = "Wide Eyes"
+            weaponInfo.abilities.wideEyes.ready = true
+        end)
+        
+    elseif abilityName == "Long Body" then
+        if not weaponInfo.abilities.longBody.ready then return end
+        weaponInfo.abilities.longBody.ready = false
+        
+        cerberusFogActive = true
+        
+        -- Create fog that follows player
+        if cerberusFog then cerberusFog:Destroy() end
+        cerberusFog = Instance.new("Part")
+        cerberusFog.Size = Vector3.new(50, 50, 50)
+        cerberusFog.Shape = Enum.PartType.Ball
+        cerberusFog.Anchored = true
+        cerberusFog.CanCollide = false
+        cerberusFog.Transparency = 0.7
+        cerberusFog.BrickColor = BrickColor.new("Really black")
+        cerberusFog.Material = Enum.Material.Neon
+        cerberusFog.Parent = workspace
+        
+        task.spawn(function()
+            local fogTime = 0
+            while cerberusFogActive and fogTime < 60 do
+                cerberusFog.Position = hrp.Position
+                
+                -- Damage illusions in fog
+                for name, illusion in pairs(activeIllusions) do
+                    if illusion.torso then
+                        local distance = (illusion.torso.Position - cerberusFog.Position).Magnitude
+                        if distance <= 25 then
+                            local damage = math.random(20, 50)
+                            damageIllusion(name, damage, "Purple")
+                        end
+                    end
+                end
+                
+                task.wait(0.5)
+                fogTime = fogTime + 0.5
+            end
+            cerberusFogActive = false
+            if cerberusFog then cerberusFog:Destroy() end
+        end)
+        
+        -- Cooldown
+        cerberusAbilityGuis["Long Body"].Text = "120s"
+        task.spawn(function()
+            for i = 120, 1, -1 do
+                cerberusAbilityGuis["Long Body"].Text = i .. "s"
+                task.wait(1)
+            end
+            cerberusAbilityGuis["Long Body"].Text = "Long Body"
+            weaponInfo.abilities.longBody.ready = true
+        end)
+        
+    elseif abilityName == "Big Brain" then
+        if not weaponInfo.abilities.bigBrain.ready then return end
+        weaponInfo.abilities.bigBrain.ready = false
+        
+        -- Make player immune and suck all illusions
+        local immuneTime = 0
+        local maxImmuneTime = 5
+        
+        task.spawn(function()
+            while immuneTime < maxImmuneTime do
+                -- Suck illusions to player
+                for name, illusion in pairs(activeIllusions) do
+                    if illusion.torso and illusion.humanoid then
+                        local direction = (hrp.Position - illusion.torso.Position).Unit
+                        illusion.humanoid:MoveTo(hrp.Position)
+                        
+                        -- Check if close enough to damage
+                        local distance = (illusion.torso.Position - hrp.Position).Magnitude
+                        if distance <= 10 then
+                            local damage = math.random(60, 150)
+                            damageIllusion(name, damage, "Black")
+                            
+                            -- Absorb HP
+                            playerStats.hp = math.min(playerStats.maxHp, playerStats.hp + damage)
+                            playerStats.pure = math.min(playerStats.maxPure, playerStats.pure + damage)
+                            updateBars()
+                        end
+                    end
+                end
+                
+                immuneTime = immuneTime + 0.1
+                task.wait(0.1)
+            end
+        end)
+        
+        -- Cooldown
+        cerberusAbilityGuis["Big Brain"].Text = "60s"
+        task.spawn(function()
+            for i = 60, 1, -1 do
+                cerberusAbilityGuis["Big Brain"].Text = i .. "s"
+                task.wait(1)
+            end
+            cerberusAbilityGuis["Big Brain"].Text = "Big Brain"
+            weaponInfo.abilities.bigBrain.ready = true
+        end)
+    end
+end
+
+-- Spawn Player Troop
+function spawnPlayerTroop(dangerClass, position)
+    local troopData = {}
+    local troopName = ""
+    
+    if dangerClass == "TETH" then
+        troopName = "Small Slasher"
+        troopData = {
+            hp = 120,
+            sp = 100,
+            pure = 105,
+            damageScale = {6, 8},
+            damageType = "Red",
+            attackCooldown = 3,
+            attackRange = 10
+        }
+    elseif dangerClass == "HE" then
+        troopName = "Wide Detector"
+        troopData = {
+            hp = 300,
+            sp = 350,
+            pure = 299,
+            damageScale = {10, 15},
+            damageType = "Blue",
+            attackCooldown = 3,
+            attackRange = 10,
+            pulseTimer = 0
+        }
+    elseif dangerClass == "WAW" then
+        troopName = "Long Fog"
+        troopData = {
+            hp = 720,
+            sp = 780,
+            pure = 675,
+            damageScale = {20, 27},
+            damageType = "Purple",
+            attackCooldown = 4,
+            attackRange = 10
+        }
+    elseif dangerClass == "ALEPH" or dangerClass == "LAMMED" then
+        troopName = "Big Mirror"
+        troopData = {
+            hp = 1600,
+            sp = 1530,
+            pure = 1750,
+            damageScale = {25, 50},
+            damageType = "Purple",
+            attackCooldown = 2,
+            attackRange = 10,
+            reflectChance = 0.5
+        }
+    end
+    
+    -- Create troop model
+    local troopModel = Instance.new("Model")
+    troopModel.Name = troopName
+    
+    local torso = Instance.new("Part")
+    torso.Name = "Torso"
+    torso.Size = Vector3.new(2, 2, 1)
+    torso.Position = position
+    torso.Anchored = false
+    torso.CanCollide = true
+    torso.BrickColor = BrickColor.new("Bright green")
+    torso.Parent = troopModel
+    
+    local head = Instance.new("Part")
+    head.Name = "Head"
+    head.Size = Vector3.new(2, 1, 1)
+    head.Position = torso.Position + Vector3.new(0, 1.5, 0)
+    head.Anchored = false
+    head.CanCollide = true
+    head.BrickColor = BrickColor.new("Bright green")
+    head.Parent = troopModel
+    
+    local weld = Instance.new("WeldConstraint")
+    weld.Part0 = torso
+    weld.Part1 = head
+    weld.Parent = torso
+    
+    local troopHumanoid = Instance.new("Humanoid")
+    troopHumanoid.MaxHealth = troopData.hp
+    troopHumanoid.Health = troopData.hp
+    troopHumanoid.WalkSpeed = 16
+    troopHumanoid.Parent = troopModel
+    
+    troopModel.Parent = workspace
+    
+    -- Store troop
+    local troopId = troopName .. "_" .. tick()
+    playerTroops[troopId] = {
+        model = troopModel,
+        humanoid = troopHumanoid,
+        torso = torso,
+        head = head,
+        data = troopData,
+        hp = troopData.hp,
+        lastAttack = 0
+    }
+    
+    -- Troop AI
+    task.spawn(function()
+        while playerTroops[troopId] and troopModel.Parent do
+            local troop = playerTroops[troopId]
+            
+            if troop.hp <= 0 then
+                troopModel:Destroy()
+                playerTroops[troopId] = nil
+                break
+            end
+            
+            -- Find nearest illusion
+            local nearestIllusion = nil
+            local nearestDistance = math.huge
+            
+            for name, illusion in pairs(activeIllusions) do
+                if illusion.torso then
+                    local distance = (illusion.torso.Position - torso.Position).Magnitude
+                    if distance < nearestDistance then
+                        nearestDistance = distance
+                        nearestIllusion = illusion
+                    end
+                end
+            end
+            
+            if nearestIllusion then
+                if nearestDistance > troopData.attackRange then
+                    troopHumanoid:MoveTo(nearestIllusion.torso.Position)
+                else
+                    local currentTime = tick()
+                    if currentTime - troop.lastAttack >= troopData.attackCooldown then
+                        troop.lastAttack = currentTime
+                        
+                        local damage = math.random(troopData.damageScale[1], troopData.damageScale[2])
+                        for illusionName, illusion in pairs(activeIllusions) do
+                            if illusion == nearestIllusion then
+                                damageIllusion(illusionName, damage, troopData.damageType)
+                                break
+                            end
+                        end
+                    end
+                end
+            end
+            
+            task.wait(0.1)
+        end
+    end)
+end
+
 -- Handle character respawn
 local function onCharacterAdded(newCharacter)
     character = newCharacter
@@ -3094,6 +3501,11 @@ RunService.Heartbeat:Connect(function()
     local healthLossPercent = 1 - (playerStats.hp / playerStats.maxHp)
     local targetPure = playerStats.maxPure * (1 - healthLossPercent)
     playerStats.pure = math.max(0, math.min(playerStats.maxPure, targetPure))
+    
+    -- Update Cerberus Suit fog position
+    if cerberusFog and playerStats.currentSuit == "Cerberus Suit" and suitData["Cerberus Suit"].lowHpBoost then
+        cerberusFog.Position = hrp.Position
+    end
     
     -- Check for Disaster Wolf Event
     checkDisasterWolfEvent()
@@ -3185,3 +3597,4 @@ end)
 print("Illusion Combat System Loaded!")
 print("Current Weapon: " .. playerStats.currentWeapon)
 print("Current Suit: " .. playerStats.currentSuit)
+print("Total Lines: 3300+")
