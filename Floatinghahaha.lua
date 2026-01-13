@@ -351,7 +351,7 @@ local function showDialogue(text)
     task.spawn(function()
         for i = 1, #text do
             dialogueLabel.Text = string.sub(text, 1, i)
-            task.wait(0.1)
+            task.wait(0.03)
         end
         
         task.wait(3)
@@ -836,6 +836,14 @@ local function checkDisasterWolfEvent()
     if allWolvesSpawned and not disasterWolfEvent.portalSpawned then
         disasterWolfEvent.active = true
         disasterWolfEvent.portalSpawned = true
+        
+        -- Set all wolves' speed to 8
+        for wolfName, _ in pairs(disasterWolfEvent.wolvesEntered) do
+            if activeIllusions[wolfName] and activeIllusions[wolfName].humanoid then
+                activeIllusions[wolfName].humanoid.WalkSpeed = 8
+            end
+        end
+        
         spawnElkCityPortal()
     end
 end
@@ -941,6 +949,14 @@ local function wolfEnterPortal(wolfName)
         task.wait(1)
         queueDialogue("Suddenly, a cry out from the Elk City far away occured :")
         task.wait(5)
+        
+        -- Play dialogue start sound
+        local dialogueSound = Instance.new("Sound")
+        dialogueSound.SoundId = "rbxassetid://96913434421788"
+        dialogueSound.Volume = 0.6
+        dialogueSound.Parent = workspace
+        dialogueSound:Play()
+        
         queueDialogue("Its the beast! The big black Beast in the Dusky City!")
         task.wait(5)
         spawnDisasterWolf()
@@ -952,7 +968,14 @@ function spawnDisasterWolf()
     if disasterWolfEvent.disasterWolfSpawned then return end
     disasterWolfEvent.disasterWolfSpawned = true
     
-    local portalPos = disasterWolfEvent.portalPart.Position
+    -- Random position 75-200 studs from player
+    local angle = math.random() * math.pi * 2
+    local distance = math.random(75, 200)
+    local bossPosition = hrp.Position + Vector3.new(
+        math.cos(angle) * distance,
+        0,
+        math.sin(angle) * distance
+    )
     
     -- Create Disaster Wolf
     local disasterModel = Instance.new("Model")
@@ -961,7 +984,7 @@ function spawnDisasterWolf()
     local torso = Instance.new("Part")
     torso.Name = "Torso"
     torso.Size = Vector3.new(8, 8, 4)
-    torso.Position = portalPos + Vector3.new(0, 0, 20)
+    torso.Position = bossPosition
     torso.Anchored = true
     torso.CanCollide = false
     torso.BrickColor = BrickColor.new("Really black")
@@ -1025,11 +1048,22 @@ function spawnDisasterWolf()
     
     disasterWolfEvent.bossMusic = bossMusic
     
-    -- Spawn eggs
-    spawnEgg("Small Claw", portalPos + Vector3.new(-15, 0, 15), Color3.fromRGB(139, 69, 19))
-    spawnEgg("Wide Eyes", portalPos + Vector3.new(15, 0, 15), Color3.fromRGB(173, 216, 230))
-    spawnEgg("Long Body", portalPos + Vector3.new(-15, 0, 25), Color3.fromRGB(105, 105, 105))
-    spawnEgg("Big Brain", portalPos + Vector3.new(15, 0, 25), Color3.fromRGB(0, 0, 0))
+    -- Spawn eggs at random positions 75-200 studs
+    local eggPositions = {}
+    for i = 1, 4 do
+        local eggAngle = math.random() * math.pi * 2
+        local eggDistance = math.random(75, 200)
+        table.insert(eggPositions, hrp.Position + Vector3.new(
+            math.cos(eggAngle) * eggDistance,
+            0,
+            math.sin(eggAngle) * eggDistance
+        ))
+    end
+    
+    spawnEgg("Small Claw", eggPositions[1], Color3.fromRGB(139, 69, 19))
+    spawnEgg("Wide Eyes", eggPositions[2], Color3.fromRGB(173, 216, 230))
+    spawnEgg("Long Body", eggPositions[3], Color3.fromRGB(105, 105, 105))
+    spawnEgg("Big Brain", eggPositions[4], Color3.fromRGB(0, 0, 0))
 end
 
 -- Spawn Egg
@@ -1079,23 +1113,29 @@ function spawnEgg(eggName, position, color)
     disasterWolfEvent.eggs[eggName].hpLabel = hpLabel
     disasterWolfEvent.eggs[eggName].alive = true
     
-    -- Long Body creates dark fog
+    -- Long Body creates independent dark fog for each egg
     if eggName == "Long Body" then
-        local fog = Instance.new("Part")
-        fog.Name = "DarkFog"
-        fog.Size = Vector3.new(80, 80, 80)
-        fog.Shape = Enum.PartType.Ball
-        fog.Position = position
-        fog.Anchored = true
-        fog.CanCollide = false
-        fog.Transparency = 0.7
-        fog.BrickColor = BrickColor.new("Really black")
-        fog.Material = Enum.Material.Neon
-        fog.Parent = workspace
+        -- Create fog for each egg
+        for name, eggData in pairs(disasterWolfEvent.eggs) do
+            local fog = Instance.new("Part")
+            fog.Name = "DarkFog_" .. name
+            fog.Size = Vector3.new(80, 80, 80)
+            fog.Shape = Enum.PartType.Ball
+            fog.Position = position
+            fog.Anchored = true
+            fog.CanCollide = false
+            fog.Transparency = 0.7
+            fog.BrickColor = BrickColor.new("Really black")
+            fog.Material = Enum.Material.Neon
+            fog.Parent = workspace
+            
+            if not disasterWolfEvent.eggs[eggName].fogs then
+                disasterWolfEvent.eggs[eggName].fogs = {}
+            end
+            disasterWolfEvent.eggs[eggName].fogs[name] = fog
+        end
         
-        disasterWolfEvent.eggs[eggName].fog = fog
-        
-        -- Also fog on Disaster Wolf
+        -- Fog on Disaster Wolf
         local disasterFog = Instance.new("Part")
         disasterFog.Name = "DisasterFog"
         disasterFog.Size = Vector3.new(100, 100, 100)
@@ -1198,8 +1238,14 @@ local function damageEgg(eggName, damage, damageType)
             queueDialogue("Wide Wolf's Signal were interrupted and cut off.")
         elseif eggName == "Long Body" then
             queueDialogue("Long Wolf's Dark Fog were shined away by the sun.")
-            if egg.fog then egg.fog:Destroy() end
-            if disasterWolfEvent.disasterFog then disasterWolfEvent.disasterFog:Destroy() end
+            if egg.fogs then
+                for _, fog in pairs(egg.fogs) do
+                    fog:Destroy()
+                end
+            end
+            if disasterWolfEvent.disasterFog then
+                disasterWolfEvent.disasterFog:Destroy()
+            end
         elseif eggName == "Big Brain" then
             queueDialogue("Big Wolf's Mirror were shattered.")
         end
@@ -1648,6 +1694,13 @@ function spawnIllusion(name, data)
                         local damage = math.random(15, 35)
                         damagePlayer(damage, "Red")
                         
+                        -- Play speed boost attack sound
+                        local attackSound = Instance.new("Sound")
+                        attackSound.SoundId = "rbxassetid://137400326597987"
+                        attackSound.Volume = 0.5
+                        attackSound.Parent = hrp
+                        attackSound:Play()
+                        
                         illusion.isSpeedBoosted = false
                         illusion.speedBoostTimer = 0
                         illusionHumanoid.WalkSpeed = data.walkSpeed
@@ -1664,6 +1717,13 @@ function spawnIllusion(name, data)
                 -- Pulse every 25 seconds
                 if illusion.pulseTimer >= 25 then
                     illusion.pulseTimer = 0
+                    
+                    -- Play pulse sound
+                    local pulseSound = Instance.new("Sound")
+                    pulseSound.SoundId = "rbxassetid://70542612197339"
+                    pulseSound.Volume = 0.6
+                    pulseSound.Parent = torso
+                    pulseSound:Play()
                     
                     local forcefield = Instance.new("Part")
                     forcefield.Size = Vector3.new(50, 50, 50)
@@ -1762,6 +1822,13 @@ function spawnIllusion(name, data)
                 if illusion.coatTimer >= 3 then
                     illusion.coatTimer = 0
                     
+                    -- Play coat brighten sound
+                    local coatSound = Instance.new("Sound")
+                    coatSound.SoundId = "rbxassetid://9116795681"
+                    coatSound.Volume = 1
+                    coatSound.Parent = torso
+                    coatSound:Play()
+                    
                     -- Brighten effect
                     torso.Material = Enum.Material.Neon
                     local originalColor = torso.BrickColor
@@ -1805,6 +1872,14 @@ function spawnIllusion(name, data)
                             if hit.Parent == character then
                                 local damage = math.random(20, 45)
                                 damagePlayer(damage, "Black")
+                                
+                                -- Play bullet hit sound
+                                local hitSound = Instance.new("Sound")
+                                hitSound.SoundId = "rbxassetid://13206683343"
+                                hitSound.Volume = 0.5
+                                hitSound.Parent = hrp
+                                hitSound:Play()
+                                
                                 bullet:Destroy()
                             end
                         end)
@@ -2232,6 +2307,22 @@ function spawnIllusion(name, data)
                             -- Small Wolf normal attack (not speed boosted)
                             if name == "Small Wolf" and not illusion.isSpeedBoosted then
                                 damagePlayer(damage, data.damageType)
+                                
+                                -- Play normal attack sound
+                                local hitSound = Instance.new("Sound")
+                                hitSound.SoundId = "rbxassetid://4471648128"
+                                hitSound.Volume = 0.5
+                                hitSound.Parent = hrp
+                                hitSound:Play()
+                            elseif name == "Wide Wolf" then
+                                damagePlayer(damage, data.damageType)
+                                
+                                -- Play Wide Wolf attack sound
+                                local hitSound = Instance.new("Sound")
+                                hitSound.SoundId = "rbxassetid://4471648128"
+                                hitSound.Volume = 0.5
+                                hitSound.Parent = hrp
+                                hitSound:Play()
                             elseif name ~= "Small Wolf" or not illusion.isSpeedBoosted then
                                 damagePlayer(damage, data.damageType)
                             end
@@ -2323,6 +2414,14 @@ local function damageIllusion(illusionName, damageAmount, damageType)
             -- Normal reflect chance
             damagePlayer(damageAmount, damageType)
             create3DDamageGui(illusion.torso.Position, 0, damageType, "IMMUNE")
+            
+            -- Play reflect sound
+            local reflectSound = Instance.new("Sound")
+            reflectSound.SoundId = "rbxassetid://9116618763"
+            reflectSound.Volume = 0.6
+            reflectSound.Parent = illusion.torso
+            reflectSound:Play()
+            
             return
         end
         
@@ -2830,7 +2929,16 @@ RunService.Heartbeat:Connect(function()
     
     -- Update Disaster Wolf mechanics
     if disasterWolfEvent.disasterWolfSpawned and not disasterWolfEvent.completed then
-        -- Update fog positions
+        -- Update fog positions for each egg
+        if disasterWolfEvent.eggs["Long Body"].alive and disasterWolfEvent.eggs["Long Body"].fogs then
+            for eggName, fog in pairs(disasterWolfEvent.eggs["Long Body"].fogs) do
+                if disasterWolfEvent.eggs[eggName].part then
+                    fog.Position = disasterWolfEvent.eggs[eggName].part.Position
+                end
+            end
+        end
+        
+        -- Update Disaster Wolf fog
         if disasterWolfEvent.eggs["Long Body"].alive and disasterWolfEvent.disasterFog then
             disasterWolfEvent.disasterFog.Position = disasterWolfEvent.disasterTorso.Position
         end
@@ -2842,6 +2950,13 @@ RunService.Heartbeat:Connect(function()
                 disasterWolfEvent.attackTimer = 0
                 local damage = math.random(75, 100)
                 damagePlayer(damage, "Red")
+                
+                -- Play attack sound
+                local attackSound = Instance.new("Sound")
+                attackSound.SoundId = "rbxassetid://5951833277"
+                attackSound.Volume = 0.5
+                attackSound.Parent = disasterWolfEvent.disasterTorso
+                attackSound:Play()
             end
         end
         
@@ -2850,6 +2965,14 @@ RunService.Heartbeat:Connect(function()
             disasterWolfEvent.wideEyesTimer = disasterWolfEvent.wideEyesTimer + (1/60)
             if disasterWolfEvent.wideEyesTimer >= 10 then
                 disasterWolfEvent.wideEyesTimer = 0
+                
+                -- Play ability sound
+                local abilitySound = Instance.new("Sound")
+                abilitySound.SoundId = "rbxassetid://70542612197339"
+                abilitySound.Volume = 0.6
+                abilitySound.Parent = disasterWolfEvent.eggs["Wide Eyes"].part
+                abilitySound:Play()
+                
                 local damage = math.random(45, 80)
                 damagePlayer(damage, "Blue")
                 
@@ -2872,6 +2995,14 @@ RunService.Heartbeat:Connect(function()
                 if math.random() < 0.0022 then
                     disasterWolfEvent.bigBrainReflect = true
                     disasterWolfEvent.bigBrainReflectTimer = 0
+                    
+                    -- Play reflect sound
+                    local reflectSound = Instance.new("Sound")
+                    reflectSound.SoundId = "rbxassetid://9116618763"
+                    reflectSound.Volume = 1
+                    reflectSound.Parent = disasterWolfEvent.eggs["Big Brain"].part
+                    reflectSound:Play()
+                    
                     local damage = math.random(50, 75)
                     damagePlayer(damage, "Black")
                 end
