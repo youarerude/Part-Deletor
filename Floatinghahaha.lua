@@ -523,15 +523,15 @@ local function damagePlayer(damageAmount, damageType)
     
     if currentSuit and suitData[currentSuit] then
         -- Cerberus Suit special mechanics
-        if currentSuit == "Cerberus Suit" then
+        if currentSuit == "Cerberus Suit" and suitData[currentSuit] then
             -- 50% chance to reflect
-            if math.random() < suitData[currentSuit].reflectChance then
+            if suitData[currentSuit].reflectChance and math.random() < suitData[currentSuit].reflectChance then
                 -- Find closest illusion to reflect to
                 local closestIllusion = nil
                 local closestDistance = math.huge
                 
                 for name, illusion in pairs(activeIllusions) do
-                    if illusion.torso then
+                    if illusion and illusion.torso and illusion.torso.Parent then
                         local distance = (illusion.torso.Position - hrp.Position).Magnitude
                         if distance < closestDistance then
                             closestDistance = distance
@@ -540,29 +540,35 @@ local function damagePlayer(damageAmount, damageType)
                     end
                 end
                 
-                if closestIllusion then
-                    damageIllusion(closestIllusion, damageAmount, damageType)
-                    create3DDamageGui(hrp.Position, 0, damageType, "IMMUNE")
+                if closestIllusion and activeIllusions[closestIllusion] then
+                    -- Safely damage the illusion
+                    local success = pcall(function()
+                        damageIllusion(closestIllusion, damageAmount, damageType)
+                    end)
                     
-                    -- Play reflect sound
-                    local reflectSound = Instance.new("Sound")
-                    reflectSound.SoundId = "rbxassetid://9116618763"
-                    reflectSound.Volume = 0.6
-                    reflectSound.Parent = hrp
-                    reflectSound:Play()
-                    
-                    return
+                    if success then
+                        create3DDamageGui(hrp.Position, 0, damageType, "IMMUNE")
+                        
+                        -- Play reflect sound
+                        local reflectSound = Instance.new("Sound")
+                        reflectSound.SoundId = "rbxassetid://9116618763"
+                        reflectSound.Volume = 0.6
+                        reflectSound.Parent = hrp
+                        reflectSound:Play()
+                        
+                        return
+                    end
                 end
             end
             
             -- 20% chance to absorb red/blue damage
-            if (damageType == "Red" or damageType == "Blue") and math.random() < suitData[currentSuit].absorbRedBlueChance then
+            if suitData[currentSuit].absorbRedBlueChance and (damageType == "Red" or damageType == "Blue") and math.random() < suitData[currentSuit].absorbRedBlueChance then
                 reduction = -2
-            else
+            elseif suitData[currentSuit].reductions then
                 reduction = suitData[currentSuit].reductions[damageType] or 1
             end
         -- Mimic Art Suit special: 30% chance to absorb
-        elseif currentSuit == "Mimic Art Suit" and suitData[currentSuit].absorbChance then
+        elseif currentSuit == "Mimic Art Suit" and suitData[currentSuit] and suitData[currentSuit].absorbChance then
             if math.random() < suitData[currentSuit].absorbChance then
                 reduction = -0.5
             else
@@ -2518,82 +2524,104 @@ end
 -- Damage Illusion
 local function damageIllusion(illusionName, damageAmount, damageType)
     local illusion = activeIllusions[illusionName]
-    if not illusion then return end
+    if not illusion or not illusion.torso or not illusion.torso.Parent then return end
     
     -- Big Wolf reflect mechanic
-    if illusionName == "Big Wolf" then
-        if illusion.mirrorMode then
-            -- 100% reflect in mirror mode
-            damagePlayer(damageAmount, damageType)
-            create3DDamageGui(illusion.torso.Position, 0, damageType, "IMMUNE")
-            return
-        elseif math.random() < illusion.reflectChance then
-            -- Normal reflect chance
-            damagePlayer(damageAmount, damageType)
-            create3DDamageGui(illusion.torso.Position, 0, damageType, "IMMUNE")
-            
-            -- Play reflect sound
-            local reflectSound = Instance.new("Sound")
-            reflectSound.SoundId = "rbxassetid://9116618763"
-            reflectSound.Volume = 0.6
-            reflectSound.Parent = illusion.torso
-            reflectSound:Play()
-            
-            return
-        end
+    if illusionName == "Big Wolf" and illusion.mirrorMode then
+        -- 100% reflect in mirror mode
+        damagePlayer(damageAmount, damageType)
+        create3DDamageGui(illusion.torso.Position, 0, damageType, "IMMUNE")
+        return
+    elseif illusionName == "Big Wolf" and illusion.reflectChance and math.random() < illusion.reflectChance then
+        -- Normal reflect chance
+        damagePlayer(damageAmount, damageType)
+        create3DDamageGui(illusion.torso.Position, 0, damageType, "IMMUNE")
         
-        -- 10% chance to enter mirror mode when attacked
-        if math.random() < 0.1 and not illusion.mirrorMode then
-            illusion.mirrorMode = true
-            illusion.mirrorTimer = 0
-            illusion.reflectChance = 1.0
-            
-            local mirror = illusion.model:FindFirstChild("Mirror")
-            if mirror then
-                mirror.Transparency = 0.3
-                mirror.BrickColor = BrickColor.new("Cyan")
-            end
+        -- Play reflect sound
+        local reflectSound = Instance.new("Sound")
+        reflectSound.SoundId = "rbxassetid://9116618763"
+        reflectSound.Volume = 0.6
+        reflectSound.Parent = illusion.torso
+        reflectSound:Play()
+        
+        return
+    end
+    
+    -- 10% chance to enter mirror mode when attacked (Big Wolf only)
+    if illusionName == "Big Wolf" and not illusion.mirrorMode and math.random() < 0.1 then
+        illusion.mirrorMode = true
+        illusion.mirrorTimer = 0
+        illusion.reflectChance = 1.0
+        
+        local mirror = illusion.model:FindFirstChild("Mirror")
+        if mirror then
+            mirror.Transparency = 0.3
+            mirror.BrickColor = BrickColor.new("Cyan")
         end
     end
     
     -- Big Brain egg reflect during Disaster Wolf fight
-    if disasterWolfEvent.bigBrainReflect and disasterWolfEvent.eggs["Big Brain"].alive then
+    if disasterWolfEvent.bigBrainReflect and disasterWolfEvent.eggs["Big Brain"] and disasterWolfEvent.eggs["Big Brain"].alive then
         damagePlayer(damageAmount, damageType)
         create3DDamageGui(illusion.torso.Position, 0, damageType, "IMMUNE")
         return
     end
     
-    local reduction = illusion.data.damageReductions[damageType] or 1
+    -- Get reduction from illusion data
+    local reduction = 1
+    if illusion.data and illusion.data.damageReductions then
+        reduction = illusion.data.damageReductions[damageType] or 1
+    end
+    
     local finalDamage = damageAmount * reduction
     
-    if illusion.sp <= 0 then
+    if illusion.sp and illusion.sp <= 0 then
         finalDamage = finalDamage * 0.5
     end
     
     local category = getDamageCategory(finalDamage)
     
+    -- Apply damage to correct stats
     if damageType == "Red" then
         illusion.hp = math.max(0, illusion.hp - finalDamage)
     elseif damageType == "Blue" then
-        illusion.sp = math.max(0, illusion.sp - finalDamage)
+        if illusion.sp then
+            illusion.sp = math.max(0, illusion.sp - finalDamage)
+        end
     elseif damageType == "Purple" then
         illusion.hp = math.max(0, illusion.hp - finalDamage)
-        illusion.sp = math.max(0, illusion.sp - finalDamage)
+        if illusion.sp then
+            illusion.sp = math.max(0, illusion.sp - finalDamage)
+        end
     elseif damageType == "Black" then
         illusion.hp = math.max(0, illusion.hp - finalDamage)
-        illusion.pure = math.max(0, illusion.pure - finalDamage * 0.5)
+        if illusion.pure then
+            illusion.pure = math.max(0, illusion.pure - finalDamage * 0.5)
+        end
     end
     
-    local hpPercent = illusion.hp / illusion.maxHp
-    local spPercent = illusion.sp / illusion.maxSp
-    local purePercent = illusion.pure / illusion.maxPure
+    -- Update health bars if they exist
+    if illusion.hpBar and illusion.maxHp then
+        local hpPercent = illusion.hp / illusion.maxHp
+        illusion.hpBar.Size = UDim2.new(hpPercent, 0, 1, 0)
+    end
     
-    illusion.hpBar.Size = UDim2.new(hpPercent, 0, 1, 0)
-    illusion.spBar.Size = UDim2.new(spPercent, 0, 1, 0)
-    illusion.pureBar.Size = UDim2.new(purePercent, 0, 1, 0)
+    if illusion.spBar and illusion.maxSp and illusion.sp then
+        local spPercent = illusion.sp / illusion.maxSp
+        illusion.spBar.Size = UDim2.new(spPercent, 0, 1, 0)
+    end
     
-    if hpPercent < 1 then
-        illusion.billboardGui.Enabled = true
+    if illusion.pureBar and illusion.maxPure and illusion.pure then
+        local purePercent = illusion.pure / illusion.maxPure
+        illusion.pureBar.Size = UDim2.new(purePercent, 0, 1, 0)
+    end
+    
+    -- Show bars if damaged
+    if illusion.billboardGui and illusion.maxHp then
+        local hpPercent = illusion.hp / illusion.maxHp
+        if hpPercent < 1 then
+            illusion.billboardGui.Enabled = true
+        end
     end
     
     create3DDamageGui(illusion.torso.Position, finalDamage, damageType, category)
