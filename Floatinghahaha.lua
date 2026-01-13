@@ -11,10 +11,10 @@ local hrp = character:WaitForChild("HumanoidRootPart")
 
 -- Player Stats
 local playerStats = {
-    hp = 100,
-    maxHp = 100,
-    sp = 100,
-    maxSp = 100,
+    hp = 10000,
+    maxHp = 10000,
+    sp = 10000,
+    maxSp = 10000,
     pure = 100,
     maxPure = 100,
     currentSuit = "Standard Uniform",
