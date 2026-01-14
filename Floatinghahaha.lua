@@ -3224,32 +3224,50 @@ local function createWeaponTool(weaponName)
                     forcefield.Parent = workspace
                     
                     local illusionsToTransform = {}
+                    local illusionsInField = {}
+                    
+                    -- Track which illusions are in field
+                    for name, illusion in pairs(activeIllusions) do
+                        if illusion and illusion.torso and illusion.torso.Parent then
+                            local distance = (illusion.torso.Position - forcefield.Position).Magnitude
+                            if distance <= 50 then
+                                illusionsInField[name] = {
+                                    dangerClass = illusion.data.dangerClass,
+                                    position = illusion.torso.Position
+                                }
+                            end
+                        end
+                    end
                     
                     -- Damage loop for 3 seconds
                     local startTime = tick()
                     task.spawn(function()
                         while tick() - startTime < 3 do
                             for name, illusion in pairs(activeIllusions) do
-                                if illusion and illusion.torso and illusion.torso.Parent then
+                                if illusion and illusion.torso and illusion.torso.Parent and illusionsInField[name] then
                                     local distance = (illusion.torso.Position - forcefield.Position).Magnitude
                                     if distance <= 50 then
                                         local damage = math.random(30, 50)
                                         damageIllusion(name, damage, "Blue")
                                         
-                                        -- Check if illusion died and mark for transformation
+                                        -- Update position in case it moved
+                                        illusionsInField[name].position = illusion.torso.Position
+                                        
+                                        -- Check if illusion died
                                         if illusion.hp <= 0 and not illusionsToTransform[name] then
-                                            local dangerClass = illusion.data.dangerClass
-                                            if dangerClass == "TETH" then
-                                                illusionsToTransform[name] = {class = "TETH", position = illusion.torso.Position}
-                                            elseif dangerClass == "HE" then
-                                                illusionsToTransform[name] = {class = "HE", position = illusion.torso.Position}
-                                            end
+                                            illusionsToTransform[name] = {
+                                                class = illusionsInField[name].dangerClass,
+                                                position = illusionsInField[name].position
+                                            }
                                         end
                                     end
                                 end
                             end
                             task.wait(0.1)
                         end
+                        
+                        -- Wait a bit for illusions to be removed
+                        task.wait(0.2)
                         
                         -- Fade out forcefield
                         local fadeTween = TweenService:Create(forcefield, TweenInfo.new(0.5), {Transparency = 1})
