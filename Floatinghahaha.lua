@@ -219,6 +219,35 @@ local illusionData = {
         enabled = false,
         pulseTimer = 0
     },
+    ["Long Fog"] = {
+        description = "A fog creature born from WAW illusions.",
+        hp = 720,
+        sp = 780,
+        pure = 675,
+        walkSpeed = 10,
+        attackRange = 10,
+        attackCooldown = 4,
+        damageReductions = {Red = 0.8, Blue = 0.8, Purple = 0.5, Black = 0.9},
+        damageType = "Purple",
+        damageScale = {20, 27},
+        dangerClass = "WAW",
+        enabled = false
+    },
+    ["Big Mirror"] = {
+        description = "A mirror creature born from ALEPH illusions.",
+        hp = 1600,
+        sp = 1530,
+        pure = 1750,
+        walkSpeed = 8,
+        attackRange = 10,
+        attackCooldown = 2,
+        damageReductions = {Red = 0.6, Blue = 0.6, Purple = 0.6, Black = 0.3},
+        damageType = "Black",
+        damageScale = {25, 50},
+        dangerClass = "ALEPH",
+        enabled = false,
+        reflectChance = 0.5
+    },
     ["Disaster Wolf"] = {
         description = "The ultimate beast from the Dusky City.",
         hp = 23000,
@@ -1474,7 +1503,7 @@ local function damageEgg(eggName, damage, damageType)
     end
 end
 
--- Spawn Transformed Illusion (Small Slasher or Wide Detector)
+-- Spawn Transformed Illusion (Small Slasher, Wide Detector, Long Fog, Big Mirror)
 function spawnTransformedIllusion(transformType, position)
     local data = illusionData[transformType]
     if not data then return end
@@ -1482,9 +1511,18 @@ function spawnTransformedIllusion(transformType, position)
     local illusionModel = Instance.new("Model")
     illusionModel.Name = transformType
     
+    local torsoSize = Vector3.new(1.5, 1.5, 1)
+    if transformType == "Wide Detector" then
+        torsoSize = Vector3.new(2, 2, 1)
+    elseif transformType == "Long Fog" then
+        torsoSize = Vector3.new(2, 3, 1)
+    elseif transformType == "Big Mirror" then
+        torsoSize = Vector3.new(3, 3, 1.5)
+    end
+    
     local torso = Instance.new("Part")
     torso.Name = "Torso"
-    torso.Size = Vector3.new(1.5, 1.5, 1)
+    torso.Size = torsoSize
     torso.Position = position
     torso.Anchored = false
     torso.CanCollide = true
@@ -1494,22 +1532,29 @@ function spawnTransformedIllusion(transformType, position)
         torso.BrickColor = BrickColor.new("Bright red")
     elseif transformType == "Wide Detector" then
         torso.BrickColor = BrickColor.new("Cyan")
-        torso.Size = Vector3.new(2, 2, 1)
+    elseif transformType == "Long Fog" then
+        torso.BrickColor = BrickColor.new("Dark stone grey")
+    elseif transformType == "Big Mirror" then
+        torso.BrickColor = BrickColor.new("White")
+        torso.Material = Enum.Material.Glass
+        torso.Reflectance = 0.8
     end
     
     local head = Instance.new("Part")
     head.Name = "Head"
-    head.Size = Vector3.new(1.5, 1, 1)
-    head.Position = torso.Position + Vector3.new(0, 1.5, 0)
+    head.Size = Vector3.new(torsoSize.X, torsoSize.Y * 0.5, torsoSize.Z)
+    head.Position = torso.Position + Vector3.new(0, torsoSize.Y, 0)
     head.Anchored = false
     head.CanCollide = true
     head.BrickColor = torso.BrickColor
+    head.Material = torso.Material
+    head.Reflectance = torso.Reflectance
     head.Parent = illusionModel
     
     local leftArm = Instance.new("Part")
     leftArm.Name = "LeftArm"
-    leftArm.Size = Vector3.new(1, 1.5, 1)
-    leftArm.Position = torso.Position + Vector3.new(-1.5, 0, 0)
+    leftArm.Size = Vector3.new(1, torsoSize.Y, 1)
+    leftArm.Position = torso.Position + Vector3.new(-torsoSize.X * 0.75, 0, 0)
     leftArm.Anchored = false
     leftArm.CanCollide = false
     leftArm.BrickColor = torso.BrickColor
@@ -1517,8 +1562,8 @@ function spawnTransformedIllusion(transformType, position)
     
     local rightArm = Instance.new("Part")
     rightArm.Name = "RightArm"
-    rightArm.Size = Vector3.new(1, 1.5, 1)
-    rightArm.Position = torso.Position + Vector3.new(1.5, 0, 0)
+    rightArm.Size = Vector3.new(1, torsoSize.Y, 1)
+    rightArm.Position = torso.Position + Vector3.new(torsoSize.X * 0.75, 0, 0)
     rightArm.Anchored = false
     rightArm.CanCollide = false
     rightArm.BrickColor = torso.BrickColor
@@ -1540,6 +1585,21 @@ function spawnTransformedIllusion(transformType, position)
     illusionHumanoid.Health = data.hp
     illusionHumanoid.WalkSpeed = data.walkSpeed
     illusionHumanoid.Parent = illusionModel
+    
+    -- Long Fog dark fog
+    local darkFog = nil
+    if transformType == "Long Fog" then
+        darkFog = Instance.new("Part")
+        darkFog.Name = "DarkFog"
+        darkFog.Size = Vector3.new(30, 30, 30)
+        darkFog.Shape = Enum.PartType.Ball
+        darkFog.Anchored = true
+        darkFog.CanCollide = false
+        darkFog.Transparency = 0.7
+        darkFog.BrickColor = BrickColor.new("Really black")
+        darkFog.Material = Enum.Material.Neon
+        darkFog.Parent = workspace
+    end
     
     illusionModel.Parent = workspace
     
@@ -1564,7 +1624,7 @@ function spawnTransformedIllusion(transformType, position)
     local illusionHpBar = Instance.new("Frame")
     illusionHpBar.Name = "HPBar"
     illusionHpBar.Size = UDim2.new(1, 0, 1, 0)
-    illusionHpBar.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
+    illusionHpBar.BackgroundColor3 = Color3.fromRGB(50, 255, 50)
     illusionHpBar.BorderSizePixel = 0
     illusionHpBar.Parent = hpBarBg
     
@@ -1596,7 +1656,7 @@ function spawnTransformedIllusion(transformType, position)
     illusionPureBar.BorderSizePixel = 0
     illusionPureBar.Parent = pureBarBg
     
-    billboardGui.Enabled = false
+    billboardGui.Enabled = true
     
     -- Generate unique name
     local uniqueName = transformType .. "_" .. tostring(tick())
@@ -1620,20 +1680,42 @@ function spawnTransformedIllusion(transformType, position)
         spBar = illusionSpBar,
         pureBar = illusionPureBar,
         billboardGui = billboardGui,
-        pulseTimer = data.pulseTimer or 0
+        pulseTimer = data.pulseTimer or 0,
+        reflectChance = data.reflectChance or 0,
+        darkFog = darkFog,
+        isPlayerTroop = true -- Mark as player's troop
     }
     
-    -- AI behavior
+    -- AI behavior - attack enemies, not player
     task.spawn(function()
         while activeIllusions[uniqueName] and illusionModel.Parent do
             local illusion = activeIllusions[uniqueName]
             
             if illusion.hp <= 0 then
+                if darkFog and darkFog.Parent then
+                    darkFog:Destroy()
+                end
                 removeIllusion(uniqueName)
                 break
             end
             
-            local distance = (hrp.Position - torso.Position).Magnitude
+            -- Update fog position for Long Fog
+            if transformType == "Long Fog" and darkFog and darkFog.Parent then
+                darkFog.Position = torso.Position
+                
+                -- Damage enemy illusions in fog (not player)
+                for name, enemyIllusion in pairs(activeIllusions) do
+                    if not enemyIllusion.isPlayerTroop and enemyIllusion.torso and enemyIllusion.torso.Parent then
+                        local distance = (enemyIllusion.torso.Position - darkFog.Position).Magnitude
+                        if distance <= 15 then
+                            local fogDamage = math.random(5, 10)
+                            pcall(function()
+                                damageIllusion(name, fogDamage, "Purple")
+                            end)
+                        end
+                    end
+                end
+            end
             
             -- Wide Detector pulse ability
             if transformType == "Wide Detector" then
@@ -1653,9 +1735,17 @@ function spawnTransformedIllusion(transformType, position)
                     forcefield.Material = Enum.Material.Neon
                     forcefield.Parent = workspace
                     
-                    if (hrp.Position - forcefield.Position).Magnitude <= 15 then
-                        local damage = math.random(17, 25)
-                        damagePlayer(damage, "Blue")
+                    -- Damage enemy illusions
+                    for name, enemyIllusion in pairs(activeIllusions) do
+                        if not enemyIllusion.isPlayerTroop and enemyIllusion.torso and enemyIllusion.torso.Parent then
+                            local distance = (enemyIllusion.torso.Position - forcefield.Position).Magnitude
+                            if distance <= 15 then
+                                local damage = math.random(17, 25)
+                                pcall(function()
+                                    damageIllusion(name, damage, "Blue")
+                                end)
+                            end
+                        end
                     end
                     
                     local fadeTween = TweenService:Create(forcefield, TweenInfo.new(1), {Transparency = 1})
@@ -1666,10 +1756,24 @@ function spawnTransformedIllusion(transformType, position)
                 end
             end
             
-            -- Move and attack
-            if distance > data.attackRange then
-                illusionHumanoid:MoveTo(hrp.Position)
-            else
+            -- Find closest enemy illusion to attack
+            local closestEnemy = nil
+            local closestDistance = math.huge
+            
+            for name, enemyIllusion in pairs(activeIllusions) do
+                if not enemyIllusion.isPlayerTroop and enemyIllusion.torso and enemyIllusion.torso.Parent then
+                    local distance = (enemyIllusion.torso.Position - torso.Position).Magnitude
+                    if distance < closestDistance then
+                        closestDistance = distance
+                        closestEnemy = {name = name, illusion = enemyIllusion}
+                    end
+                end
+            end
+            
+            -- Move and attack closest enemy
+            if closestEnemy and closestDistance > data.attackRange then
+                illusionHumanoid:MoveTo(closestEnemy.illusion.torso.Position)
+            elseif closestEnemy and closestDistance <= data.attackRange then
                 local currentTime = tick()
                 if currentTime - illusion.lastAttack >= data.attackCooldown then
                     illusion.lastAttack = currentTime
@@ -1681,9 +1785,11 @@ function spawnTransformedIllusion(transformType, position)
                     
                     task.wait(0.3)
                     
-                    if (hrp.Position - torso.Position).Magnitude <= data.attackRange then
+                    if closestEnemy.illusion.torso and closestEnemy.illusion.torso.Parent then
                         local damage = math.random(data.damageScale[1], data.damageScale[2])
-                        damagePlayer(damage, data.damageType)
+                        pcall(function()
+                            damageIllusion(closestEnemy.name, damage, data.damageType)
+                        end)
                     end
                     
                     task.wait(0.2)
@@ -2832,6 +2938,38 @@ local function damageIllusion(illusionName, damageAmount, damageType)
     local illusion = activeIllusions[illusionName]
     if not illusion or not illusion.torso or not illusion.torso.Parent then return end
     
+    -- Big Mirror reflect mechanic (player troops only)
+    if illusion.isPlayerTroop and illusion.data and illusion.data.dangerClass == "ALEPH" then
+        if illusion.reflectChance and math.random() < illusion.reflectChance then
+            -- Reflect damage back to attacker and heal player
+            local healAmount = damageAmount * 2 -- -2 absorb multiplier
+            
+            if damageType == "Red" then
+                playerStats.hp = math.min(playerStats.maxHp, playerStats.hp + healAmount)
+            elseif damageType == "Blue" then
+                playerStats.sp = math.min(playerStats.maxSp, playerStats.sp + healAmount)
+            elseif damageType == "Purple" then
+                playerStats.hp = math.min(playerStats.maxHp, playerStats.hp + healAmount)
+                playerStats.sp = math.min(playerStats.maxSp, playerStats.sp + healAmount)
+            elseif damageType == "Black" then
+                playerStats.hp = math.min(playerStats.maxHp, playerStats.hp + healAmount)
+            end
+            
+            updateBars()
+            create3DDamageGui(illusion.torso.Position, 0, damageType, "IMMUNE")
+            create3DDamageGui(hrp.Position, -healAmount, damageType, "ABSORB")
+            
+            -- Play reflect sound
+            local reflectSound = Instance.new("Sound")
+            reflectSound.SoundId = "rbxassetid://9116618763"
+            reflectSound.Volume = 0.6
+            reflectSound.Parent = illusion.torso
+            reflectSound:Play()
+            
+            return
+        end
+    end
+    
     -- Big Wolf reflect mechanic
     if illusionName == "Big Wolf" and illusion.mirrorMode then
         -- 100% reflect in mirror mode
@@ -2933,6 +3071,10 @@ local function damageIllusion(illusionName, damageAmount, damageType)
     create3DDamageGui(illusion.torso.Position, finalDamage, damageType, category)
     
     if illusion.hp <= 0 then
+        -- Clean up dark fog if Long Fog
+        if illusion.darkFog and illusion.darkFog.Parent then
+            illusion.darkFog:Destroy()
+        end
         removeIllusion(illusionName)
     end
 end
@@ -3224,50 +3366,33 @@ local function createWeaponTool(weaponName)
                     forcefield.Parent = workspace
                     
                     local illusionsToTransform = {}
-                    local illusionsInField = {}
-                    
-                    -- Track which illusions are in field
-                    for name, illusion in pairs(activeIllusions) do
-                        if illusion and illusion.torso and illusion.torso.Parent then
-                            local distance = (illusion.torso.Position - forcefield.Position).Magnitude
-                            if distance <= 50 then
-                                illusionsInField[name] = {
-                                    dangerClass = illusion.data.dangerClass,
-                                    position = illusion.torso.Position
-                                }
-                            end
-                        end
-                    end
                     
                     -- Damage loop for 3 seconds
                     local startTime = tick()
                     task.spawn(function()
                         while tick() - startTime < 3 do
                             for name, illusion in pairs(activeIllusions) do
-                                if illusion and illusion.torso and illusion.torso.Parent and illusionsInField[name] then
+                                if illusion and illusion.torso and illusion.torso.Parent and not illusion.isPlayerTroop then
                                     local distance = (illusion.torso.Position - forcefield.Position).Magnitude
                                     if distance <= 50 then
                                         local damage = math.random(30, 50)
                                         damageIllusion(name, damage, "Blue")
                                         
-                                        -- Update position in case it moved
-                                        illusionsInField[name].position = illusion.torso.Position
-                                        
-                                        -- Check if illusion died
-                                        if illusion.hp <= 0 and not illusionsToTransform[name] then
+                                        -- Check if illusion SP reached 0 and mark for transformation
+                                        if illusion.sp and illusion.sp <= 0 and not illusionsToTransform[name] then
+                                            local dangerClass = illusion.data.dangerClass
                                             illusionsToTransform[name] = {
-                                                class = illusionsInField[name].dangerClass,
-                                                position = illusionsInField[name].position
+                                                class = dangerClass, 
+                                                position = illusion.torso.Position
                                             }
+                                            -- Remove the original illusion
+                                            removeIllusion(name)
                                         end
                                     end
                                 end
                             end
                             task.wait(0.1)
                         end
-                        
-                        -- Wait a bit for illusions to be removed
-                        task.wait(0.2)
                         
                         -- Fade out forcefield
                         local fadeTween = TweenService:Create(forcefield, TweenInfo.new(0.5), {Transparency = 1})
@@ -3276,12 +3401,17 @@ local function createWeaponTool(weaponName)
                             forcefield:Destroy()
                         end)
                         
-                        -- Transform dead illusions
+                        -- Transform illusions based on danger class
+                        task.wait(0.2)
                         for illusionName, data in pairs(illusionsToTransform) do
                             if data.class == "TETH" then
                                 spawnTransformedIllusion("Small Slasher", data.position)
                             elseif data.class == "HE" then
                                 spawnTransformedIllusion("Wide Detector", data.position)
+                            elseif data.class == "WAW" then
+                                spawnTransformedIllusion("Long Fog", data.position)
+                            elseif data.class == "ALEPH" then
+                                spawnTransformedIllusion("Big Mirror", data.position)
                             end
                         end
                     end)
