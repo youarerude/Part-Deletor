@@ -299,11 +299,14 @@ local weaponData = {
         hitSound = "rbxassetid://136833367092810",
         special = true,
         ability1Cooldown = 15,
-        ability1Ready = true
+        ability1Ready = true,
+        ability2Cooldown = 30,
+        ability2Ready = true
     }
 }
 
 local activeIllusions = {}
+local playerTroops = {} -- For converted illusions
 local weaponTools = {}
 local attackCooldown = false
 local playerBlinded = false
@@ -704,9 +707,12 @@ local function damagePlayer(damageAmount, damageType)
             end)
         end
     elseif currentSuit == "Cerberus Suit" and playerStats.hp > 35 then
-        suitData[currentSuit].shadowFogActive = false
-        if suitData[currentSuit].fogPart and suitData[currentSuit].fogPart.Parent then
-            suitData[currentSuit].fogPart:Destroy()
+        if suitData[currentSuit].shadowFogActive then
+            suitData[currentSuit].shadowFogActive = false
+            if suitData[currentSuit].fogPart and suitData[currentSuit].fogPart.Parent then
+                suitData[currentSuit].fogPart:Destroy()
+                suitData[currentSuit].fogPart = nil
+            end
         end
     end
     
@@ -2553,8 +2559,107 @@ function spawnIllusion(name, data)
     end)
 end
 
--- Remove Illusion
-function removeIllusion(name)
+-- Spawn Player Troop (converted illusions)
+function spawnPlayerTroop(troopName, data)
+    local troopModel = Instance.new("Model")
+    troopModel.Name = troopName
+    
+    local torso = Instance.new("Part")
+    torso.Name = "Torso"
+    torso.Size = Vector3.new(2, 2, 1)
+    torso.Position = hrp.Position + Vector3.new(math.random(-10, 10), 0, math.random(-10, 10))
+    torso.Anchored = false
+    torso.CanCollide = true
+    torso.Parent = troopModel
+    
+    local head = Instance.new("Part")
+    head.Name = "Head"
+    head.Size = Vector3.new(2, 1, 1)
+    head.Position = torso.Position + Vector3.new(0, 1.5, 0)
+    head.Anchored = false
+    head.CanCollide = true
+    head.Parent = troopModel
+    
+    -- Color based on type
+    if troopName == "Small Slasher" then
+        torso.BrickColor = BrickColor.new("Bright red")
+        head.BrickColor = BrickColor.new("Bright red")
+    elseif troopName == "Wide Detector" then
+        torso.BrickColor = BrickColor.new("Bright blue")
+        head.BrickColor = BrickColor.new("Bright blue")
+    elseif troopName == "Long Fog" then
+        torso.BrickColor = BrickColor.new("Dark stone grey")
+        head.BrickColor = BrickColor.new("Dark stone grey")
+    elseif troopName == "Big Mirror" then
+        torso.BrickColor = BrickColor.new("White")
+        head.BrickColor = BrickColor.new("White")
+    end
+    
+    local weld = Instance.new("WeldConstraint")
+    weld.Part0 = torso
+    weld.Part1 = head
+    weld.Parent = torso
+    
+    local troopHumanoid = Instance.new("Humanoid")
+    troopHumanoid.MaxHealth = data.hp
+    troopHumanoid.Health = data.hp
+    troopHumanoid.WalkSpeed = 16
+    troopHumanoid.Parent = troopModel
+    
+    troopModel.Parent = workspace
+    
+    -- Store troop data
+    playerTroops[troopName .. "_" .. tick()] = {
+        model = troopModel,
+        humanoid = troopHumanoid,
+        torso = torso,
+        head = head,
+        data = data,
+        hp = data.hp,
+        maxHp = data.hp,
+        lastAttack = 0,
+        abilityTimer = 0
+    }
+    
+    -- Troop AI
+    task.spawn(function()
+        while troopModel.Parent and troopHumanoid.Health > 0 do
+            -- Find nearest enemy illusion
+            local nearestIllusion = nil
+            local nearestDistance = math.huge
+            
+            for name, illusion in pairs(activeIllusions) do
+                if illusion and illusion.torso and illusion.torso.Parent then
+                    local distance = (illusion.torso.Position - torso.Position).Magnitude
+                    if distance < nearestDistance then
+                        nearestDistance = distance
+                        nearestIllusion = {name = name, illusion = illusion}
+                    end
+                end
+            end
+            
+            if nearestIllusion then
+                if nearestDistance > data.attackRange then
+                    troopHumanoid:MoveTo(nearestIllusion.illusion.torso.Position)
+                else
+                    -- Attack
+                    local currentTime = tick()
+                    if currentTime - playerTroops[troopName .. "_" .. tick()].lastAttack >= data.attackCooldown then
+                        playerTroops[troopName .. "_" .. tick()].lastAttack = currentTime
+                        
+                        local damage = math.random(data.damageScale[1], data.damageScale[2])
+                        damageIllusion(nearestIllusion.name, damage, data.damageType)
+                    end
+                end
+            end
+            
+            task.wait(0.1)
+        end
+        
+        -- Cleanup
+        troopModel:Destroy()
+    end)
+end
     if activeIllusions[name] then
         local illusion = activeIllusions[name]
         if illusion.model then
@@ -2931,6 +3036,121 @@ local function createWeaponTool(weaponName)
             else
                 screenGui:FindFirstChild("CerberusAbility1").Visible = true
             end
+            
+            -- Ability 2 button
+            if not screenGui:FindFirstChild("CerberusAbility2") then
+                local cerberusAbility2 = Instance.new("TextButton")
+                cerberusAbility2.Name = "CerberusAbility2"
+                cerberusAbility2.Size = UDim2.new(0, 100, 0, 50)
+                cerberusAbility2.Position = UDim2.new(0, 130, 1, -70)
+                cerberusAbility2.Text = "Wide Eyes"
+                cerberusAbility2.Font = Enum.Font.GothamBold
+                cerberusAbility2.TextScaled = true
+                cerberusAbility2.BackgroundColor3 = Color3.fromRGB(0, 0, 139)
+                cerberusAbility2.TextColor3 = Color3.new(1, 1, 1)
+                cerberusAbility2.Parent = screenGui
+                
+                cerberusAbility2.MouseButton1Click:Connect(function()
+                    local weaponInfo = weaponData["Cerberus"]
+                    if not weaponInfo.ability2Ready then return end
+                    
+                    weaponInfo.ability2Ready = false
+                    
+                    -- Create 100 stud blue forcefield
+                    local forcefield = Instance.new("Part")
+                    forcefield.Size = Vector3.new(100, 100, 100)
+                    forcefield.Shape = Enum.PartType.Ball
+                    forcefield.Position = hrp.Position
+                    forcefield.Anchored = true
+                    forcefield.CanCollide = false
+                    forcefield.Transparency = 0.5
+                    forcefield.BrickColor = BrickColor.new("Bright blue")
+                    forcefield.Material = Enum.Material.Neon
+                    forcefield.Parent = workspace
+                    
+                    local forcefieldActive = true
+                    local illusionsToConvert = {}
+                    
+                    -- Damage loop for 3 seconds
+                    task.spawn(function()
+                        local startTime = tick()
+                        while forcefieldActive and tick() - startTime < 3 do
+                            for name, illusion in pairs(activeIllusions) do
+                                if illusion and illusion.torso and illusion.torso.Parent then
+                                    local distance = (illusion.torso.Position - forcefield.Position).Magnitude
+                                    if distance <= 50 then
+                                        local damage = math.random(30, 50)
+                                        damageIllusion(name, damage, "Blue")
+                                        
+                                        -- Check if illusion died
+                                        if illusion.hp <= 0 then
+                                            illusionsToConvert[name] = illusion.data.dangerClass
+                                        end
+                                    end
+                                end
+                            end
+                            task.wait(0.1)
+                        end
+                        forcefieldActive = false
+                    end)
+                    
+                    -- Fade out and convert after 3 seconds
+                    task.delay(3, function()
+                        forcefieldActive = false
+                        local fadeTween = TweenService:Create(forcefield, TweenInfo.new(1), {Transparency = 1})
+                        fadeTween:Play()
+                        
+                        task.delay(1, function()
+                            forcefield:Destroy()
+                            
+                            -- Convert dead illusions to troops
+                            for illusionName, dangerClass in pairs(illusionsToConvert) do
+                                if dangerClass == "TETH" then
+                                    spawnPlayerTroop("Small Slasher", {
+                                        hp = 120, sp = 100, pure = 105,
+                                        damageScale = {6, 8}, damageType = "Red",
+                                        attackCooldown = 3, attackRange = 10
+                                    })
+                                elseif dangerClass == "HE" then
+                                    spawnPlayerTroop("Wide Detector", {
+                                        hp = 300, sp = 350, pure = 299,
+                                        damageScale = {10, 15}, damageType = "Blue",
+                                        attackCooldown = 3, attackRange = 10,
+                                        ability = "forcefield", abilityCooldown = 30
+                                    })
+                                elseif dangerClass == "WAW" then
+                                    spawnPlayerTroop("Long Fog", {
+                                        hp = 720, sp = 780, pure = 675,
+                                        damageScale = {20, 27}, damageType = "Purple",
+                                        attackCooldown = 4, attackRange = 10,
+                                        ability = "fog", fogSize = 30
+                                    })
+                                elseif dangerClass == "ALEPH" then
+                                    spawnPlayerTroop("Big Mirror", {
+                                        hp = 1600, sp = 1530, pure = 1750,
+                                        damageScale = {25, 50}, damageType = "Purple",
+                                        attackCooldown = 2, attackRange = 10,
+                                        ability = "reflect", reflectChance = 0.5
+                                    })
+                                end
+                            end
+                        end)
+                    end)
+                    
+                    -- Cooldown
+                    cerberusAbility2.Text = "30s"
+                    task.spawn(function()
+                        for i = 30, 1, -1 do
+                            cerberusAbility2.Text = i .. "s"
+                            task.wait(1)
+                        end
+                        cerberusAbility2.Text = "Wide Eyes"
+                        weaponInfo.ability2Ready = true
+                    end)
+                end)
+            else
+                screenGui:FindFirstChild("CerberusAbility2").Visible = true
+            end
         end
     end)
     
@@ -2940,6 +3160,9 @@ local function createWeaponTool(weaponName)
         end
         if screenGui:FindFirstChild("CerberusAbility1") then
             screenGui:FindFirstChild("CerberusAbility1").Visible = false
+        end
+        if screenGui:FindFirstChild("CerberusAbility2") then
+            screenGui:FindFirstChild("CerberusAbility2").Visible = false
         end
     end)
     
@@ -3270,6 +3493,10 @@ local function onCharacterAdded(newCharacter)
         -- Reset Cerberus fog
         if playerStats.currentSuit == "Cerberus Suit" then
             suitData["Cerberus Suit"].shadowFogActive = false
+            if suitData["Cerberus Suit"].fogPart and suitData["Cerberus Suit"].fogPart.Parent then
+                suitData["Cerberus Suit"].fogPart:Destroy()
+                suitData["Cerberus Suit"].fogPart = nil
+            end
         end
     end)
 end
