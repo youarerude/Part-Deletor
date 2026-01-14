@@ -290,6 +290,16 @@ local weaponData = {
         abilityReady = true,
         dashSpeed = 15,
         dashDuration = 1
+    },
+    Cerberus = {
+        damageType = "Multi", -- All 4 types
+        damageScale = {50, 125},
+        cooldown = 5,
+        dangerClass = "LAMMED",
+        hitSound = "rbxassetid://136833367092810",
+        special = true,
+        ability1Cooldown = 15,
+        ability1Ready = true
     }
 }
 
@@ -646,13 +656,47 @@ local function damagePlayer(damageAmount, damageType)
             shadowFog.Material = Enum.Material.Neon
             shadowFog.Parent = workspace
             
-            -- Update fog position continuously
+            -- Store fog reference
+            suitData[currentSuit].fogPart = shadowFog
+            
+            -- Fog damage loop
             task.spawn(function()
                 while suitData[currentSuit].shadowFogActive and playerStats.hp > 0 do
                     if shadowFog.Parent then
                         shadowFog.Position = hrp.Position
+                        
+                        -- Damage illusions in fog
+                        for name, illusion in pairs(activeIllusions) do
+                            if illusion and illusion.torso and illusion.torso.Parent then
+                                local distance = (illusion.torso.Position - shadowFog.Position).Magnitude
+                                if distance <= 15 then
+                                    local fogDamage = math.random(10, 20)
+                                    damageIllusion(name, fogDamage, "Black")
+                                end
+                            end
+                        end
+                        
+                        -- Damage eggs in fog
+                        for eggName, egg in pairs(disasterWolfEvent.eggs) do
+                            if egg.alive and egg.part and egg.part.Parent then
+                                local distance = (egg.part.Position - shadowFog.Position).Magnitude
+                                if distance <= 15 then
+                                    local fogDamage = math.random(10, 20)
+                                    damageEgg(eggName, fogDamage, "Black")
+                                end
+                            end
+                        end
+                        
+                        -- Damage portal in fog
+                        if disasterWolfEvent.portalSpawned and disasterWolfEvent.portalPart and disasterWolfEvent.portalPart.Parent then
+                            local distance = (disasterWolfEvent.portalPart.Position - shadowFog.Position).Magnitude
+                            if distance <= 15 then
+                                local fogDamage = math.random(10, 20)
+                                damagePortal(fogDamage)
+                            end
+                        end
                     end
-                    task.wait(0.1)
+                    task.wait(0.5)
                 end
                 if shadowFog.Parent then
                     shadowFog:Destroy()
@@ -661,6 +705,9 @@ local function damagePlayer(damageAmount, damageType)
         end
     elseif currentSuit == "Cerberus Suit" and playerStats.hp > 35 then
         suitData[currentSuit].shadowFogActive = false
+        if suitData[currentSuit].fogPart and suitData[currentSuit].fogPart.Parent then
+            suitData[currentSuit].fogPart:Destroy()
+        end
     end
     
     -- Check if player died
@@ -2671,6 +2718,48 @@ local function createWeaponTool(weaponName)
         handle.BrickColor = BrickColor.new("Really red")
         handle.Size = Vector3.new(0.7, 5, 0.7)
         handle.Material = Enum.Material.Neon
+    elseif weaponName == "Cerberus" then
+        handle.BrickColor = BrickColor.new("Really black")
+        handle.Size = Vector3.new(1, 8, 1)
+        handle.Material = Enum.Material.Neon
+        
+        -- Add multi-color effect
+        local redPart = Instance.new("Part")
+        redPart.Size = Vector3.new(0.3, 2, 0.3)
+        redPart.Position = handle.Position + Vector3.new(0, 3, 0)
+        redPart.BrickColor = BrickColor.new("Really red")
+        redPart.Material = Enum.Material.Neon
+        redPart.Parent = handle
+        
+        local weld1 = Instance.new("Weld")
+        weld1.Part0 = handle
+        weld1.Part1 = redPart
+        weld1.C0 = CFrame.new(0, 3, 0)
+        weld1.Parent = handle
+        
+        local bluePart = Instance.new("Part")
+        bluePart.Size = Vector3.new(0.3, 2, 0.3)
+        bluePart.BrickColor = BrickColor.new("Bright blue")
+        bluePart.Material = Enum.Material.Neon
+        bluePart.Parent = handle
+        
+        local weld2 = Instance.new("Weld")
+        weld2.Part0 = handle
+        weld2.Part1 = bluePart
+        weld2.C0 = CFrame.new(0, 1, 0)
+        weld2.Parent = handle
+        
+        local purplePart = Instance.new("Part")
+        purplePart.Size = Vector3.new(0.3, 2, 0.3)
+        purplePart.BrickColor = BrickColor.new("Bright violet")
+        purplePart.Material = Enum.Material.Neon
+        purplePart.Parent = handle
+        
+        local weld3 = Instance.new("Weld")
+        weld3.Part0 = handle
+        weld3.Part1 = purplePart
+        weld3.C0 = CFrame.new(0, -1, 0)
+        weld3.Parent = handle
     end
     
     tool.Equipped:Connect(function()
@@ -2763,11 +2852,94 @@ local function createWeaponTool(weaponName)
             end
             mimicArtAbilityGui.Visible = true
         end
+        
+        -- Create Cerberus ability button
+        if weaponName == "Cerberus" then
+            if not screenGui:FindFirstChild("CerberusAbility1") then
+                local cerberusAbility1 = Instance.new("TextButton")
+                cerberusAbility1.Name = "CerberusAbility1"
+                cerberusAbility1.Size = UDim2.new(0, 100, 0, 50)
+                cerberusAbility1.Position = UDim2.new(0, 20, 1, -70)
+                cerberusAbility1.Text = "Small Claw"
+                cerberusAbility1.Font = Enum.Font.GothamBold
+                cerberusAbility1.TextScaled = true
+                cerberusAbility1.BackgroundColor3 = Color3.fromRGB(139, 0, 0)
+                cerberusAbility1.TextColor3 = Color3.new(1, 1, 1)
+                cerberusAbility1.Parent = screenGui
+                
+                cerberusAbility1.MouseButton1Click:Connect(function()
+                    local weaponInfo = weaponData["Cerberus"]
+                    if not weaponInfo.ability1Ready then return end
+                    
+                    weaponInfo.ability1Ready = false
+                    
+                    -- Summon red beams on all illusions
+                    for name, illusion in pairs(activeIllusions) do
+                        if illusion and illusion.torso and illusion.torso.Parent then
+                            local beam = Instance.new("Part")
+                            beam.Size = Vector3.new(5, 50, 5)
+                            beam.Position = illusion.torso.Position + Vector3.new(0, 25, 0)
+                            beam.Anchored = true
+                            beam.CanCollide = false
+                            beam.BrickColor = BrickColor.new("Really red")
+                            beam.Material = Enum.Material.Neon
+                            beam.Transparency = 0.3
+                            beam.Parent = workspace
+                            
+                            local damage = math.random(90, 175)
+                            damageIllusion(name, damage, "Red")
+                            
+                            task.delay(1, function()
+                                beam:Destroy()
+                            end)
+                        end
+                    end
+                    
+                    -- Also damage eggs
+                    for eggName, egg in pairs(disasterWolfEvent.eggs) do
+                        if egg.alive and egg.part and egg.part.Parent then
+                            local beam = Instance.new("Part")
+                            beam.Size = Vector3.new(5, 50, 5)
+                            beam.Position = egg.part.Position + Vector3.new(0, 25, 0)
+                            beam.Anchored = true
+                            beam.CanCollide = false
+                            beam.BrickColor = BrickColor.new("Really red")
+                            beam.Material = Enum.Material.Neon
+                            beam.Transparency = 0.3
+                            beam.Parent = workspace
+                            
+                            local damage = math.random(90, 175)
+                            damageEgg(eggName, damage, "Red")
+                            
+                            task.delay(1, function()
+                                beam:Destroy()
+                            end)
+                        end
+                    end
+                    
+                    -- Cooldown
+                    cerberusAbility1.Text = "15s"
+                    task.spawn(function()
+                        for i = 15, 1, -1 do
+                            cerberusAbility1.Text = i .. "s"
+                            task.wait(1)
+                        end
+                        cerberusAbility1.Text = "Small Claw"
+                        weaponInfo.ability1Ready = true
+                    end)
+                end)
+            else
+                screenGui:FindFirstChild("CerberusAbility1").Visible = true
+            end
+        end
     end)
     
     tool.Unequipped:Connect(function()
         if mimicArtAbilityGui then
             mimicArtAbilityGui.Visible = false
+        end
+        if screenGui:FindFirstChild("CerberusAbility1") then
+            screenGui:FindFirstChild("CerberusAbility1").Visible = false
         end
     end)
     
@@ -2793,10 +2965,20 @@ local function createWeaponTool(weaponName)
         end
         
         local lookVector = hrp.CFrame.LookVector
-        local hitPosition = hrp.Position + lookVector * 8 + Vector3.new(0, 2, 0)
+        local hitPosition = hrp.Position + lookVector * 10
+        
+        -- Cerberus has 20 stud range
+        if weaponName == "Cerberus" then
+            hitPosition = hrp.Position + lookVector * 20
+        end
         
         local hitbox = Instance.new("Part")
-        hitbox.Size = Vector3.new(10, 10, 10)
+        local hitboxSize = Vector3.new(10, 10, 10)
+        if weaponName == "Cerberus" then
+            hitboxSize = Vector3.new(20, 20, 20)
+        end
+        
+        hitbox.Size = hitboxSize
         hitbox.Position = hitPosition
         hitbox.Anchored = true
         hitbox.CanCollide = false
@@ -2886,12 +3068,23 @@ local function createWeaponTool(weaponName)
             end)
         else
             local hitSomething = false
+            local hitRange = weaponName == "Cerberus" and 20 or 10
+            
             for name, illusion in pairs(activeIllusions) do
                 if illusion.torso then
                     local distance = (illusion.torso.Position - hitPosition).Magnitude
-                    if distance <= 10 then
+                    if distance <= hitRange then
                         local damage = math.random(weaponInfo.damageScale[1], weaponInfo.damageScale[2]) * getPureMultiplier()
-                        damageIllusion(name, damage, weaponInfo.damageType)
+                        
+                        -- Cerberus deals all 4 damage types (1 by 1)
+                        if weaponName == "Cerberus" then
+                            damageIllusion(name, damage, "Red")
+                            damageIllusion(name, damage, "Blue")
+                            damageIllusion(name, damage, "Purple")
+                            damageIllusion(name, damage, "Black")
+                        else
+                            damageIllusion(name, damage, weaponInfo.damageType)
+                        end
                         hitSomething = true
                     end
                 end
@@ -2900,9 +3093,14 @@ local function createWeaponTool(weaponName)
             -- Check portal hit
             if disasterWolfEvent.portalSpawned and disasterWolfEvent.portalPart then
                 local portalDistance = (disasterWolfEvent.portalPart.Position - hitPosition).Magnitude
-                if portalDistance <= 15 then
+                if portalDistance <= hitRange + 5 then
                     local damage = math.random(weaponInfo.damageScale[1], weaponInfo.damageScale[2]) * getPureMultiplier()
-                    damagePortal(damage)
+                    
+                    if weaponName == "Cerberus" then
+                        damagePortal(damage * 4) -- All 4 damage types combined
+                    else
+                        damagePortal(damage)
+                    end
                     hitSomething = true
                 end
             end
@@ -2911,9 +3109,17 @@ local function createWeaponTool(weaponName)
             for eggName, egg in pairs(disasterWolfEvent.eggs) do
                 if egg.alive and egg.part then
                     local eggDistance = (egg.part.Position - hitPosition).Magnitude
-                    if eggDistance <= 10 then
+                    if eggDistance <= hitRange then
                         local damage = math.random(weaponInfo.damageScale[1], weaponInfo.damageScale[2]) * getPureMultiplier()
-                        damageEgg(eggName, damage, weaponInfo.damageType)
+                        
+                        if weaponName == "Cerberus" then
+                            damageEgg(eggName, damage, "Red")
+                            damageEgg(eggName, damage, "Blue")
+                            damageEgg(eggName, damage, "Purple")
+                            damageEgg(eggName, damage, "Black")
+                        else
+                            damageEgg(eggName, damage, weaponInfo.damageType)
+                        end
                         hitSomething = true
                     end
                 end
