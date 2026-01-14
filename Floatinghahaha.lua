@@ -203,6 +203,35 @@ local illusionData = {
         damageScale = {75, 100},
         dangerClass = "LAMMED",
         enabled = false
+    },
+    ["Small Slasher"] = {
+        description = "A small aggressive slasher from failed TETH illusions.",
+        hp = 120,
+        sp = 100,
+        pure = 105,
+        walkSpeed = 14,
+        attackRange = 10,
+        attackCooldown = 3,
+        damageReductions = {Red = 0.8, Blue = 1, Purple = 1.2, Black = 1.5},
+        damageType = "Red",
+        damageScale = {6, 8},
+        dangerClass = "TETH",
+        enabled = false
+    },
+    ["Wide Detector"] = {
+        description = "A wide detector from failed HE illusions.",
+        hp = 300,
+        sp = 350,
+        pure = 299,
+        walkSpeed = 12,
+        attackRange = 10,
+        attackCooldown = 3,
+        damageReductions = {Red = 0.9, Blue = 0.7, Purple = 1, Black = 1.3},
+        damageType = "Blue",
+        damageScale = {10, 15},
+        dangerClass = "HE",
+        enabled = false,
+        pulseTimer = 0
     }
 }
 
@@ -306,7 +335,6 @@ local weaponData = {
 }
 
 local activeIllusions = {}
-local playerTroops = {} -- For converted illusions
 local weaponTools = {}
 local attackCooldown = false
 local playerBlinded = false
@@ -664,8 +692,8 @@ local function damagePlayer(damageAmount, damageType)
             
             -- Fog damage loop
             task.spawn(function()
-                while suitData[currentSuit].shadowFogActive and playerStats.hp > 0 do
-                    if shadowFog.Parent then
+                while suitData[currentSuit].shadowFogActive and playerStats.hp > 0 and playerStats.hp <= 35 do
+                    if shadowFog and shadowFog.Parent then
                         shadowFog.Position = hrp.Position
                         
                         -- Damage illusions in fog
@@ -674,45 +702,51 @@ local function damagePlayer(damageAmount, damageType)
                                 local distance = (illusion.torso.Position - shadowFog.Position).Magnitude
                                 if distance <= 15 then
                                     local fogDamage = math.random(10, 20)
-                                    damageIllusion(name, fogDamage, "Black")
+                                    pcall(function()
+                                        damageIllusion(name, fogDamage, "Black")
+                                    end)
                                 end
                             end
                         end
                         
                         -- Damage eggs in fog
-                        for eggName, egg in pairs(disasterWolfEvent.eggs) do
-                            if egg.alive and egg.part and egg.part.Parent then
-                                local distance = (egg.part.Position - shadowFog.Position).Magnitude
-                                if distance <= 15 then
-                                    local fogDamage = math.random(10, 20)
-                                    damageEgg(eggName, fogDamage, "Black")
+                        if disasterWolfEvent and disasterWolfEvent.eggs then
+                            for eggName, egg in pairs(disasterWolfEvent.eggs) do
+                                if egg and egg.alive and egg.part and egg.part.Parent then
+                                    local distance = (egg.part.Position - shadowFog.Position).Magnitude
+                                    if distance <= 15 then
+                                        local fogDamage = math.random(10, 20)
+                                        pcall(function()
+                                            damageEgg(eggName, fogDamage, "Black")
+                                        end)
+                                    end
                                 end
                             end
                         end
                         
                         -- Damage portal in fog
-                        if disasterWolfEvent.portalSpawned and disasterWolfEvent.portalPart and disasterWolfEvent.portalPart.Parent then
+                        if disasterWolfEvent and disasterWolfEvent.portalSpawned and disasterWolfEvent.portalPart and disasterWolfEvent.portalPart.Parent then
                             local distance = (disasterWolfEvent.portalPart.Position - shadowFog.Position).Magnitude
                             if distance <= 15 then
                                 local fogDamage = math.random(10, 20)
-                                damagePortal(fogDamage)
+                                pcall(function()
+                                    damagePortal(fogDamage)
+                                end)
                             end
                         end
                     end
                     task.wait(0.5)
                 end
-                if shadowFog.Parent then
+                if shadowFog and shadowFog.Parent then
                     shadowFog:Destroy()
                 end
+                suitData[currentSuit].shadowFogActive = false
             end)
         end
     elseif currentSuit == "Cerberus Suit" and playerStats.hp > 35 then
-        if suitData[currentSuit].shadowFogActive then
-            suitData[currentSuit].shadowFogActive = false
-            if suitData[currentSuit].fogPart and suitData[currentSuit].fogPart.Parent then
-                suitData[currentSuit].fogPart:Destroy()
-                suitData[currentSuit].fogPart = nil
-            end
+        suitData[currentSuit].shadowFogActive = false
+        if suitData[currentSuit].fogPart and suitData[currentSuit].fogPart.Parent then
+            suitData[currentSuit].fogPart:Destroy()
         end
     end
     
@@ -2082,6 +2116,40 @@ function spawnIllusion(name, data)
                 end
             end
             
+            -- Wide Detector special mechanics
+            if name == "Wide Detector" then
+                illusion.pulseTimer = illusion.pulseTimer + 0.1
+                
+                -- Pulse every 30 seconds
+                if illusion.pulseTimer >= 30 then
+                    illusion.pulseTimer = 0
+                    
+                    local forcefield = Instance.new("Part")
+                    forcefield.Size = Vector3.new(30, 30, 30)
+                    forcefield.Shape = Enum.PartType.Ball
+                    forcefield.Position = torso.Position
+                    forcefield.Anchored = true
+                    forcefield.CanCollide = false
+                    forcefield.Transparency = 0.5
+                    forcefield.BrickColor = BrickColor.new("Bright blue")
+                    forcefield.Material = Enum.Material.Neon
+                    forcefield.Parent = workspace
+                    
+                    -- Check if player in forcefield
+                    if (hrp.Position - forcefield.Position).Magnitude <= 15 then
+                        local damage = math.random(17, 25)
+                        damagePlayer(damage, "Blue")
+                    end
+                    
+                    -- Fade out
+                    local fadeTween = TweenService:Create(forcefield, TweenInfo.new(1), {Transparency = 1})
+                    fadeTween:Play()
+                    task.delay(1, function()
+                        forcefield:Destroy()
+                    end)
+                end
+            end
+            
             -- Mimicry special mechanics
             if name == "Mimicry" then
                 -- Check if player died near Mimicry (Phase 1 -> Egg)
@@ -2559,117 +2627,39 @@ function spawnIllusion(name, data)
     end)
 end
 
--- Spawn Player Troop (converted illusions)
-function spawnPlayerTroop(troopName, data)
-    local troopModel = Instance.new("Model")
-    troopModel.Name = troopName
-    
-    local torso = Instance.new("Part")
-    torso.Name = "Torso"
-    torso.Size = Vector3.new(2, 2, 1)
-    torso.Position = hrp.Position + Vector3.new(math.random(-10, 10), 0, math.random(-10, 10))
-    torso.Anchored = false
-    torso.CanCollide = true
-    torso.Parent = troopModel
-    
-    local head = Instance.new("Part")
-    head.Name = "Head"
-    head.Size = Vector3.new(2, 1, 1)
-    head.Position = torso.Position + Vector3.new(0, 1.5, 0)
-    head.Anchored = false
-    head.CanCollide = true
-    head.Parent = troopModel
-    
-    -- Color based on type
-    if troopName == "Small Slasher" then
-        torso.BrickColor = BrickColor.new("Bright red")
-        head.BrickColor = BrickColor.new("Bright red")
-    elseif troopName == "Wide Detector" then
-        torso.BrickColor = BrickColor.new("Bright blue")
-        head.BrickColor = BrickColor.new("Bright blue")
-    elseif troopName == "Long Fog" then
-        torso.BrickColor = BrickColor.new("Dark stone grey")
-        head.BrickColor = BrickColor.new("Dark stone grey")
-    elseif troopName == "Big Mirror" then
-        torso.BrickColor = BrickColor.new("White")
-        head.BrickColor = BrickColor.new("White")
-    end
-    
-    local weld = Instance.new("WeldConstraint")
-    weld.Part0 = torso
-    weld.Part1 = head
-    weld.Parent = torso
-    
-    local troopHumanoid = Instance.new("Humanoid")
-    troopHumanoid.MaxHealth = data.hp
-    troopHumanoid.Health = data.hp
-    troopHumanoid.WalkSpeed = 16
-    troopHumanoid.Parent = troopModel
-    
-    troopModel.Parent = workspace
-    
-    -- Store troop data
-    playerTroops[troopName .. "_" .. tick()] = {
-        model = troopModel,
-        humanoid = troopHumanoid,
-        torso = torso,
-        head = head,
-        data = data,
-        hp = data.hp,
-        maxHp = data.hp,
-        lastAttack = 0,
-        abilityTimer = 0
-    }
-    
-    -- Troop AI
-    task.spawn(function()
-        while troopModel.Parent and troopHumanoid.Health > 0 do
-            -- Find nearest enemy illusion
-            local nearestIllusion = nil
-            local nearestDistance = math.huge
-            
-            for name, illusion in pairs(activeIllusions) do
-                if illusion and illusion.torso and illusion.torso.Parent then
-                    local distance = (illusion.torso.Position - torso.Position).Magnitude
-                    if distance < nearestDistance then
-                        nearestDistance = distance
-                        nearestIllusion = {name = name, illusion = illusion}
-                    end
-                end
-            end
-            
-            if nearestIllusion then
-                if nearestDistance > data.attackRange then
-                    troopHumanoid:MoveTo(nearestIllusion.illusion.torso.Position)
-                else
-                    -- Attack
-                    local currentTime = tick()
-                    if currentTime - playerTroops[troopName .. "_" .. tick()].lastAttack >= data.attackCooldown then
-                        playerTroops[troopName .. "_" .. tick()].lastAttack = currentTime
-                        
-                        local damage = math.random(data.damageScale[1], data.damageScale[2])
-                        damageIllusion(nearestIllusion.name, damage, data.damageType)
-                    end
-                end
-            end
-            
-            task.wait(0.1)
-        end
-        
-        -- Cleanup
-        troopModel:Destroy()
-    end)
-end
+-- Remove Illusion
+function removeIllusion(name)
     if activeIllusions[name] then
         local illusion = activeIllusions[name]
+        
+        -- Check if should spawn converted illusion (Wide Eyes ability)
+        if illusion.convertOnDeath then
+            local convertType = illusion.convertOnDeath
+            if convertType == "Small Slasher" then
+                spawnIllusion("Small Slasher", illusionData["Small Slasher"])
+                if activeIllusions["Small Slasher"] and illusion.torso then
+                    activeIllusions["Small Slasher"].model.PrimaryPart.Position = illusion.torso.Position
+                end
+            elseif convertType == "Wide Detector" then
+                spawnIllusion("Wide Detector", illusionData["Wide Detector"])
+                if activeIllusions["Wide Detector"] and illusion.torso then
+                    activeIllusions["Wide Detector"].model.PrimaryPart.Position = illusion.torso.Position
+                end
+            end
+        end
+        
         if illusion.model then
             illusion.model:Destroy()
         end
         for _, firePart in pairs(illusion.fireTrail) do
-            firePart:Destroy()
+            if firePart then
+                firePart:Destroy()
+            end
         end
         activeIllusions[name] = nil
-        illusionData[name].enabled = false
+        if illusionData[name] then
+            illusionData[name].enabled = false
+        end
     end
 end
 
@@ -3037,7 +3027,7 @@ local function createWeaponTool(weaponName)
                 screenGui:FindFirstChild("CerberusAbility1").Visible = true
             end
             
-            -- Ability 2 button
+            -- Create Cerberus Ability 2 button
             if not screenGui:FindFirstChild("CerberusAbility2") then
                 local cerberusAbility2 = Instance.new("TextButton")
                 cerberusAbility2.Name = "CerberusAbility2"
@@ -3046,7 +3036,7 @@ local function createWeaponTool(weaponName)
                 cerberusAbility2.Text = "Wide Eyes"
                 cerberusAbility2.Font = Enum.Font.GothamBold
                 cerberusAbility2.TextScaled = true
-                cerberusAbility2.BackgroundColor3 = Color3.fromRGB(0, 0, 139)
+                cerberusAbility2.BackgroundColor3 = Color3.fromRGB(0, 100, 255)
                 cerberusAbility2.TextColor3 = Color3.new(1, 1, 1)
                 cerberusAbility2.Parent = screenGui
                 
@@ -3075,6 +3065,7 @@ local function createWeaponTool(weaponName)
                     task.spawn(function()
                         local startTime = tick()
                         while forcefieldActive and tick() - startTime < 3 do
+                            -- Damage illusions in forcefield
                             for name, illusion in pairs(activeIllusions) do
                                 if illusion and illusion.torso and illusion.torso.Parent then
                                     local distance = (illusion.torso.Position - forcefield.Position).Magnitude
@@ -3082,56 +3073,58 @@ local function createWeaponTool(weaponName)
                                         local damage = math.random(30, 50)
                                         damageIllusion(name, damage, "Blue")
                                         
-                                        -- Check if illusion died
-                                        if illusion.hp <= 0 then
-                                            illusionsToConvert[name] = illusion.data.dangerClass
+                                        -- Check if illusion died and mark for conversion
+                                        if not activeIllusions[name] and illusion.data then
+                                            if illusion.data.dangerClass == "TETH" then
+                                                table.insert(illusionsToConvert, {pos = illusion.torso.Position, type = "Small Slasher"})
+                                            elseif illusion.data.dangerClass == "HE" then
+                                                table.insert(illusionsToConvert, {pos = illusion.torso.Position, type = "Wide Detector"})
+                                            end
                                         end
                                     end
                                 end
                             end
+                            
+                            -- Damage eggs
+                            if disasterWolfEvent and disasterWolfEvent.eggs then
+                                for eggName, egg in pairs(disasterWolfEvent.eggs) do
+                                    if egg and egg.alive and egg.part and egg.part.Parent then
+                                        local distance = (egg.part.Position - forcefield.Position).Magnitude
+                                        if distance <= 50 then
+                                            local damage = math.random(30, 50)
+                                            pcall(function()
+                                                damageEgg(eggName, damage, "Blue")
+                                            end)
+                                        end
+                                    end
+                                end
+                            end
+                            
                             task.wait(0.1)
                         end
                         forcefieldActive = false
                     end)
                     
-                    -- Fade out and convert after 3 seconds
+                    -- Fade out after 3 seconds
                     task.delay(3, function()
                         forcefieldActive = false
-                        local fadeTween = TweenService:Create(forcefield, TweenInfo.new(1), {Transparency = 1})
+                        local fadeTween = TweenService:Create(forcefield, TweenInfo.new(0.5), {Transparency = 1})
                         fadeTween:Play()
-                        
-                        task.delay(1, function()
+                        task.delay(0.5, function()
                             forcefield:Destroy()
                             
-                            -- Convert dead illusions to troops
-                            for illusionName, dangerClass in pairs(illusionsToConvert) do
-                                if dangerClass == "TETH" then
-                                    spawnPlayerTroop("Small Slasher", {
-                                        hp = 120, sp = 100, pure = 105,
-                                        damageScale = {6, 8}, damageType = "Red",
-                                        attackCooldown = 3, attackRange = 10
-                                    })
-                                elseif dangerClass == "HE" then
-                                    spawnPlayerTroop("Wide Detector", {
-                                        hp = 300, sp = 350, pure = 299,
-                                        damageScale = {10, 15}, damageType = "Blue",
-                                        attackCooldown = 3, attackRange = 10,
-                                        ability = "forcefield", abilityCooldown = 30
-                                    })
-                                elseif dangerClass == "WAW" then
-                                    spawnPlayerTroop("Long Fog", {
-                                        hp = 720, sp = 780, pure = 675,
-                                        damageScale = {20, 27}, damageType = "Purple",
-                                        attackCooldown = 4, attackRange = 10,
-                                        ability = "fog", fogSize = 30
-                                    })
-                                elseif dangerClass == "ALEPH" then
-                                    spawnPlayerTroop("Big Mirror", {
-                                        hp = 1600, sp = 1530, pure = 1750,
-                                        damageScale = {25, 50}, damageType = "Purple",
-                                        attackCooldown = 2, attackRange = 10,
-                                        ability = "reflect", reflectChance = 0.5
-                                    })
+                            -- Spawn converted illusions
+                            for _, convertData in ipairs(illusionsToConvert) do
+                                if convertData.type == "Small Slasher" then
+                                    spawnIllusion("Small Slasher", illusionData["Small Slasher"])
+                                    if activeIllusions["Small Slasher"] and activeIllusions["Small Slasher"].torso then
+                                        activeIllusions["Small Slasher"].torso.Position = convertData.pos
+                                    end
+                                elseif convertData.type == "Wide Detector" then
+                                    spawnIllusion("Wide Detector", illusionData["Wide Detector"])
+                                    if activeIllusions["Wide Detector"] and activeIllusions["Wide Detector"].torso then
+                                        activeIllusions["Wide Detector"].torso.Position = convertData.pos
+                                    end
                                 end
                             end
                         end)
@@ -3493,10 +3486,6 @@ local function onCharacterAdded(newCharacter)
         -- Reset Cerberus fog
         if playerStats.currentSuit == "Cerberus Suit" then
             suitData["Cerberus Suit"].shadowFogActive = false
-            if suitData["Cerberus Suit"].fogPart and suitData["Cerberus Suit"].fogPart.Parent then
-                suitData["Cerberus Suit"].fogPart:Destroy()
-                suitData["Cerberus Suit"].fogPart = nil
-            end
         end
     end)
 end
