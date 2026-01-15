@@ -1708,10 +1708,51 @@ function spawnTransformedIllusion(transformType, position)
                     if not enemyIllusion.isPlayerTroop and enemyIllusion.torso and enemyIllusion.torso.Parent then
                         local distance = (enemyIllusion.torso.Position - darkFog.Position).Magnitude
                         if distance <= 15 then
+                            -- Directly apply fog damage
                             local fogDamage = math.random(5, 10)
-                            pcall(function()
-                                damageIllusion(name, fogDamage, "Purple")
-                            end)
+                            local reduction = 1
+                            if enemyIllusion.data and enemyIllusion.data.damageReductions then
+                                reduction = enemyIllusion.data.damageReductions["Purple"] or 1
+                            end
+                            
+                            local finalDamage = fogDamage * reduction
+                            
+                            if enemyIllusion.sp and enemyIllusion.sp <= 0 then
+                                finalDamage = finalDamage * 0.5
+                            end
+                            
+                            -- Apply damage
+                            enemyIllusion.hp = math.max(0, enemyIllusion.hp - finalDamage)
+                            if enemyIllusion.sp then
+                                enemyIllusion.sp = math.max(0, enemyIllusion.sp - finalDamage)
+                            end
+                            
+                            -- Update bars
+                            if enemyIllusion.hpBar and enemyIllusion.maxHp then
+                                local hpPercent = enemyIllusion.hp / enemyIllusion.maxHp
+                                enemyIllusion.hpBar.Size = UDim2.new(hpPercent, 0, 1, 0)
+                            end
+                            
+                            if enemyIllusion.spBar and enemyIllusion.maxSp and enemyIllusion.sp then
+                                local spPercent = enemyIllusion.sp / enemyIllusion.maxSp
+                                enemyIllusion.spBar.Size = UDim2.new(spPercent, 0, 1, 0)
+                            end
+                            
+                            if enemyIllusion.billboardGui then
+                                enemyIllusion.billboardGui.Enabled = true
+                            end
+                            
+                            -- Show damage
+                            local category = getDamageCategory(finalDamage)
+                            create3DDamageGui(enemyIllusion.torso.Position, finalDamage, "Purple", category)
+                            
+                            -- Check death
+                            if enemyIllusion.hp <= 0 then
+                                if enemyIllusion.darkFog and enemyIllusion.darkFog.Parent then
+                                    enemyIllusion.darkFog:Destroy()
+                                end
+                                removeIllusion(name)
+                            end
                         end
                     end
                 end
@@ -1740,10 +1781,37 @@ function spawnTransformedIllusion(transformType, position)
                         if not enemyIllusion.isPlayerTroop and enemyIllusion.torso and enemyIllusion.torso.Parent then
                             local distance = (enemyIllusion.torso.Position - forcefield.Position).Magnitude
                             if distance <= 15 then
+                                -- Directly apply damage
                                 local damage = math.random(17, 25)
-                                pcall(function()
-                                    damageIllusion(name, damage, "Blue")
-                                end)
+                                local reduction = 1
+                                if enemyIllusion.data and enemyIllusion.data.damageReductions then
+                                    reduction = enemyIllusion.data.damageReductions["Blue"] or 1
+                                end
+                                
+                                local finalDamage = damage * reduction
+                                
+                                if enemyIllusion.sp and enemyIllusion.sp <= 0 then
+                                    finalDamage = finalDamage * 0.5
+                                end
+                                
+                                -- Apply damage
+                                if enemyIllusion.sp then
+                                    enemyIllusion.sp = math.max(0, enemyIllusion.sp - finalDamage)
+                                end
+                                
+                                -- Update bars
+                                if enemyIllusion.spBar and enemyIllusion.maxSp and enemyIllusion.sp then
+                                    local spPercent = enemyIllusion.sp / enemyIllusion.maxSp
+                                    enemyIllusion.spBar.Size = UDim2.new(spPercent, 0, 1, 0)
+                                end
+                                
+                                if enemyIllusion.billboardGui then
+                                    enemyIllusion.billboardGui.Enabled = true
+                                end
+                                
+                                -- Show damage
+                                local category = getDamageCategory(finalDamage)
+                                create3DDamageGui(enemyIllusion.torso.Position, finalDamage, "Blue", category)
                             end
                         end
                     end
@@ -1785,12 +1853,97 @@ function spawnTransformedIllusion(transformType, position)
                     
                     task.wait(0.3)
                     
+                    -- Create attack hitbox
+                    local hitPosition = torso.Position + (closestEnemy.illusion.torso.Position - torso.Position).Unit * 5
+                    local hitbox = Instance.new("Part")
+                    hitbox.Size = Vector3.new(10, 10, 10)
+                    hitbox.Position = hitPosition
+                    hitbox.Anchored = true
+                    hitbox.CanCollide = false
+                    hitbox.Transparency = 0.7
+                    hitbox.BrickColor = BrickColor.new(torso.BrickColor.Name)
+                    hitbox.Material = Enum.Material.Neon
+                    hitbox.Shape = Enum.PartType.Ball
+                    hitbox.Parent = workspace
+                    
+                    -- Check if enemy is still in range and damage them
                     if closestEnemy.illusion.torso and closestEnemy.illusion.torso.Parent then
-                        local damage = math.random(data.damageScale[1], data.damageScale[2])
-                        pcall(function()
-                            damageIllusion(closestEnemy.name, damage, data.damageType)
-                        end)
+                        local currentDistance = (closestEnemy.illusion.torso.Position - torso.Position).Magnitude
+                        if currentDistance <= data.attackRange then
+                            local damage = math.random(data.damageScale[1], data.damageScale[2])
+                            
+                            -- Directly apply damage to enemy illusion
+                            local enemyIllusion = closestEnemy.illusion
+                            local reduction = 1
+                            if enemyIllusion.data and enemyIllusion.data.damageReductions then
+                                reduction = enemyIllusion.data.damageReductions[data.damageType] or 1
+                            end
+                            
+                            local finalDamage = damage * reduction
+                            
+                            if enemyIllusion.sp and enemyIllusion.sp <= 0 then
+                                finalDamage = finalDamage * 0.5
+                            end
+                            
+                            local category = getDamageCategory(finalDamage)
+                            
+                            -- Apply damage
+                            if data.damageType == "Red" then
+                                enemyIllusion.hp = math.max(0, enemyIllusion.hp - finalDamage)
+                            elseif data.damageType == "Blue" then
+                                if enemyIllusion.sp then
+                                    enemyIllusion.sp = math.max(0, enemyIllusion.sp - finalDamage)
+                                end
+                            elseif data.damageType == "Purple" then
+                                enemyIllusion.hp = math.max(0, enemyIllusion.hp - finalDamage)
+                                if enemyIllusion.sp then
+                                    enemyIllusion.sp = math.max(0, enemyIllusion.sp - finalDamage)
+                                end
+                            elseif data.damageType == "Black" then
+                                enemyIllusion.hp = math.max(0, enemyIllusion.hp - finalDamage)
+                                if enemyIllusion.pure then
+                                    enemyIllusion.pure = math.max(0, enemyIllusion.pure - finalDamage * 0.5)
+                                end
+                            end
+                            
+                            -- Update health bars
+                            if enemyIllusion.hpBar and enemyIllusion.maxHp then
+                                local hpPercent = enemyIllusion.hp / enemyIllusion.maxHp
+                                enemyIllusion.hpBar.Size = UDim2.new(hpPercent, 0, 1, 0)
+                            end
+                            
+                            if enemyIllusion.spBar and enemyIllusion.maxSp and enemyIllusion.sp then
+                                local spPercent = enemyIllusion.sp / enemyIllusion.maxSp
+                                enemyIllusion.spBar.Size = UDim2.new(spPercent, 0, 1, 0)
+                            end
+                            
+                            if enemyIllusion.pureBar and enemyIllusion.maxPure and enemyIllusion.pure then
+                                local purePercent = enemyIllusion.pure / enemyIllusion.maxPure
+                                enemyIllusion.pureBar.Size = UDim2.new(purePercent, 0, 1, 0)
+                            end
+                            
+                            -- Show bars
+                            if enemyIllusion.billboardGui then
+                                enemyIllusion.billboardGui.Enabled = true
+                            end
+                            
+                            -- Show damage GUI
+                            create3DDamageGui(enemyIllusion.torso.Position, finalDamage, data.damageType, category)
+                            
+                            -- Check if enemy died
+                            if enemyIllusion.hp <= 0 then
+                                if enemyIllusion.darkFog and enemyIllusion.darkFog.Parent then
+                                    enemyIllusion.darkFog:Destroy()
+                                end
+                                removeIllusion(closestEnemy.name)
+                            end
+                        end
                     end
+                    
+                    -- Remove hitbox
+                    task.delay(0.3, function()
+                        hitbox:Destroy()
+                    end)
                     
                     task.wait(0.2)
                     armTween:Cancel()
