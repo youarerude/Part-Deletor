@@ -20,7 +20,9 @@ local playerStats = {
     currentSuit = "Standard Uniform",
     currentWeapon = "Baton",
     burning = false,
-    burnTick = 0
+    burnTick = 0,
+    bigBrainActive = false,
+    longBodyFog = nil
 }
 
 -- Disaster Wolf Event State
@@ -359,7 +361,11 @@ local weaponData = {
         ability1Cooldown = 15,
         ability1Ready = true,
         ability2Cooldown = 30,
-        ability2Ready = true
+        ability2Ready = true,
+        ability3Cooldown = 120,
+        ability3Ready = true,
+        ability4Cooldown = 60,
+        ability4Ready = true
     }
 }
 
@@ -588,6 +594,12 @@ end
 
 -- Apply Damage to Player
 local function damagePlayer(damageAmount, damageType)
+    -- Big Brain ability immunity
+    if playerStats.bigBrainActive then
+        create3DDamageGui(hrp.Position, 0, damageType, "IMMUNE")
+        return
+    end
+    
     local currentSuit = playerStats.currentSuit
     local reduction = 1
     
@@ -3583,6 +3595,271 @@ local function createWeaponTool(weaponName)
             else
                 screenGui:FindFirstChild("CerberusAbility2").Visible = true
             end
+            
+            -- Ability 3: Long Body
+            if not screenGui:FindFirstChild("CerberusAbility3") then
+                local cerberusAbility3 = Instance.new("TextButton")
+                cerberusAbility3.Name = "CerberusAbility3"
+                cerberusAbility3.Size = UDim2.new(0, 100, 0, 50)
+                cerberusAbility3.Position = UDim2.new(0, 240, 1, -70)
+                cerberusAbility3.Text = "Long Body"
+                cerberusAbility3.Font = Enum.Font.GothamBold
+                cerberusAbility3.TextScaled = true
+                cerberusAbility3.BackgroundColor3 = Color3.fromRGB(75, 0, 130)
+                cerberusAbility3.TextColor3 = Color3.new(1, 1, 1)
+                cerberusAbility3.Parent = screenGui
+                
+                cerberusAbility3.MouseButton1Click:Connect(function()
+                    local weaponInfo = weaponData["Cerberus"]
+                    if not weaponInfo.ability3Ready then return end
+                    
+                    weaponInfo.ability3Ready = false
+                    
+                    -- Create 50 stud dark fog that follows player
+                    local darkFog = Instance.new("Part")
+                    darkFog.Name = "LongBodyFog"
+                    darkFog.Size = Vector3.new(50, 50, 50)
+                    darkFog.Shape = Enum.PartType.Ball
+                    darkFog.Position = hrp.Position
+                    darkFog.Anchored = true
+                    darkFog.CanCollide = false
+                    darkFog.Transparency = 0.6
+                    darkFog.BrickColor = BrickColor.new("Really black")
+                    darkFog.Material = Enum.Material.Neon
+                    darkFog.Parent = workspace
+                    
+                    playerStats.longBodyFog = darkFog
+                    
+                    -- Fog damage and follow loop for 1 minute
+                    local fogDuration = 60
+                    local fogStartTime = tick()
+                    
+                    task.spawn(function()
+                        while darkFog.Parent and tick() - fogStartTime < fogDuration do
+                            -- Follow player
+                            darkFog.Position = hrp.Position
+                            
+                            -- Damage illusions in fog
+                            for name, illusion in pairs(activeIllusions) do
+                                if not illusion.isPlayerTroop and illusion.torso and illusion.torso.Parent then
+                                    local distance = (illusion.torso.Position - darkFog.Position).Magnitude
+                                    if distance <= 25 then
+                                        local damage = math.random(20, 50)
+                                        local reduction = 1
+                                        if illusion.data and illusion.data.damageReductions then
+                                            reduction = illusion.data.damageReductions["Purple"] or 1
+                                        end
+                                        
+                                        local finalDamage = damage * reduction
+                                        
+                                        if illusion.sp and illusion.sp <= 0 then
+                                            finalDamage = finalDamage * 0.5
+                                        end
+                                        
+                                        -- Apply damage
+                                        illusion.hp = math.max(0, illusion.hp - finalDamage)
+                                        if illusion.sp then
+                                            illusion.sp = math.max(0, illusion.sp - finalDamage)
+                                        end
+                                        
+                                        -- Update bars
+                                        if illusion.hpBar and illusion.maxHp then
+                                            local hpPercent = illusion.hp / illusion.maxHp
+                                            illusion.hpBar.Size = UDim2.new(hpPercent, 0, 1, 0)
+                                        end
+                                        
+                                        if illusion.spBar and illusion.maxSp and illusion.sp then
+                                            local spPercent = illusion.sp / illusion.maxSp
+                                            illusion.spBar.Size = UDim2.new(spPercent, 0, 1, 0)
+                                        end
+                                        
+                                        if illusion.billboardGui then
+                                            illusion.billboardGui.Enabled = true
+                                        end
+                                        
+                                        local category = getDamageCategory(finalDamage)
+                                        create3DDamageGui(illusion.torso.Position, finalDamage, "Purple", category)
+                                        
+                                        if illusion.hp <= 0 then
+                                            if illusion.darkFog and illusion.darkFog.Parent then
+                                                illusion.darkFog:Destroy()
+                                            end
+                                            removeIllusion(name)
+                                        end
+                                    end
+                                end
+                            end
+                            
+                            task.wait(0.5)
+                        end
+                        
+                        -- Fade out and destroy fog
+                        local fadeTween = TweenService:Create(darkFog, TweenInfo.new(1), {Transparency = 1})
+                        fadeTween:Play()
+                        task.delay(1, function()
+                            if darkFog.Parent then
+                                darkFog:Destroy()
+                            end
+                            playerStats.longBodyFog = nil
+                        end)
+                    end)
+                    
+                    -- Cooldown (2 minutes)
+                    cerberusAbility3.Text = "120s"
+                    task.spawn(function()
+                        for i = 120, 1, -1 do
+                            cerberusAbility3.Text = i .. "s"
+                            task.wait(1)
+                        end
+                        cerberusAbility3.Text = "Long Body"
+                        weaponInfo.ability3Ready = true
+                    end)
+                end)
+            else
+                screenGui:FindFirstChild("CerberusAbility3").Visible = true
+            end
+            
+            -- Ability 4: Big Brain
+            if not screenGui:FindFirstChild("CerberusAbility4") then
+                local cerberusAbility4 = Instance.new("TextButton")
+                cerberusAbility4.Name = "CerberusAbility4"
+                cerberusAbility4.Size = UDim2.new(0, 100, 0, 50)
+                cerberusAbility4.Position = UDim2.new(0, 350, 1, -70)
+                cerberusAbility4.Text = "Big Brain"
+                cerberusAbility4.Font = Enum.Font.GothamBold
+                cerberusAbility4.TextScaled = true
+                cerberusAbility4.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+                cerberusAbility4.TextColor3 = Color3.new(1, 1, 1)
+                cerberusAbility4.Parent = screenGui
+                
+                cerberusAbility4.MouseButton1Click:Connect(function()
+                    local weaponInfo = weaponData["Cerberus"]
+                    if not weaponInfo.ability4Ready then return end
+                    
+                    weaponInfo.ability4Ready = false
+                    playerStats.bigBrainActive = true
+                    
+                    -- Create visual effect around player
+                    local immuneAura = Instance.new("Part")
+                    immuneAura.Name = "BigBrainAura"
+                    immuneAura.Size = Vector3.new(10, 10, 10)
+                    immuneAura.Shape = Enum.PartType.Ball
+                    immuneAura.Anchored = true
+                    immuneAura.CanCollide = false
+                    immuneAura.Transparency = 0.7
+                    immuneAura.BrickColor = BrickColor.new("Really black")
+                    immuneAura.Material = Enum.Material.Neon
+                    immuneAura.Parent = workspace
+                    
+                    -- Suck and damage loop for 30 seconds
+                    local abilityDuration = 30
+                    local abilityStartTime = tick()
+                    
+                    task.spawn(function()
+                        while immuneAura.Parent and tick() - abilityStartTime < abilityDuration do
+                            -- Follow player
+                            immuneAura.Position = hrp.Position
+                            
+                            -- Pull and damage all illusions
+                            for name, illusion in pairs(activeIllusions) do
+                                if not illusion.isPlayerTroop and illusion.torso and illusion.torso.Parent then
+                                    -- Pull illusions toward player
+                                    local direction = (hrp.Position - illusion.torso.Position).Unit
+                                    local pullForce = Instance.new("BodyVelocity")
+                                    pullForce.Velocity = direction * 30
+                                    pullForce.MaxForce = Vector3.new(50000, 50000, 50000)
+                                    pullForce.Parent = illusion.torso
+                                    task.delay(0.1, function()
+                                        if pullForce.Parent then
+                                            pullForce:Destroy()
+                                        end
+                                    end)
+                                    
+                                    -- Damage illusion
+                                    local damage = math.random(60, 150)
+                                    local reduction = 1
+                                    if illusion.data and illusion.data.damageReductions then
+                                        reduction = illusion.data.damageReductions["Black"] or 1
+                                    end
+                                    
+                                    local finalDamage = damage * reduction
+                                    
+                                    if illusion.sp and illusion.sp <= 0 then
+                                        finalDamage = finalDamage * 0.5
+                                    end
+                                    
+                                    -- Apply damage
+                                    illusion.hp = math.max(0, illusion.hp - finalDamage)
+                                    if illusion.pure then
+                                        illusion.pure = math.max(0, illusion.pure - finalDamage * 0.5)
+                                    end
+                                    
+                                    -- Absorb HP and PURITY to player
+                                    playerStats.hp = math.min(playerStats.maxHp, playerStats.hp + finalDamage)
+                                    playerStats.pure = math.min(playerStats.maxPure, playerStats.pure + finalDamage)
+                                    
+                                    updateBars()
+                                    
+                                    -- Update illusion bars
+                                    if illusion.hpBar and illusion.maxHp then
+                                        local hpPercent = illusion.hp / illusion.maxHp
+                                        illusion.hpBar.Size = UDim2.new(hpPercent, 0, 1, 0)
+                                    end
+                                    
+                                    if illusion.pureBar and illusion.maxPure and illusion.pure then
+                                        local purePercent = illusion.pure / illusion.maxPure
+                                        illusion.pureBar.Size = UDim2.new(purePercent, 0, 1, 0)
+                                    end
+                                    
+                                    if illusion.billboardGui then
+                                        illusion.billboardGui.Enabled = true
+                                    end
+                                    
+                                    -- Show damage on illusion
+                                    local category = getDamageCategory(finalDamage)
+                                    create3DDamageGui(illusion.torso.Position, finalDamage, "Black", category)
+                                    
+                                    -- Show heal on player
+                                    create3DDamageGui(hrp.Position, -finalDamage, "Black", "ABSORB")
+                                    
+                                    if illusion.hp <= 0 then
+                                        if illusion.darkFog and illusion.darkFog.Parent then
+                                            illusion.darkFog:Destroy()
+                                        end
+                                        removeIllusion(name)
+                                    end
+                                end
+                            end
+                            
+                            task.wait(0.5)
+                        end
+                        
+                        -- End ability
+                        playerStats.bigBrainActive = false
+                        
+                        local fadeTween = TweenService:Create(immuneAura, TweenInfo.new(0.5), {Transparency = 1})
+                        fadeTween:Play()
+                        task.delay(0.5, function()
+                            if immuneAura.Parent then
+                                immuneAura:Destroy()
+                            end
+                        end)
+                    end)
+                    
+                    -- Cooldown (1 minute)
+                    cerberusAbility4.Text = "60s"
+                    task.spawn(function()
+                        for i = 60, 1, -1 do
+                            cerberusAbility4.Text = i .. "s"
+                            task.wait(1)
+                        end
+                        cerberusAbility4.Text = "Big Brain"
+                        weaponInfo.ability4Ready = true
+                    end)
+                end)
+            else
+                screenGui:FindFirstChild("CerberusAbility4").Visible = true
+            end
         end
     end)
     
@@ -3595,6 +3872,12 @@ local function createWeaponTool(weaponName)
         end
         if screenGui:FindFirstChild("CerberusAbility2") then
             screenGui:FindFirstChild("CerberusAbility2").Visible = false
+        end
+        if screenGui:FindFirstChild("CerberusAbility3") then
+            screenGui:FindFirstChild("CerberusAbility3").Visible = false
+        end
+        if screenGui:FindFirstChild("CerberusAbility4") then
+            screenGui:FindFirstChild("CerberusAbility4").Visible = false
         end
     end)
     
