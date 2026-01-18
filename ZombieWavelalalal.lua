@@ -57,6 +57,7 @@ local currentMaxZombies = 10
 
 -- Zone tracking
 local currentZone = "The City"
+local waveHpIncrease = 0
 
 -- Zombie Types
 local zombieTypes = {
@@ -171,13 +172,11 @@ local availableUpgrades = {
 local availableAbilities = {
     "Bullet Hell",
     "Explosive Bullet",
-    "Heatseeking",
-    "Lifesteal"
+    "Heatseeking"
 }
 
 local selectedAbilities = {}
 local hasHeatseeking = false
-local hasLifesteal = false
 
 -- GUI Creation
 local screenGui = Instance.new("ScreenGui")
@@ -470,8 +469,8 @@ local function createZombie(zombieType, spawnPosition)
     rightLeg.Parent = zombie
     
     local zombieHumanoid = Instance.new("Humanoid")
-    zombieHumanoid.MaxHealth = zombieData.hp
-    zombieHumanoid.Health = zombieData.hp
+    zombieHumanoid.MaxHealth = zombieData.hp + waveHpIncrease
+    zombieHumanoid.Health = zombieData.hp + waveHpIncrease
     zombieHumanoid.WalkSpeed = zombieData.speed
     zombieHumanoid.Parent = zombie
     
@@ -945,6 +944,10 @@ function showUpgradeSelection(abilityForced)
                 currentWave = currentWave + 1
                 waveLabel.Text = "Wave " .. currentWave
                 
+                -- Increase zombie HP every wave
+                local hpIncrease = math.random(5, 10)
+                waveHpIncrease = waveHpIncrease + hpIncrease
+                
                 -- Update zombie counts
                 local increase = math.random(minZombieIncrease, maxZombieIncrease)
                 currentMinZombies = currentMinZombies + minZombieIncrease
@@ -986,9 +989,6 @@ function applyUpgrade(upgrade)
         table.insert(selectedAbilities, upgrade)
     elseif upgrade == "Heatseeking" then
         hasHeatseeking = true
-        table.insert(selectedAbilities, upgrade)
-    elseif upgrade == "Lifesteal" then
-        hasLifesteal = true
         table.insert(selectedAbilities, upgrade)
     end
 end
@@ -1060,18 +1060,9 @@ local function shootBullet()
             
             if isExplosive then
                 createExplosion(bullet.Position, 20, 75, true)
-                if hasLifesteal then
-                    healPlayer(75)
-                end
             else
-                local targetHumanoid = hit.Parent:FindFirstChildOfClass("Humanoid")
-                local actualDamage = math.min(totalDamage, targetHumanoid.Health)
-                targetHumanoid.Health = targetHumanoid.Health - totalDamage
-                
-                -- Lifesteal
-                if hasLifesteal then
-                    healPlayer(actualDamage)
-                end
+                hit.Parent:FindFirstChildOfClass("Humanoid").Health = 
+                    hit.Parent:FindFirstChildOfClass("Humanoid").Health - totalDamage
             end
             
             bullet:Destroy()
