@@ -17,6 +17,7 @@ local zombiesRemaining = 0
 local isIntermission = false
 local intermissionTime = 20
 local gameStarted = false
+local bossesSpawned = {}
 
 -- Player Stats
 local playerHealth = 100
@@ -142,6 +143,20 @@ local zombieTypes = {
         maxCount = 90,
         color = Color3.fromRGB(100, 255, 50),
         vomiter = true,
+        zones = {"The Sewers"}
+    },
+    Charger = {
+        introducedWave = 17,
+        hp = 500,
+        speed = 30,
+        attackCooldown = 4,
+        damage = 75,
+        baseSpawnChance = 10,
+        maxDecrease = 5,
+        minCount = 1,
+        maxCount = 10,
+        color = Color3.fromRGB(150, 150, 200),
+        charger = true,
         zones = {"The Sewers"}
     },
     TheHowler = {
@@ -461,7 +476,8 @@ local function createZombie(zombieType, spawnPosition)
     zombie.Name = zombieType
     
     local isBoss = zombieData.boss or false
-    local sizeMultiplier = isBoss and 3 or 1
+    local isCharger = zombieData.charger or false
+    local sizeMultiplier = isBoss and 3 or (isCharger and 2.5 or 1)
     
     local torso = Instance.new("Part")
     torso.Name = "Torso"
@@ -550,14 +566,54 @@ local function createZombie(zombieType, spawnPosition)
     local lastAttackTime = 0
     local attackCount = 0
     local poisonedPlayers = {}
+    local isCharging = false
     
     spawn(function()
         while zombie.Parent and zombieHumanoid.Health > 0 do
             if character and rootPart then
                 local distance = (torso.Position - rootPart.Position).Magnitude
                 
+                -- Charger special behavior
+                if isCharger then
+                    zombieHumanoid.WalkSpeed = 0
+                    
+                    if tick() - lastAttackTime >= zombieData.attackCooldown and not isCharging then
+                        isCharging = true
+                        lastAttackTime = tick()
+                        
+                        -- Start charge
+                        torso.BrickColor = BrickColor.new("Bright red")
+                        local chargeDirection = (rootPart.Position - torso.Position).Unit
+                        local chargeVelocity = Instance.new("BodyVelocity")
+                        chargeVelocity.Velocity = chargeDirection * zombieData.speed
+                        chargeVelocity.MaxForce = Vector3.new(100000, 0, 100000)
+                        chargeVelocity.Parent = torso
+                        
+                        -- Charge hit detection
+                        local chargeConnection
+                        chargeConnection = torso.Touched:Connect(function(hit)
+                            if hit.Parent == character then
+                                damagePlayer(zombieData.damage)
+                                
+                                -- Fling player
+                                local flingDirection = (rootPart.Position - torso.Position).Unit
+                                local bodyVelocity = Instance.new("BodyVelocity")
+                                bodyVelocity.Velocity = flingDirection * 80 + Vector3.new(0, 30, 0)
+                                bodyVelocity.MaxForce = Vector3.new(100000, 100000, 100000)
+                                bodyVelocity.Parent = rootPart
+                                game:GetService("Debris"):AddItem(bodyVelocity, 0.3)
+                            end
+                        end)
+                        
+                        wait(1)
+                        
+                        chargeConnection:Disconnect()
+                        chargeVelocity:Destroy()
+                        torso.BrickColor = BrickColor.new(zombieData.color)
+                        isCharging = false
+                    end
                 -- Vomiter projectile attack
-                if zombieData.vomiter and distance <= 30 then
+                elseif zombieData.vomiter and distance <= 30 then
                     zombieHumanoid.WalkSpeed = 0
                     
                     if tick() - lastAttackTime >= zombieData.attackCooldown then
@@ -789,6 +845,12 @@ local function spawnWaveZombies()
     local zombieCount = math.random(currentMinZombies, currentMaxZombies)
     zombiesRemaining = zombieCount
     
+    -- Reset zombie spawn count after wave 15
+    if currentWave == 16 then
+        currentMinZombies = 20
+        currentMaxZombies = 20
+    end
+    
     -- Update zone
     if currentWave >= 11 then
         currentZone = "The Sewers"
@@ -800,8 +862,8 @@ local function spawnWaveZombies()
         zoneLabel.TextColor3 = Color3.fromRGB(100, 200, 255)
     end
     
-    -- Spawn boss on wave 10
-    if currentWave == 10 then
+    -- Spawn boss on specific wave (only once)
+    if currentWave == 10 and not bossesSpawned["TheHowler"] then
         local angle = math.random() * math.pi * 2
         local distance = 50
         local spawnPos = rootPart.Position + Vector3.new(
@@ -810,6 +872,7 @@ local function spawnWaveZombies()
             math.sin(angle) * distance
         )
         createZombie("TheHowler", spawnPos)
+        bossesSpawned["TheHowler"] = true
     end
     
     for i = 1, zombieCount do
