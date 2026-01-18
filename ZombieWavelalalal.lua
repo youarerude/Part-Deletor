@@ -40,6 +40,8 @@ local isShooting = false
 -- Upgrade Stats
 local damageBonus = 0
 local speedBonus = 0
+local slownessStacks = 0
+local ricochetStacks = 0
 
 -- Ability Stats
 local hasBulletHell = false
@@ -166,7 +168,9 @@ local availableUpgrades = {
     "Max Bullet Increase",
     "Max Ammo Increase",
     "Bullet Rate",
-    "Max Health"
+    "Max Health",
+    "Slowness",
+    "Ricochet"
 }
 
 local availableAbilities = {
@@ -256,6 +260,37 @@ shootButton.TextScaled = true
 shootButton.Text = "SHOOT"
 shootButton.Visible = false
 shootButton.Parent = screenGui
+
+-- Debug/Cheat Buttons
+local skipWaveButton = Instance.new("TextButton")
+skipWaveButton.Size = UDim2.new(0, 120, 0, 40)
+skipWaveButton.Position = UDim2.new(0, 10, 0, 120)
+skipWaveButton.BackgroundColor3 = Color3.fromRGB(255, 150, 0)
+skipWaveButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+skipWaveButton.Font = Enum.Font.SourceSansBold
+skipWaveButton.TextScaled = true
+skipWaveButton.Text = "Skip Wave"
+skipWaveButton.Parent = screenGui
+
+local abilityChooseButton = Instance.new("TextButton")
+abilityChooseButton.Size = UDim2.new(0, 120, 0, 40)
+abilityChooseButton.Position = UDim2.new(0, 10, 0, 170)
+abilityChooseButton.BackgroundColor3 = Color3.fromRGB(255, 200, 0)
+abilityChooseButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+abilityChooseButton.Font = Enum.Font.SourceSansBold
+abilityChooseButton.TextScaled = true
+abilityChooseButton.Text = "Ability Choose"
+abilityChooseButton.Parent = screenGui
+
+local upgradeChooseButton = Instance.new("TextButton")
+upgradeChooseButton.Size = UDim2.new(0, 120, 0, 40)
+upgradeChooseButton.Position = UDim2.new(0, 10, 0, 220)
+upgradeChooseButton.BackgroundColor3 = Color3.fromRGB(100, 200, 255)
+upgradeChooseButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+upgradeChooseButton.Font = Enum.Font.SourceSansBold
+upgradeChooseButton.TextScaled = true
+upgradeChooseButton.Text = "Upgrade Choose"
+upgradeChooseButton.Parent = screenGui
 
 -- Upgrade Selection Frame
 local upgradeFrame = Instance.new("Frame")
@@ -473,7 +508,7 @@ local function createZombie(zombieType, spawnPosition)
     local zombieHumanoid = Instance.new("Humanoid")
     zombieHumanoid.MaxHealth = zombieData.hp + waveHpIncrease
     zombieHumanoid.Health = zombieData.hp + waveHpIncrease
-    zombieHumanoid.WalkSpeed = zombieData.speed
+    zombieHumanoid.WalkSpeed = math.max(1, zombieData.speed - slownessStacks)
     zombieHumanoid.Parent = zombie
     
     zombie.PrimaryPart = torso
@@ -622,7 +657,7 @@ local function createZombie(zombieType, spawnPosition)
                     end
                 else
                     -- Follow player
-                    zombieHumanoid.WalkSpeed = zombieData.speed
+                    zombieHumanoid.WalkSpeed = math.max(1, zombieData.speed - slownessStacks)
                     zombieHumanoid:MoveTo(rootPart.Position)
                 end
             end
@@ -983,6 +1018,10 @@ function applyUpgrade(upgrade)
         maxPlayerHealth = maxPlayerHealth + 20
         playerHealth = playerHealth + 20
         updateHPBar()
+    elseif upgrade == "Slowness" then
+        slownessStacks = slownessStacks + 1
+    elseif upgrade == "Ricochet" then
+        ricochetStacks = ricochetStacks + 1
     elseif upgrade == "Bullet Hell" then
         hasBulletHell = true
         table.insert(selectedAbilities, upgrade)
@@ -1023,6 +1062,9 @@ local function shootBullet()
     bodyVelocity.MaxForce = Vector3.new(100000, 100000, 100000)
     bodyVelocity.Parent = bullet
     
+    local bouncesRemaining = ricochetStacks
+    local hitZombies = {}
+    
     -- Heatseeking logic
     if hasHeatseeking then
         spawn(function()
@@ -1032,10 +1074,20 @@ local function shootBullet()
                 
                 for _, zombie in pairs(activeZombies) do
                     if zombie and zombie.PrimaryPart then
-                        local distance = (zombie.PrimaryPart.Position - bullet.Position).Magnitude
-                        if distance < closestDistance then
-                            closestZombie = zombie
-                            closestDistance = distance
+                        local alreadyHit = false
+                        for _, hz in pairs(hitZombies) do
+                            if hz == zombie then
+                                alreadyHit = true
+                                break
+                            end
+                        end
+                        
+                        if not alreadyHit then
+                            local distance = (zombie.PrimaryPart.Position - bullet.Position).Magnitude
+                            if distance < closestDistance then
+                                closestZombie = zombie
+                                closestDistance = distance
+                            end
                         end
                     end
                 end
@@ -1056,7 +1108,19 @@ local function shootBullet()
     local hitConnection
     hitConnection = bullet.Touched:Connect(function(hit)
         if hit.Parent ~= character and hit.Parent:FindFirstChildOfClass("Humanoid") then
-            hitConnection:Disconnect()
+            local alreadyHit = false
+            for _, hz in pairs(hitZombies) do
+                if hz == hit.Parent then
+                    alreadyHit = true
+                    break
+                end
+            end
+            
+            if alreadyHit then
+                return
+            end
+            
+            table.insert(hitZombies, hit.Parent)
             
             local totalDamage = bulletDamage + damageBonus
             if hasBulletHell then
@@ -1066,11 +1130,13 @@ local function shootBullet()
             local targetHumanoid = hit.Parent:FindFirstChildOfClass("Humanoid")
             
             if isExplosive then
+                hitConnection:Disconnect()
                 createExplosion(bullet.Position, 20, 75, true)
                 -- Lifesteal for explosive
                 if hasLifesteal then
                     healPlayer(75)
                 end
+                bullet:Destroy()
             else
                 local actualDamage = math.min(totalDamage, targetHumanoid.Health)
                 targetHumanoid.Health = targetHumanoid.Health - totalDamage
@@ -1079,9 +1145,50 @@ local function shootBullet()
                 if hasLifesteal then
                     healPlayer(actualDamage)
                 end
+                
+                -- Ricochet logic
+                if bouncesRemaining > 0 then
+                    bouncesRemaining = bouncesRemaining - 1
+                    
+                    -- Find next target
+                    local nextTarget = nil
+                    local closestDist = math.huge
+                    
+                    for _, zombie in pairs(activeZombies) do
+                        if zombie and zombie.PrimaryPart and zombie ~= hit.Parent then
+                            local hitThis = false
+                            for _, hz in pairs(hitZombies) do
+                                if hz == zombie then
+                                    hitThis = true
+                                    break
+                                end
+                            end
+                            
+                            if not hitThis then
+                                local dist = (zombie.PrimaryPart.Position - bullet.Position).Magnitude
+                                if dist < closestDist and dist < 30 then
+                                    closestDist = dist
+                                    nextTarget = zombie
+                                end
+                            end
+                        end
+                    end
+                    
+                    if nextTarget and nextTarget.PrimaryPart then
+                        -- Bounce to next target (horizontal only)
+                        local direction = (nextTarget.PrimaryPart.Position - bullet.Position)
+                        direction = Vector3.new(direction.X, 0, direction.Z).Unit
+                        bodyVelocity.Velocity = direction * 100
+                        bullet.BrickColor = BrickColor.new("Cyan")
+                    else
+                        hitConnection:Disconnect()
+                        bullet:Destroy()
+                    end
+                else
+                    hitConnection:Disconnect()
+                    bullet:Destroy()
+                end
             end
-            
-            bullet:Destroy()
         end
     end)
     
@@ -1141,6 +1248,34 @@ end)
 
 shootButton.MouseButton1Up:Connect(function()
     isShooting = false
+end)
+
+-- Skip Wave Button
+skipWaveButton.MouseButton1Click:Connect(function()
+    if not isIntermission then
+        -- Kill all zombies
+        for _, zombie in pairs(activeZombies) do
+            if zombie and zombie:FindFirstChildOfClass("Humanoid") then
+                zombie:FindFirstChildOfClass("Humanoid").Health = 0
+            end
+        end
+        zombiesRemaining = 0
+        activeZombies = {}
+    end
+end)
+
+-- Ability Choose Button
+abilityChooseButton.MouseButton1Click:Connect(function()
+    if not upgradeFrame.Visible then
+        showUpgradeSelection(true)
+    end
+end)
+
+-- Upgrade Choose Button
+upgradeChooseButton.MouseButton1Click:Connect(function()
+    if not upgradeFrame.Visible then
+        showUpgradeSelection(false)
+    end
 end)
 
 -- Auto reload when out of bullets
