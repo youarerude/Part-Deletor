@@ -945,7 +945,7 @@ function showUpgradeSelection(abilityForced)
                 waveLabel.Text = "Wave " .. currentWave
                 
                 -- Increase zombie HP every wave
-                local hpIncrease = math.random(20, 50)
+                local hpIncrease = math.random(5, 10)
                 waveHpIncrease = waveHpIncrease + hpIncrease
                 
                 -- Update zombie counts
