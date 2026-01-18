@@ -1643,6 +1643,4 @@ spawn(function()
             humanoid:Move(Vector3.new(0, 0, 0))
         end
     end
-end)        end
-    end
 end)
