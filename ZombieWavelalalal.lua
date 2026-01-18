@@ -172,11 +172,13 @@ local availableUpgrades = {
 local availableAbilities = {
     "Bullet Hell",
     "Explosive Bullet",
-    "Heatseeking"
+    "Heatseeking",
+    "Lifesteal"
 }
 
 local selectedAbilities = {}
 local hasHeatseeking = false
+local hasLifesteal = false
 
 -- GUI Creation
 local screenGui = Instance.new("ScreenGui")
@@ -944,7 +946,7 @@ function showUpgradeSelection(abilityForced)
                 currentWave = currentWave + 1
                 waveLabel.Text = "Wave " .. currentWave
                 
-                -- Increase zombie HP every wave
+                -- Increase zombie HP every wave (changed to 5-10)
                 local hpIncrease = math.random(5, 10)
                 waveHpIncrease = waveHpIncrease + hpIncrease
                 
@@ -989,6 +991,9 @@ function applyUpgrade(upgrade)
         table.insert(selectedAbilities, upgrade)
     elseif upgrade == "Heatseeking" then
         hasHeatseeking = true
+        table.insert(selectedAbilities, upgrade)
+    elseif upgrade == "Lifesteal" then
+        hasLifesteal = true
         table.insert(selectedAbilities, upgrade)
     end
 end
@@ -1058,11 +1063,22 @@ local function shootBullet()
                 totalDamage = totalDamage + bulletHellStacks
             end
             
+            local targetHumanoid = hit.Parent:FindFirstChildOfClass("Humanoid")
+            
             if isExplosive then
                 createExplosion(bullet.Position, 20, 75, true)
+                -- Lifesteal for explosive
+                if hasLifesteal then
+                    healPlayer(75)
+                end
             else
-                hit.Parent:FindFirstChildOfClass("Humanoid").Health = 
-                    hit.Parent:FindFirstChildOfClass("Humanoid").Health - totalDamage
+                local actualDamage = math.min(totalDamage, targetHumanoid.Health)
+                targetHumanoid.Health = targetHumanoid.Health - totalDamage
+                
+                -- Lifesteal
+                if hasLifesteal then
+                    healPlayer(actualDamage)
+                end
             end
             
             bullet:Destroy()
