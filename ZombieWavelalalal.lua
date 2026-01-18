@@ -310,12 +310,127 @@ upgradeChooseButton.Parent = screenGui
 local zombieSpawnerButton = Instance.new("TextButton")
 zombieSpawnerButton.Size = UDim2.new(0, 120, 0, 40)
 zombieSpawnerButton.Position = UDim2.new(0, 10, 0, 270)
-zombieSpawnerButton.BackgroundColor3 = Color3.fromRGB(150, 50, 150)
+zombieSpawnerButton.BackgroundColor3 = Color3.fromRGB(200, 100, 200)
 zombieSpawnerButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 zombieSpawnerButton.Font = Enum.Font.SourceSansBold
 zombieSpawnerButton.TextScaled = true
 zombieSpawnerButton.Text = "Zombie Spawner"
 zombieSpawnerButton.Parent = screenGui
+
+-- Zombie Spawner Frame
+local zombieSpawnerFrame = Instance.new("Frame")
+zombieSpawnerFrame.Size = UDim2.new(0, 200, 0, 399)
+zombieSpawnerFrame.Position = UDim2.new(0.5, -100, 0.5, -199)
+zombieSpawnerFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+zombieSpawnerFrame.BorderSizePixel = 2
+zombieSpawnerFrame.BorderColor3 = Color3.fromRGB(200, 100, 200)
+zombieSpawnerFrame.Visible = false
+zombieSpawnerFrame.Parent = screenGui
+
+local spawnerTitle = Instance.new("TextLabel")
+spawnerTitle.Size = UDim2.new(1, 0, 0, 30)
+spawnerTitle.Position = UDim2.new(0, 0, 0, 0)
+spawnerTitle.BackgroundColor3 = Color3.fromRGB(200, 100, 200)
+spawnerTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
+spawnerTitle.Font = Enum.Font.SourceSansBold
+spawnerTitle.TextScaled = true
+spawnerTitle.Text = "Zombie Spawner"
+spawnerTitle.Parent = zombieSpawnerFrame
+
+local closeSpawnerButton = Instance.new("TextButton")
+closeSpawnerButton.Size = UDim2.new(0, 25, 0, 25)
+closeSpawnerButton.Position = UDim2.new(1, -27, 0, 2)
+closeSpawnerButton.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
+closeSpawnerButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+closeSpawnerButton.Font = Enum.Font.SourceSansBold
+closeSpawnerButton.TextScaled = true
+closeSpawnerButton.Text = "X"
+closeSpawnerButton.Parent = zombieSpawnerFrame
+
+local amountLabel = Instance.new("TextLabel")
+amountLabel.Size = UDim2.new(1, -10, 0, 20)
+amountLabel.Position = UDim2.new(0, 5, 0, 35)
+amountLabel.BackgroundTransparency = 1
+amountLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+amountLabel.Font = Enum.Font.SourceSans
+amountLabel.TextSize = 14
+amountLabel.Text = "Amount to Spawn:"
+amountLabel.TextXAlignment = Enum.TextXAlignment.Left
+amountLabel.Parent = zombieSpawnerFrame
+
+local amountInput = Instance.new("TextBox")
+amountInput.Size = UDim2.new(1, -10, 0, 25)
+amountInput.Position = UDim2.new(0, 5, 0, 55)
+amountInput.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+amountInput.TextColor3 = Color3.fromRGB(255, 255, 255)
+amountInput.Font = Enum.Font.SourceSans
+amountInput.TextSize = 14
+amountInput.PlaceholderText = "Enter amount (e.g., 5)"
+amountInput.Text = "1"
+amountInput.Parent = zombieSpawnerFrame
+
+local zombieListLabel = Instance.new("TextLabel")
+zombieListLabel.Size = UDim2.new(1, -10, 0, 20)
+zombieListLabel.Position = UDim2.new(0, 5, 0, 85)
+zombieListLabel.BackgroundTransparency = 1
+zombieListLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+zombieListLabel.Font = Enum.Font.SourceSans
+zombieListLabel.TextSize = 14
+zombieListLabel.Text = "Select Zombie:"
+zombieListLabel.TextXAlignment = Enum.TextXAlignment.Left
+zombieListLabel.Parent = zombieSpawnerFrame
+
+local zombieListFrame = Instance.new("ScrollingFrame")
+zombieListFrame.Size = UDim2.new(1, -10, 0, 220)
+zombieListFrame.Position = UDim2.new(0, 5, 0, 105)
+zombieListFrame.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+zombieListFrame.BorderSizePixel = 1
+zombieListFrame.ScrollBarThickness = 6
+zombieListFrame.Parent = zombieSpawnerFrame
+
+local spawnConfirmButton = Instance.new("TextButton")
+spawnConfirmButton.Size = UDim2.new(1, -10, 0, 35)
+spawnConfirmButton.Position = UDim2.new(0, 5, 1, -40)
+spawnConfirmButton.BackgroundColor3 = Color3.fromRGB(100, 200, 100)
+spawnConfirmButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+spawnConfirmButton.Font = Enum.Font.SourceSansBold
+spawnConfirmButton.TextScaled = true
+spawnConfirmButton.Text = "Spawn Zombies"
+spawnConfirmButton.Parent = zombieSpawnerFrame
+
+local selectedZombieType = nil
+
+-- Populate zombie list
+local yOffset = 0
+for zombieName, zombieData in pairs(zombieTypes) do
+    local zombieButton = Instance.new("TextButton")
+    zombieButton.Size = UDim2.new(1, -10, 0, 35)
+    zombieButton.Position = UDim2.new(0, 5, 0, yOffset)
+    zombieButton.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+    zombieButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    zombieButton.Font = Enum.Font.SourceSans
+    zombieButton.TextSize = 12
+    zombieButton.Text = zombieName .. "\nHP: " .. zombieData.hp .. " | DMG: " .. zombieData.damage
+    zombieButton.Parent = zombieListFrame
+    
+    zombieButton.MouseButton1Click:Connect(function()
+        selectedZombieType = zombieName
+        
+        -- Reset all buttons
+        for _, child in pairs(zombieListFrame:GetChildren()) do
+            if child:IsA("TextButton") then
+                child.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+            end
+        end
+        
+        -- Highlight selected
+        zombieButton.BackgroundColor3 = Color3.fromRGB(100, 200, 100)
+    end)
+    
+    yOffset = yOffset + 40
+end
+
+zombieListFrame.CanvasSize = UDim2.new(0, 0, 0, yOffset)
 
 -- Upgrade Selection Frame
 local upgradeFrame = Instance.new("Frame")
@@ -334,90 +449,6 @@ upgradeTitle.Font = Enum.Font.SourceSansBold
 upgradeTitle.TextScaled = true
 upgradeTitle.Text = "Choose Your Upgrade!"
 upgradeTitle.Parent = upgradeFrame
-
--- Zombie Spawner Frame
-local zombieSpawnerFrame = Instance.new("Frame")
-zombieSpawnerFrame.Size = UDim2.new(0, 350, 0, 450)
-zombieSpawnerFrame.Position = UDim2.new(0.5, -175, 0.5, -225)
-zombieSpawnerFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-zombieSpawnerFrame.BorderSizePixel = 3
-zombieSpawnerFrame.BorderColor3 = Color3.fromRGB(150, 50, 150)
-zombieSpawnerFrame.Visible = false
-zombieSpawnerFrame.Parent = screenGui
-
-local spawnerTitle = Instance.new("TextLabel")
-spawnerTitle.Size = UDim2.new(1, -60, 0, 35)
-spawnerTitle.Position = UDim2.new(0, 10, 0, 5)
-spawnerTitle.BackgroundTransparency = 1
-spawnerTitle.TextColor3 = Color3.fromRGB(255, 255, 0)
-spawnerTitle.Font = Enum.Font.SourceSansBold
-spawnerTitle.TextSize = 20
-spawnerTitle.Text = "Zombie Spawner"
-spawnerTitle.Parent = zombieSpawnerFrame
-
-local spawnerClose = Instance.new("TextButton")
-spawnerClose.Size = UDim2.new(0, 35, 0, 35)
-spawnerClose.Position = UDim2.new(1, -45, 0, 5)
-spawnerClose.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
-spawnerClose.TextColor3 = Color3.fromRGB(255, 255, 255)
-spawnerClose.Font = Enum.Font.SourceSansBold
-spawnerClose.TextSize = 20
-spawnerClose.Text = "X"
-spawnerClose.Parent = zombieSpawnerFrame
-
-local amountLabel = Instance.new("TextLabel")
-amountLabel.Size = UDim2.new(0, 120, 0, 25)
-amountLabel.Position = UDim2.new(0, 10, 0, 45)
-amountLabel.BackgroundTransparency = 1
-amountLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-amountLabel.Font = Enum.Font.SourceSansBold
-amountLabel.TextSize = 14
-amountLabel.Text = "Amount:"
-amountLabel.TextXAlignment = Enum.TextXAlignment.Left
-amountLabel.Parent = zombieSpawnerFrame
-
-local amountInput = Instance.new("TextBox")
-amountInput.Size = UDim2.new(0, 80, 0, 25)
-amountInput.Position = UDim2.new(0, 100, 0, 45)
-amountInput.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
-amountInput.TextColor3 = Color3.fromRGB(255, 255, 255)
-amountInput.Font = Enum.Font.SourceSans
-amountInput.TextSize = 14
-amountInput.PlaceholderText = "1"
-amountInput.Text = "1"
-amountInput.Parent = zombieSpawnerFrame
-
-local selectedLabel = Instance.new("TextLabel")
-selectedLabel.Size = UDim2.new(1, -20, 0, 25)
-selectedLabel.Position = UDim2.new(0, 10, 0, 75)
-selectedLabel.BackgroundTransparency = 1
-selectedLabel.TextColor3 = Color3.fromRGB(100, 255, 100)
-selectedLabel.Font = Enum.Font.SourceSansBold
-selectedLabel.TextSize = 13
-selectedLabel.Text = "Selected: None"
-selectedLabel.TextXAlignment = Enum.TextXAlignment.Left
-selectedLabel.Parent = zombieSpawnerFrame
-
-local zombieListFrame = Instance.new("ScrollingFrame")
-zombieListFrame.Size = UDim2.new(1, -20, 0, 290)
-zombieListFrame.Position = UDim2.new(0, 10, 0, 105)
-zombieListFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-zombieListFrame.BorderSizePixel = 2
-zombieListFrame.ScrollBarThickness = 6
-zombieListFrame.Parent = zombieSpawnerFrame
-
-local spawnConfirmButton = Instance.new("TextButton")
-spawnConfirmButton.Size = UDim2.new(0, 150, 0, 35)
-spawnConfirmButton.Position = UDim2.new(0.5, -75, 1, -42)
-spawnConfirmButton.BackgroundColor3 = Color3.fromRGB(50, 200, 50)
-spawnConfirmButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-spawnConfirmButton.Font = Enum.Font.SourceSansBold
-spawnConfirmButton.TextSize = 18
-spawnConfirmButton.Text = "SPAWN"
-spawnConfirmButton.Parent = zombieSpawnerFrame
-
--- Variables for zombie spawner
-local selectedZombieType = nil
 
 -- Create Gun Tool
 local gun = Instance.new("Tool")
@@ -1438,94 +1469,40 @@ end)
 -- Zombie Spawner Button
 zombieSpawnerButton.MouseButton1Click:Connect(function()
     zombieSpawnerFrame.Visible = not zombieSpawnerFrame.Visible
-    
-    if zombieSpawnerFrame.Visible then
-        -- Populate zombie list
-        for _, child in pairs(zombieListFrame:GetChildren()) do
-            if child:IsA("TextButton") then
-                child:Destroy()
-            end
-        end
-        
-        local yOffset = 0
-        for typeName, data in pairs(zombieTypes) do
-            local zombieButton = Instance.new("TextButton")
-            zombieButton.Size = UDim2.new(1, -10, 0, 40)
-            zombieButton.Position = UDim2.new(0, 5, 0, yOffset)
-            zombieButton.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-            zombieButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-            zombieButton.Font = Enum.Font.SourceSansBold
-            zombieButton.TextSize = 12
-            zombieButton.TextXAlignment = Enum.TextXAlignment.Left
-            zombieButton.Text = "  " .. typeName .. " | HP: " .. data.hp .. " | SPD: " .. data.speed
-            zombieButton.Parent = zombieListFrame
-            
-            -- Color indicator
-            local colorBox = Instance.new("Frame")
-            colorBox.Size = UDim2.new(0, 8, 0, 40)
-            colorBox.Position = UDim2.new(0, 0, 0, 0)
-            colorBox.BackgroundColor3 = data.color
-            colorBox.BorderSizePixel = 0
-            colorBox.Parent = zombieButton
-            
-            zombieButton.MouseButton1Click:Connect(function()
-                selectedZombieType = typeName
-                selectedLabel.Text = "Selected: " .. typeName
-                
-                -- Highlight selected
-                for _, btn in pairs(zombieListFrame:GetChildren()) do
-                    if btn:IsA("TextButton") then
-                        btn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-                    end
-                end
-                zombieButton.BackgroundColor3 = Color3.fromRGB(100, 100, 150)
-            end)
-            
-            yOffset = yOffset + 45
-        end
-        
-        zombieListFrame.CanvasSize = UDim2.new(0, 0, 0, yOffset)
-    end
 end)
 
--- Spawner Close Button
-spawnerClose.MouseButton1Click:Connect(function()
+-- Close Spawner Button
+closeSpawnerButton.MouseButton1Click:Connect(function()
     zombieSpawnerFrame.Visible = false
 end)
 
 -- Spawn Confirm Button
 spawnConfirmButton.MouseButton1Click:Connect(function()
-    if selectedZombieType and amountInput.Text ~= "" then
-        local amount = tonumber(amountInput.Text)
+    if not selectedZombieType then
+        return
+    end
+    
+    local amount = tonumber(amountInput.Text)
+    if not amount or amount < 1 then
+        amount = 1
+    end
+    
+    amount = math.floor(amount)
+    
+    -- Spawn the zombies
+    for i = 1, amount do
+        local angle = math.random() * math.pi * 2
+        local distance = math.random(30, 100)
+        local spawnPos = rootPart.Position + Vector3.new(
+            math.cos(angle) * distance,
+            5,
+            math.sin(angle) * distance
+        )
         
-        if amount and amount > 0 and amount <= 100 then
-            for i = 1, amount do
-                local angle = math.random() * math.pi * 2
-                local distance = math.random(30, 100)
-                local spawnPos = rootPart.Position + Vector3.new(
-                    math.cos(angle) * distance,
-                    5,
-                    math.sin(angle) * distance
-                )
-                
-                createZombie(selectedZombieType, spawnPos)
-                zombiesRemaining = zombiesRemaining + 1
-                
-                wait(0.1)
-            end
-            
-            selectedLabel.Text = "Spawned " .. amount .. " " .. selectedZombieType .. "(s)!"
-            wait(2)
-            selectedLabel.Text = "Selected: " .. selectedZombieType
-        else
-            selectedLabel.Text = "Invalid amount! (1-100)"
-            wait(2)
-            selectedLabel.Text = "Selected: " .. (selectedZombieType or "None")
-        end
-    else
-        selectedLabel.Text = "Select zombie and enter amount!"
-        wait(2)
-        selectedLabel.Text = "Selected: " .. (selectedZombieType or "None")
+        createZombie(selectedZombieType, spawnPos)
+        zombiesRemaining = zombiesRemaining + 1
+        
+        wait(0.1)
     end
 end)
 
