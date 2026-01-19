@@ -102,7 +102,20 @@ local zombieTypes = {
         maxCount = 30,
         color = Color3.fromRGB(255, 50, 50),
         explosive = true,
-        zones = {"The City", "The Sewers", "The Lab"}
+        zones = {"The City", "The Sewers"}
+    },
+    Speedster = {
+        introducedWave = 3,
+        hp = 25,
+        speed = 20,
+        attackCooldown = 1,
+        damage = 3,
+        baseSpawnChance = 4,
+        maxDecrease = 1,
+        minCount = 1,
+        maxCount = 100,
+        color = Color3.fromRGB(50, 150, 255),
+        zones = {"The City", "The Lab"}
     },
     Tanky = {
         introducedWave = 9,
@@ -129,7 +142,7 @@ local zombieTypes = {
         maxCount = math.huge,
         color = Color3.fromRGB(200, 100, 50),
         splitter = true,
-        zones = {"The Sewers", "The Lab"}
+        zones = {"The Sewers"}
     },
     Vomiters = {
         introducedWave = 15,
@@ -157,7 +170,7 @@ local zombieTypes = {
         maxCount = 10,
         color = Color3.fromRGB(150, 150, 200),
         charger = true,
-        zones = {"The Sewers", "The Lab"}
+        zones = {"The Sewers"}
     },
     Zomshroom = {
         introducedWave = 19,
@@ -206,12 +219,14 @@ local availableAbilities = {
     "Bullet Hell",
     "Explosive Bullet",
     "Heatseeking",
-    "Lifesteal"
+    "Lifesteal",
+    "Fire Bullets"
 }
 
 local selectedAbilities = {}
 local hasHeatseeking = false
 local hasLifesteal = false
+local hasFireBullets = false
 
 -- GUI Creation
 local screenGui = Instance.new("ScreenGui")
@@ -1395,6 +1410,9 @@ function applyUpgrade(upgrade)
     elseif upgrade == "Lifesteal" then
         hasLifesteal = true
         table.insert(selectedAbilities, upgrade)
+    elseif upgrade == "Fire Bullets" then
+        hasFireBullets = true
+        table.insert(selectedAbilities, upgrade)
     end
 end
 
@@ -1409,14 +1427,41 @@ local function shootBullet()
     
     -- Create bullet
     local isExplosive = hasExplosiveBullet and math.random() <= explosiveBulletChance
+    local isFire = hasFireBullets
+    local isMolotov = isExplosive and isFire
+    
     local bullet = Instance.new("Part")
     bullet.Size = Vector3.new(0.2, 0.2, 1)
     bullet.Position = rootPart.Position + rootPart.CFrame.LookVector * 3
-    bullet.BrickColor = isExplosive and BrickColor.new("Really red") or BrickColor.new("New Yeller")
+    
+    -- Bullet color based on type
+    if isMolotov then
+        bullet.BrickColor = BrickColor.new("Deep orange")
+    elseif isExplosive then
+        bullet.BrickColor = BrickColor.new("Really red")
+    elseif isFire then
+        bullet.BrickColor = BrickColor.new("Deep orange")
+    else
+        bullet.BrickColor = BrickColor.new("New Yeller")
+    end
+    
     bullet.Material = Enum.Material.Neon
     bullet.CanCollide = false
     bullet.Anchored = false
     bullet.Parent = workspace
+    
+    -- Fire trail effect
+    if isFire or isMolotov then
+        local trail = Instance.new("Trail")
+        local att0 = Instance.new("Attachment", bullet)
+        local att1 = Instance.new("Attachment", bullet)
+        att1.Position = Vector3.new(0, 0, 0.5)
+        trail.Attachment0 = att0
+        trail.Attachment1 = att1
+        trail.Color = ColorSequence.new(Color3.fromRGB(255, 150, 0))
+        trail.Lifetime = 0.3
+        trail.Parent = bullet
+    end
     
     local bodyVelocity = Instance.new("BodyVelocity")
     bodyVelocity.Velocity = rootPart.CFrame.LookVector * 100
@@ -1490,10 +1535,45 @@ local function shootBullet()
             
             local targetHumanoid = hit.Parent:FindFirstChildOfClass("Humanoid")
             
-            if isExplosive then
+            -- Molotov explosion
+            if isMolotov then
                 hitConnection:Disconnect()
                 createExplosion(bullet.Position, 20, 75, true)
-                -- Lifesteal for explosive
+                
+                -- Apply fire to all zombies in radius
+                for _, zombie in pairs(activeZombies) do
+                    if zombie and zombie.PrimaryPart then
+                        local distance = (zombie.PrimaryPart.Position - bullet.Position).Magnitude
+                        if distance <= 20 then
+                            local zHum = zombie:FindFirstChildOfClass("Humanoid")
+                            if zHum then
+                                -- Apply burning effect
+                                spawn(function()
+                                    for i = 1, 10 do
+                                        wait(0.5)
+                                        if zHum and zHum.Parent and zHum.Health > 0 then
+                                            zHum.Health = zHum.Health - 5
+                                            if hasLifesteal then
+                                                healPlayer(5)
+                                            end
+                                        else
+                                            break
+                                        end
+                                    end
+                                end)
+                            end
+                        end
+                    end
+                end
+                
+                if hasLifesteal then
+                    healPlayer(75)
+                end
+                bullet:Destroy()
+            -- Regular explosive
+            elseif isExplosive then
+                hitConnection:Disconnect()
+                createExplosion(bullet.Position, 20, 75, true)
                 if hasLifesteal then
                     healPlayer(75)
                 end
@@ -1505,6 +1585,23 @@ local function shootBullet()
                 -- Lifesteal
                 if hasLifesteal then
                     healPlayer(actualDamage)
+                end
+                
+                -- Fire effect
+                if isFire then
+                    spawn(function()
+                        for i = 1, 10 do
+                            wait(0.5)
+                            if targetHumanoid and targetHumanoid.Parent and targetHumanoid.Health > 0 then
+                                targetHumanoid.Health = targetHumanoid.Health - 5
+                                if hasLifesteal then
+                                    healPlayer(5)
+                                end
+                            else
+                                break
+                            end
+                        end
+                    end)
                 end
                 
                 -- Ricochet logic
