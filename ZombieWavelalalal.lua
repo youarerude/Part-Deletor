@@ -102,7 +102,7 @@ local zombieTypes = {
         maxCount = 30,
         color = Color3.fromRGB(255, 50, 50),
         explosive = true,
-        zones = {"The City", "The Sewers"}
+        zones = {"The City", "The Sewers", "The Lab"}
     },
     Tanky = {
         introducedWave = 9,
@@ -115,7 +115,7 @@ local zombieTypes = {
         minCount = 1,
         maxCount = 10,
         color = Color3.fromRGB(150, 50, 150),
-        zones = {"The City", "The Sewers"}
+        zones = {"The City", "The Sewers", "The Lab"}
     },
     Splitters = {
         introducedWave = 11,
@@ -129,7 +129,7 @@ local zombieTypes = {
         maxCount = math.huge,
         color = Color3.fromRGB(200, 100, 50),
         splitter = true,
-        zones = {"The Sewers"}
+        zones = {"The Sewers", "The Lab"}
     },
     Vomiters = {
         introducedWave = 15,
@@ -143,7 +143,7 @@ local zombieTypes = {
         maxCount = 90,
         color = Color3.fromRGB(100, 255, 50),
         vomiter = true,
-        zones = {"The Sewers"}
+        zones = {"The Sewers", "The Lab"}
     },
     Charger = {
         introducedWave = 17,
@@ -157,7 +157,21 @@ local zombieTypes = {
         maxCount = 10,
         color = Color3.fromRGB(150, 150, 200),
         charger = true,
-        zones = {"The Sewers"}
+        zones = {"The Sewers", "The Lab"}
+    },
+    Zomshroom = {
+        introducedWave = 19,
+        hp = 750,
+        speed = 0,
+        attackCooldown = 5,
+        damage = 30,
+        baseSpawnChance = 20,
+        maxDecrease = 7,
+        minCount = 1,
+        maxCount = 5,
+        color = Color3.fromRGB(50, 200, 100),
+        zomshroom = true,
+        zones = {"The Lab"}
     },
     TheHowler = {
         introducedWave = 10,
@@ -316,6 +330,77 @@ zombieSpawnerButton.Font = Enum.Font.SourceSansBold
 zombieSpawnerButton.TextScaled = true
 zombieSpawnerButton.Text = "Zombie Spawner"
 zombieSpawnerButton.Parent = screenGui
+
+local skipToWaveButton = Instance.new("TextButton")
+skipToWaveButton.Size = UDim2.new(0, 120, 0, 40)
+skipToWaveButton.Position = UDim2.new(0, 10, 0, 320)
+skipToWaveButton.BackgroundColor3 = Color3.fromRGB(255, 200, 100)
+skipToWaveButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+skipToWaveButton.Font = Enum.Font.SourceSansBold
+skipToWaveButton.TextScaled = true
+skipToWaveButton.Text = "Skip to Wave"
+skipToWaveButton.Parent = screenGui
+
+-- Skip to Wave Frame
+local skipWaveFrame = Instance.new("Frame")
+skipWaveFrame.Size = UDim2.new(0, 200, 0, 120)
+skipWaveFrame.Position = UDim2.new(0.5, -100, 0.5, -60)
+skipWaveFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+skipWaveFrame.BorderSizePixel = 2
+skipWaveFrame.BorderColor3 = Color3.fromRGB(255, 200, 100)
+skipWaveFrame.Visible = false
+skipWaveFrame.Parent = screenGui
+
+local skipWaveTitle = Instance.new("TextLabel")
+skipWaveTitle.Size = UDim2.new(1, 0, 0, 30)
+skipWaveTitle.BackgroundColor3 = Color3.fromRGB(255, 200, 100)
+skipWaveTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
+skipWaveTitle.Font = Enum.Font.SourceSansBold
+skipWaveTitle.TextScaled = true
+skipWaveTitle.Text = "Skip to Wave"
+skipWaveTitle.Parent = skipWaveFrame
+
+local closeSkipButton = Instance.new("TextButton")
+closeSkipButton.Size = UDim2.new(0, 25, 0, 25)
+closeSkipButton.Position = UDim2.new(1, -27, 0, 2)
+closeSkipButton.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
+closeSkipButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+closeSkipButton.Font = Enum.Font.SourceSansBold
+closeSkipButton.TextScaled = true
+closeSkipButton.Text = "X"
+closeSkipButton.Parent = skipWaveFrame
+
+local waveInputLabel = Instance.new("TextLabel")
+waveInputLabel.Size = UDim2.new(1, -10, 0, 20)
+waveInputLabel.Position = UDim2.new(0, 5, 0, 35)
+waveInputLabel.BackgroundTransparency = 1
+waveInputLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+waveInputLabel.Font = Enum.Font.SourceSans
+waveInputLabel.TextSize = 14
+waveInputLabel.Text = "Enter Wave Number:"
+waveInputLabel.TextXAlignment = Enum.TextXAlignment.Left
+waveInputLabel.Parent = skipWaveFrame
+
+local waveInput = Instance.new("TextBox")
+waveInput.Size = UDim2.new(1, -10, 0, 25)
+waveInput.Position = UDim2.new(0, 5, 0, 55)
+waveInput.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+waveInput.TextColor3 = Color3.fromRGB(255, 255, 255)
+waveInput.Font = Enum.Font.SourceSans
+waveInput.TextSize = 14
+waveInput.PlaceholderText = "Enter wave (e.g., 15)"
+waveInput.Text = ""
+waveInput.Parent = skipWaveFrame
+
+local confirmSkipButton = Instance.new("TextButton")
+confirmSkipButton.Size = UDim2.new(1, -10, 0, 30)
+confirmSkipButton.Position = UDim2.new(0, 5, 1, -35)
+confirmSkipButton.BackgroundColor3 = Color3.fromRGB(100, 200, 100)
+confirmSkipButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+confirmSkipButton.Font = Enum.Font.SourceSansBold
+confirmSkipButton.TextScaled = true
+confirmSkipButton.Text = "Skip"
+confirmSkipButton.Parent = skipWaveFrame
 
 -- Zombie Spawner Frame
 local zombieSpawnerFrame = Instance.new("Frame")
@@ -649,7 +734,12 @@ local function createZombie(zombieType, spawnPosition)
     local zombieHumanoid = Instance.new("Humanoid")
     zombieHumanoid.MaxHealth = zombieData.hp + waveHpIncrease
     zombieHumanoid.Health = zombieData.hp + waveHpIncrease
-    zombieHumanoid.WalkSpeed = math.max(1, zombieData.speed - slownessStacks)
+    -- Fixed: Use base speed from data, not affected by slownessStacks during creation
+    local baseSpeed = zombieData.speed
+    if not zombieData.charger and not zombieData.zomshroom then
+        baseSpeed = math.max(1, zombieData.speed - slownessStacks)
+    end
+    zombieHumanoid.WalkSpeed = baseSpeed
     zombieHumanoid.Parent = zombie
     
     zombie.PrimaryPart = torso
@@ -693,13 +783,86 @@ local function createZombie(zombieType, spawnPosition)
     local poisonedPlayers = {}
     local isCharging = false
     
+    -- Zomshroom spawning logic
+    if zombieData.zomshroom then
+        spawn(function()
+            while zombie.Parent and zombieHumanoid.Health > 0 do
+                wait(5)
+                
+                if character and rootPart then
+                    -- Create green forcefield
+                    local forcefield = Instance.new("Part")
+                    forcefield.Shape = Enum.PartType.Ball
+                    forcefield.Size = Vector3.new(30, 30, 30)
+                    forcefield.Position = torso.Position
+                    forcefield.Anchored = true
+                    forcefield.CanCollide = false
+                    forcefield.Transparency = 0.5
+                    forcefield.Material = Enum.Material.Neon
+                    forcefield.Color = Color3.fromRGB(100, 255, 50)
+                    forcefield.Parent = workspace
+                    
+                    -- Damage entities in range
+                    local distance = (rootPart.Position - torso.Position).Magnitude
+                    if distance <= 15 then
+                        damagePlayer(zombieData.damage)
+                    end
+                    
+                    for _, z in pairs(activeZombies) do
+                        if z and z.PrimaryPart and z ~= zombie then
+                            local zDist = (z.PrimaryPart.Position - torso.Position).Magnitude
+                            if zDist <= 15 then
+                                local zHum = z:FindFirstChildOfClass("Humanoid")
+                                if zHum then
+                                    zHum.Health = zHum.Health - zombieData.damage
+                                end
+                            end
+                        end
+                    end
+                    
+                    -- Fade out
+                    local tweenInfo = TweenInfo.new(1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+                    local tween = TweenService:Create(forcefield, tweenInfo, {Transparency = 1})
+                    tween:Play()
+                    game:GetService("Debris"):AddItem(forcefield, 1)
+                    
+                    -- Spawn a zombie
+                    local spawnRand = math.random(1, 10)
+                    local spawnType = nil
+                    
+                    if spawnRand <= 5 then
+                        spawnType = "Splitters"
+                    elseif spawnRand <= 8 then
+                        spawnType = "Vomiters"
+                    else
+                        spawnType = "Charger"
+                    end
+                    
+                    local angle = math.random() * math.pi * 2
+                    local dist = math.random(5, 15)
+                    local spawnPos = torso.Position + Vector3.new(
+                        math.cos(angle) * dist,
+                        0,
+                        math.sin(angle) * dist
+                    )
+                    
+                    createZombie(spawnType, spawnPos)
+                    zombiesRemaining = zombiesRemaining + 1
+                end
+            end
+        end)
+    end
+    
     spawn(function()
         while zombie.Parent and zombieHumanoid.Health > 0 do
             if character and rootPart then
                 local distance = (torso.Position - rootPart.Position).Magnitude
                 
+                -- Zomshroom doesn't move
+                if zombieData.zomshroom then
+                    zombieHumanoid.WalkSpeed = 0
                 -- Charger special behavior
-                if isCharger then
+                elseif isCharger then
                     zombieHumanoid.WalkSpeed = 0
                     
                     if tick() - lastAttackTime >= zombieData.attackCooldown and not isCharging then
@@ -838,7 +1001,11 @@ local function createZombie(zombieType, spawnPosition)
                     end
                 else
                     -- Follow player
-                    zombieHumanoid.WalkSpeed = math.max(1, zombieData.speed - slownessStacks)
+                    local followSpeed = zombieData.speed
+                    if not zombieData.boss and not zombieData.charger and not zombieData.zomshroom then
+                        followSpeed = math.max(1, zombieData.speed - slownessStacks)
+                    end
+                    zombieHumanoid.WalkSpeed = followSpeed
                     zombieHumanoid:MoveTo(rootPart.Position)
                 end
             end
@@ -977,7 +1144,11 @@ local function spawnWaveZombies()
     end
     
     -- Update zone
-    if currentWave >= 11 then
+    if currentWave >= 21 then
+        currentZone = "The Lab"
+        zoneLabel.Text = "The Lab"
+        zoneLabel.TextColor3 = Color3.fromRGB(200, 200, 255)
+    elseif currentWave >= 11 then
         currentZone = "The Sewers"
         zoneLabel.Text = "The Sewers"
         zoneLabel.TextColor3 = Color3.fromRGB(100, 200, 50)
@@ -1004,8 +1175,10 @@ local function spawnWaveZombies()
         -- Determine zombie type
         local availableTypes = {}
         for typeName, data in pairs(zombieTypes) do
-            -- Check if zombie is available in current wave and zone
-            if currentWave >= data.introducedWave and not data.onlyWave then
+            -- Skip if it's a boss-only wave zombie and already spawned
+            if data.onlyWave and bossesSpawned[typeName] then
+                -- Skip this type
+            elseif currentWave >= data.introducedWave and not data.onlyWave then
                 -- Check zone restrictions
                 local validZone = false
                 if data.zones then
@@ -1504,6 +1677,46 @@ spawnConfirmButton.MouseButton1Click:Connect(function()
         
         wait(0.1)
     end
+end)
+
+-- Skip to Wave Button
+skipToWaveButton.MouseButton1Click:Connect(function()
+    skipWaveFrame.Visible = not skipWaveFrame.Visible
+end)
+
+-- Close Skip Wave Button
+closeSkipButton.MouseButton1Click:Connect(function()
+    skipWaveFrame.Visible = false
+end)
+
+-- Confirm Skip Button
+confirmSkipButton.MouseButton1Click:Connect(function()
+    local targetWave = tonumber(waveInput.Text)
+    if not targetWave or targetWave < 1 then
+        return
+    end
+    
+    targetWave = math.floor(targetWave)
+    
+    -- Kill all zombies
+    for _, zombie in pairs(activeZombies) do
+        if zombie and zombie:FindFirstChildOfClass("Humanoid") then
+            zombie:Destroy()
+        end
+    end
+    activeZombies = {}
+    zombiesRemaining = 0
+    
+    -- Update wave
+    currentWave = targetWave
+    waveLabel.Text = "Wave " .. currentWave
+    
+    -- Close the frame
+    skipWaveFrame.Visible = false
+    
+    -- Start new wave
+    wait(1)
+    spawnWaveZombies()
 end)
 
 -- Auto reload when out of bullets
