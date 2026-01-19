@@ -176,7 +176,7 @@ local zombieTypes = {
         introducedWave = 19,
         hp = 750,
         speed = 0,
-        attackCooldown = 5,
+        attackCooldown = 10,
         damage = 30,
         baseSpawnChance = 20,
         maxDecrease = 7,
@@ -184,6 +184,20 @@ local zombieTypes = {
         maxCount = 5,
         color = Color3.fromRGB(50, 200, 100),
         zomshroom = true,
+        zones = {"The Lab"}
+    },
+    FireZombie = {
+        introducedWave = 21,
+        hp = 100,
+        speed = 18,
+        attackCooldown = 3,
+        damage = 45,
+        baseSpawnChance = 2,
+        maxDecrease = 1,
+        minCount = 1,
+        maxCount = 250,
+        color = Color3.fromRGB(255, 100, 0),
+        fireZombie = true,
         zones = {"The Lab"}
     },
     TheHowler = {
@@ -200,6 +214,22 @@ local zombieTypes = {
         boss = true,
         onlyWave = 10,
         zones = {"The City"}
+    },
+    Toxicle = {
+        introducedWave = 20,
+        hp = 12000,
+        speed = 25,
+        attackCooldown = 5,
+        damage = 90,
+        baseSpawnChance = 1,
+        maxDecrease = 1,
+        minCount = 1,
+        maxCount = 1,
+        color = Color3.fromRGB(50, 255, 100),
+        boss = true,
+        onlyWave = 20,
+        toxicle = true,
+        zones = {"The Sewers"}
     }
 }
 
@@ -802,7 +832,7 @@ local function createZombie(zombieType, spawnPosition)
     if zombieData.zomshroom then
         spawn(function()
             while zombie.Parent and zombieHumanoid.Health > 0 do
-                wait(5)
+                wait(10)
                 
                 if character and rootPart then
                     -- Create green forcefield
@@ -868,6 +898,73 @@ local function createZombie(zombieType, spawnPosition)
         end)
     end
     
+    -- Toxicle radiation aura
+    if zombieData.toxicle then
+        spawn(function()
+            while zombie.Parent and zombieHumanoid.Health > 0 do
+                wait(1)
+                
+                if character and rootPart then
+                    -- Damage player in radiation range
+                    local distance = (rootPart.Position - torso.Position).Magnitude
+                    if distance <= 30 then
+                        local radiationDamage = math.random(10, 20)
+                        damagePlayer(radiationDamage)
+                    end
+                    
+                    -- Damage zombies (except Sewers zombies)
+                    for _, z in pairs(activeZombies) do
+                        if z and z.PrimaryPart and z ~= zombie then
+                            local zDist = (z.PrimaryPart.Position - torso.Position).Magnitude
+                            if zDist <= 30 then
+                                -- Check if it's a Sewers zombie
+                                local isSewerZombie = false
+                                local zData = zombieTypes[z.Name]
+                                if zData and zData.zones then
+                                    for _, zone in pairs(zData.zones) do
+                                        if zone == "The Sewers" then
+                                            isSewerZombie = true
+                                            break
+                                        end
+                                    end
+                                end
+                                
+                                if not isSewerZombie then
+                                    local zHum = z:FindFirstChildOfClass("Humanoid")
+                                    if zHum then
+                                        local radiationDamage = math.random(10, 20)
+                                        zHum.Health = zHum.Health - radiationDamage
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end)
+        
+        -- Visual radiation effect
+        spawn(function()
+            local radiationEffect = Instance.new("Part")
+            radiationEffect.Shape = Enum.PartType.Ball
+            radiationEffect.Size = Vector3.new(60, 60, 60)
+            radiationEffect.Anchored = true
+            radiationEffect.CanCollide = false
+            radiationEffect.Transparency = 0.8
+            radiationEffect.Material = Enum.Material.Neon
+            radiationEffect.Color = Color3.fromRGB(50, 255, 100)
+            radiationEffect.Parent = zombie
+            
+            while zombie.Parent and zombieHumanoid.Health > 0 do
+                radiationEffect.Position = torso.Position
+                radiationEffect.Transparency = 0.7 + math.sin(tick() * 2) * 0.2
+                wait()
+            end
+            
+            radiationEffect:Destroy()
+        end)
+    end
+    
     spawn(function()
         while zombie.Parent and zombieHumanoid.Health > 0 do
             if character and rootPart then
@@ -876,6 +973,52 @@ local function createZombie(zombieType, spawnPosition)
                 -- Zomshroom doesn't move
                 if zombieData.zomshroom then
                     zombieHumanoid.WalkSpeed = 0
+                -- Toxicle projectile attack
+                elseif zombieData.toxicle and distance <= 40 then
+                    zombieHumanoid.WalkSpeed = 0
+                    
+                    if tick() - lastAttackTime >= zombieData.attackCooldown then
+                        -- Shoot toxic slime projectile
+                        local slime = Instance.new("Part")
+                        slime.Shape = Enum.PartType.Ball
+                        slime.Size = Vector3.new(3, 3, 3)
+                        slime.Position = torso.Position + Vector3.new(0, 2, 0)
+                        slime.BrickColor = BrickColor.new("Lime green")
+                        slime.Material = Enum.Material.Neon
+                        slime.CanCollide = false
+                        slime.Anchored = false
+                        slime.Transparency = 0.2
+                        slime.Parent = workspace
+                        
+                        -- Trail effect
+                        local trail = Instance.new("Trail")
+                        local att0 = Instance.new("Attachment", slime)
+                        local att1 = Instance.new("Attachment", slime)
+                        att1.Position = Vector3.new(0, 1, 0)
+                        trail.Attachment0 = att0
+                        trail.Attachment1 = att1
+                        trail.Color = ColorSequence.new(Color3.fromRGB(50, 255, 100))
+                        trail.Lifetime = 0.8
+                        trail.Parent = slime
+                        
+                        local direction = (rootPart.Position - slime.Position).Unit
+                        local bodyVelocity = Instance.new("BodyVelocity")
+                        bodyVelocity.Velocity = direction * 60
+                        bodyVelocity.MaxForce = Vector3.new(100000, 100000, 100000)
+                        bodyVelocity.Parent = slime
+                        
+                        local hitConnection
+                        hitConnection = slime.Touched:Connect(function(hit)
+                            if hit.Parent == character then
+                                hitConnection:Disconnect()
+                                damagePlayer(zombieData.damage)
+                                slime:Destroy()
+                            end
+                        end)
+                        
+                        game:GetService("Debris"):AddItem(slime, 5)
+                        lastAttackTime = tick()
+                    end
                 -- Charger special behavior
                 elseif isCharger then
                     zombieHumanoid.WalkSpeed = 0
@@ -982,6 +1125,16 @@ local function createZombie(zombieType, spawnPosition)
                         damagePlayer(zombieData.damage)
                         lastAttackTime = tick()
                         attackCount = attackCount + 1
+                        
+                        -- Fire Zombie burning effect
+                        if zombieData.fireZombie then
+                            spawn(function()
+                                for i = 1, 6 do
+                                    wait(0.5)
+                                    damagePlayer(5)
+                                end
+                            end)
+                        end
                         
                         -- Howler special ability
                         if zombieType == "TheHowler" and attackCount % 5 == 0 then
@@ -1184,6 +1337,16 @@ local function spawnWaveZombies()
         )
         createZombie("TheHowler", spawnPos)
         bossesSpawned["TheHowler"] = true
+    elseif currentWave == 20 and not bossesSpawned["Toxicle"] then
+        local angle = math.random() * math.pi * 2
+        local distance = 50
+        local spawnPos = rootPart.Position + Vector3.new(
+            math.cos(angle) * distance,
+            5,
+            math.sin(angle) * distance
+        )
+        createZombie("Toxicle", spawnPos)
+        bossesSpawned["Toxicle"] = true
     end
     
     for i = 1, zombieCount do
@@ -1534,19 +1697,99 @@ local function shootBullet()
             end
             
             local targetHumanoid = hit.Parent:FindFirstChildOfClass("Humanoid")
+            local isFireImmune = zombieTypes[hit.Parent.Name] and zombieTypes[hit.Parent.Name].fireZombie
             
             -- Molotov explosion
             if isMolotov then
                 hitConnection:Disconnect()
                 createExplosion(bullet.Position, 20, 75, true)
                 
-                -- Apply fire to all zombies in radius
+                -- Create orange liquid puddle
+                local puddle = Instance.new("Part")
+                puddle.Size = Vector3.new(60, 0.5, 60)
+                puddle.Position = bullet.Position - Vector3.new(0, 2, 0)
+                puddle.Anchored = true
+                puddle.CanCollide = false
+                puddle.Transparency = 0.3
+                puddle.Material = Enum.Material.Neon
+                puddle.Color = Color3.fromRGB(255, 150, 0)
+                puddle.Parent = workspace
+                
+                -- Puddle burn damage loop
+                spawn(function()
+                    local puddleStart = tick()
+                    while tick() - puddleStart < 10 do
+                        -- Check zombies in puddle
+                        for _, zombie in pairs(activeZombies) do
+                            if zombie and zombie.PrimaryPart then
+                                local zDist = (zombie.PrimaryPart.Position - puddle.Position).Magnitude
+                                if zDist <= 30 then
+                                    local zHum = zombie:FindFirstChildOfClass("Humanoid")
+                                    local zIsFireImmune = zombieTypes[zombie.Name] and zombieTypes[zombie.Name].fireZombie
+                                    
+                                    if zHum and not zIsFireImmune then
+                                        -- Apply burning if not already burning
+                                        if not zombie:FindFirstChild("Burning") then
+                                            local burningTag = Instance.new("BoolValue")
+                                            burningTag.Name = "Burning"
+                                            burningTag.Parent = zombie
+                                            
+                                            spawn(function()
+                                                for i = 1, 10 do
+                                                    wait(0.5)
+                                                    if zHum and zHum.Parent and zHum.Health > 0 then
+                                                        zHum.Health = zHum.Health - 5
+                                                        if hasLifesteal then
+                                                            healPlayer(5)
+                                                        end
+                                                    else
+                                                        break
+                                                    end
+                                                end
+                                                if burningTag and burningTag.Parent then
+                                                    burningTag:Destroy()
+                                                end
+                                            end)
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                        
+                        -- Check player in puddle
+                        if rootPart then
+                            local playerDist = (rootPart.Position - puddle.Position).Magnitude
+                            if playerDist <= 30 then
+                                -- Player can get burned too
+                                spawn(function()
+                                    for i = 1, 6 do
+                                        wait(0.5)
+                                        damagePlayer(5)
+                                    end
+                                end)
+                            end
+                        end
+                        
+                        wait(0.5)
+                    end
+                    
+                    -- Fade out puddle
+                    local tweenInfo = TweenInfo.new(2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+                    local tween = TweenService:Create(puddle, tweenInfo, {Transparency = 1})
+                    tween:Play()
+                    wait(2)
+                    puddle:Destroy()
+                end)
+                
+                -- Apply fire to all zombies in explosion radius
                 for _, zombie in pairs(activeZombies) do
                     if zombie and zombie.PrimaryPart then
                         local distance = (zombie.PrimaryPart.Position - bullet.Position).Magnitude
                         if distance <= 20 then
                             local zHum = zombie:FindFirstChildOfClass("Humanoid")
-                            if zHum then
+                            local zIsFireImmune = zombieTypes[zombie.Name] and zombieTypes[zombie.Name].fireZombie
+                            
+                            if zHum and not zIsFireImmune then
                                 -- Apply burning effect
                                 spawn(function()
                                     for i = 1, 10 do
@@ -1589,19 +1832,21 @@ local function shootBullet()
                 
                 -- Fire effect
                 if isFire then
-                    spawn(function()
-                        for i = 1, 10 do
-                            wait(0.5)
-                            if targetHumanoid and targetHumanoid.Parent and targetHumanoid.Health > 0 then
-                                targetHumanoid.Health = targetHumanoid.Health - 5
-                                if hasLifesteal then
-                                    healPlayer(5)
+                    if not isFireImmune then
+                        spawn(function()
+                            for i = 1, 10 do
+                                wait(0.5)
+                                if targetHumanoid and targetHumanoid.Parent and targetHumanoid.Health > 0 then
+                                    targetHumanoid.Health = targetHumanoid.Health - 5
+                                    if hasLifesteal then
+                                        healPlayer(5)
+                                    end
+                                else
+                                    break
                                 end
-                            else
-                                break
                             end
-                        end
-                    end)
+                        end)
+                    end
                 end
                 
                 -- Ricochet logic
