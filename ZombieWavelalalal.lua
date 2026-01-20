@@ -250,13 +250,17 @@ local availableAbilities = {
     "Explosive Bullet",
     "Heatseeking",
     "Lifesteal",
-    "Fire Bullets"
+    "Fire Bullets",
+    "Homing Bounce",
+    "Magic Bullet"
 }
 
 local selectedAbilities = {}
 local hasHeatseeking = false
 local hasLifesteal = false
 local hasFireBullets = false
+local hasHomingBounce = false
+local hasMagicBullet = false
 
 -- GUI Creation
 local screenGui = Instance.new("ScreenGui")
@@ -1463,7 +1467,14 @@ function showUpgradeSelection(abilityForced)
                     break
                 end
             end
-            if not alreadySelected then
+            
+            -- Check special requirements
+            local meetsRequirements = true
+            if ability == "Homing Bounce" and ricochetStacks < 5 then
+                meetsRequirements = false
+            end
+            
+            if not alreadySelected and meetsRequirements then
                 table.insert(options, ability)
             end
         end
@@ -1575,6 +1586,12 @@ function applyUpgrade(upgrade)
         table.insert(selectedAbilities, upgrade)
     elseif upgrade == "Fire Bullets" then
         hasFireBullets = true
+        table.insert(selectedAbilities, upgrade)
+    elseif upgrade == "Homing Bounce" then
+        hasHomingBounce = true
+        table.insert(selectedAbilities, upgrade)
+    elseif upgrade == "Magic Bullet" then
+        hasMagicBullet = true
         table.insert(selectedAbilities, upgrade)
     end
 end
@@ -1857,21 +1874,45 @@ local function shootBullet()
                     local nextTarget = nil
                     local closestDist = math.huge
                     
-                    for _, zombie in pairs(activeZombies) do
-                        if zombie and zombie.PrimaryPart and zombie ~= hit.Parent then
-                            local hitThis = false
-                            for _, hz in pairs(hitZombies) do
-                                if hz == zombie then
-                                    hitThis = true
-                                    break
+                    -- Homing Bounce guarantees a target
+                    if hasHomingBounce then
+                        for _, zombie in pairs(activeZombies) do
+                            if zombie and zombie.PrimaryPart and zombie ~= hit.Parent then
+                                local hitThis = false
+                                for _, hz in pairs(hitZombies) do
+                                    if hz == zombie then
+                                        hitThis = true
+                                        break
+                                    end
+                                end
+                                
+                                if not hitThis then
+                                    local dist = (zombie.PrimaryPart.Position - bullet.Position).Magnitude
+                                    if dist < closestDist then
+                                        closestDist = dist
+                                        nextTarget = zombie
+                                    end
                                 end
                             end
-                            
-                            if not hitThis then
-                                local dist = (zombie.PrimaryPart.Position - bullet.Position).Magnitude
-                                if dist < closestDist and dist < 30 then
-                                    closestDist = dist
-                                    nextTarget = zombie
+                        end
+                    else
+                        -- Regular ricochet with distance limit
+                        for _, zombie in pairs(activeZombies) do
+                            if zombie and zombie.PrimaryPart and zombie ~= hit.Parent then
+                                local hitThis = false
+                                for _, hz in pairs(hitZombies) do
+                                    if hz == zombie then
+                                        hitThis = true
+                                        break
+                                    end
+                                end
+                                
+                                if not hitThis then
+                                    local dist = (zombie.PrimaryPart.Position - bullet.Position).Magnitude
+                                    if dist < closestDist and dist < 30 then
+                                        closestDist = dist
+                                        nextTarget = zombie
+                                    end
                                 end
                             end
                         end
@@ -2336,6 +2377,84 @@ damagePlayer = function(damage)
         {BackgroundTransparency = 1}
     )
     tween:Play()
+    
+    -- Magic Bullet trigger
+    if hasMagicBullet and playerHealth < 50 and math.random() <= 0.5 then
+        spawn(function()
+            for _, zombie in pairs(activeZombies) do
+                if zombie and zombie.PrimaryPart then
+                    local zHum = zombie:FindFirstChildOfClass("Humanoid")
+                    if zHum and zHum.Health > 0 then
+                        -- Create blue portal
+                        local portal = Instance.new("Part")
+                        portal.Size = Vector3.new(3, 3, 0.5)
+                        portal.Position = zombie.PrimaryPart.Position + (zombie.PrimaryPart.CFrame.LookVector * 15)
+                        portal.Anchored = true
+                        portal.CanCollide = false
+                        portal.Material = Enum.Material.Neon
+                        portal.Color = Color3.fromRGB(0, 100, 255)
+                        portal.Transparency = 0.3
+                        portal.Parent = workspace
+                        
+                        -- Make it face the zombie
+                        portal.CFrame = CFrame.new(portal.Position, zombie.PrimaryPart.Position)
+                        
+                        wait(3)
+                        
+                        -- Fire black bullet
+                        if zombie.Parent and zHum.Health > 0 then
+                            local magicBullet = Instance.new("Part")
+                            magicBullet.Size = Vector3.new(0.5, 0.5, 2)
+                            magicBullet.Position = portal.Position
+                            magicBullet.BrickColor = BrickColor.new("Really black")
+                            magicBullet.Material = Enum.Material.Neon
+                            magicBullet.CanCollide = false
+                            magicBullet.Anchored = false
+                            magicBullet.Parent = workspace
+                            
+                            -- Trail effect
+                            local trail = Instance.new("Trail")
+                            local att0 = Instance.new("Attachment", magicBullet)
+                            local att1 = Instance.new("Attachment", magicBullet)
+                            att1.Position = Vector3.new(0, 0, 1)
+                            trail.Attachment0 = att0
+                            trail.Attachment1 = att1
+                            trail.Color = ColorSequence.new(Color3.fromRGB(100, 0, 255))
+                            trail.Lifetime = 0.5
+                            trail.Parent = magicBullet
+                            
+                            local direction = (zombie.PrimaryPart.Position - magicBullet.Position).Unit
+                            local bodyVelocity = Instance.new("BodyVelocity")
+                            bodyVelocity.Velocity = direction * 150
+                            bodyVelocity.MaxForce = Vector3.new(100000, 100000, 100000)
+                            bodyVelocity.Parent = magicBullet
+                            
+                            local hitConnection
+                            hitConnection = magicBullet.Touched:Connect(function(hit)
+                                if hit.Parent == zombie then
+                                    hitConnection:Disconnect()
+                                    local magicDamage = math.random(120, 250)
+                                    zHum.Health = zHum.Health - magicDamage
+                                    
+                                    if hasLifesteal then
+                                        healPlayer(magicDamage)
+                                    end
+                                    
+                                    magicBullet:Destroy()
+                                end
+                            end)
+                            
+                            game:GetService("Debris"):AddItem(magicBullet, 3)
+                        end
+                        
+                        portal:Destroy()
+                    end
+                end
+                
+                wait(0.05)
+            end
+        end)
+    end
 end
 
 -- Mobile controls optimization
