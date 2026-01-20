@@ -1,0 +1,1965 @@
+-- Slap Battles Game Script
+-- Main game script with AI players, gloves, and abilities
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local Debris = game:GetService("Debris")
+
+local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
+local rootPart = character:WaitForChild("HumanoidRootPart")
+
+-- Configuration
+local CONFIG = {
+    MAX_FAKE_PLAYERS = 5,
+    AGGRO_DISTANCE = 100,
+    SLAP_DISTANCE = 5,
+    RESPAWN_TIME = 3,
+    ARENA_SIZE = 200
+}
+
+-- Glove data with all properties
+local GLOVE_DATA = {
+    ["Default Glove"] = {
+        PushPower = 5,
+        SlapCooldown = 2,
+        AbilityType = "None",
+        Ability = nil,
+        AbilityCooldown = 0,
+        Color = Color3.fromRGB(200, 200, 200)
+    },
+    ["Siphon Glove"] = {
+        PushPower = 8,
+        SlapCooldown = 1.5,
+        AbilityType = "Ability",
+        Ability = "Siphon",
+        AbilityCooldown = 15,
+        Color = Color3.fromRGB(0, 255, 255)
+    },
+    ["Train Glove"] = {
+        PushPower = 7,
+        SlapCooldown = 2,
+        AbilityType = "Ability",
+        Ability = "Train",
+        AbilityCooldown = 10,
+        Color = Color3.fromRGB(100, 100, 100)
+    },
+    ["Counter Glove"] = {
+        PushPower = 6,
+        SlapCooldown = 1.8,
+        AbilityType = "Ability",
+        Ability = "Counter",
+        AbilityCooldown = 15,
+        Color = Color3.fromRGB(255, 0, 0)
+    },
+    ["God Glove"] = {
+        PushPower = 100,
+        SlapCooldown = 5,
+        AbilityType = "Fusion",
+        Ability = "TimeStop",
+        AbilityCooldown = 60,
+        Color = Color3.fromRGB(255, 215, 0)
+    },
+    ["RNG Glove"] = {
+        PushPower = 5,
+        SlapCooldown = 2,
+        AbilityType = "Passive",
+        Ability = "RandomDirection",
+        AbilityCooldown = 0,
+        Color = Color3.fromRGB(255, 0, 255)
+    },
+    ["LandMine Glove"] = {
+        PushPower = 5,
+        SlapCooldown = 1,
+        AbilityType = "Ability",
+        Ability = "LandMine",
+        AbilityCooldown = 5,
+        Color = Color3.fromRGB(139, 69, 19)
+    }
+}
+
+-- Game state variables
+local currentGlove = "Default Glove"
+local equippedGlove = nil
+local lastSlapTime = 0
+local lastAbilityTime = 0
+local isPlayerSitting = false
+local fakePlayersList = {}
+local aggroedFakePlayers = {}
+local isCounterActive = false
+local counterConnection = nil
+local isTimeStopActive = false
+local playerSlapCount = 0
+local activeLandmines = {}
+
+-- UI Elements
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "SlapBattlesUI"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = player:WaitForChild("PlayerGui")
+
+-- Glove Button
+local gloveButton = Instance.new("TextButton")
+gloveButton.Name = "GloveButton"
+gloveButton.Size = UDim2.new(0, 150, 0, 50)
+gloveButton.Position = UDim2.new(0, 20, 0, 20)
+gloveButton.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+gloveButton.BorderSizePixel = 2
+gloveButton.BorderColor3 = Color3.fromRGB(255, 255, 255)
+gloveButton.Text = "GLOVES"
+gloveButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+gloveButton.TextScaled = true
+gloveButton.Font = Enum.Font.GothamBold
+gloveButton.Parent = screenGui
+
+-- Glove Selection GUI
+local gloveSelectionFrame = Instance.new("Frame")
+gloveSelectionFrame.Name = "GloveSelection"
+gloveSelectionFrame.Size = UDim2.new(0, 600, 0, 400)
+gloveSelectionFrame.Position = UDim2.new(0.5, -300, 0.5, -200)
+gloveSelectionFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+gloveSelectionFrame.BorderSizePixel = 3
+gloveSelectionFrame.BorderColor3 = Color3.fromRGB(255, 255, 255)
+gloveSelectionFrame.Visible = false
+gloveSelectionFrame.Parent = screenGui
+
+local titleLabel = Instance.new("TextLabel")
+titleLabel.Size = UDim2.new(1, 0, 0, 50)
+titleLabel.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+titleLabel.BorderSizePixel = 0
+titleLabel.Text = "SELECT YOUR GLOVE"
+titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+titleLabel.TextScaled = true
+titleLabel.Font = Enum.Font.GothamBold
+titleLabel.Parent = gloveSelectionFrame
+
+local closeButton = Instance.new("TextButton")
+closeButton.Size = UDim2.new(0, 40, 0, 40)
+closeButton.Position = UDim2.new(1, -45, 0, 5)
+closeButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+closeButton.Text = "X"
+closeButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+closeButton.TextScaled = true
+closeButton.Font = Enum.Font.GothamBold
+closeButton.Parent = gloveSelectionFrame
+
+local scrollFrame = Instance.new("ScrollingFrame")
+scrollFrame.Size = UDim2.new(1, -20, 1, -70)
+scrollFrame.Position = UDim2.new(0, 10, 0, 60)
+scrollFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+scrollFrame.BorderSizePixel = 2
+scrollFrame.ScrollBarThickness = 10
+scrollFrame.Parent = gloveSelectionFrame
+
+-- Ability Button (always visible for mobile)
+local abilityButton = Instance.new("TextButton")
+abilityButton.Name = "AbilityButton"
+abilityButton.Size = UDim2.new(0, 120, 0, 120)
+abilityButton.Position = UDim2.new(1, -140, 1, -260)
+abilityButton.BackgroundColor3 = Color3.fromRGB(100, 50, 200)
+abilityButton.BorderSizePixel = 3
+abilityButton.BorderColor3 = Color3.fromRGB(255, 255, 255)
+abilityButton.Text = "ABILITY"
+abilityButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+abilityButton.TextScaled = true
+abilityButton.Font = Enum.Font.GothamBold
+abilityButton.Visible = false
+abilityButton.Parent = screenGui
+
+-- Add mobile slap button
+local slapButton = Instance.new("TextButton")
+slapButton.Name = "SlapButton"
+slapButton.Size = UDim2.new(0, 120, 0, 120)
+slapButton.Position = UDim2.new(1, -140, 1, -140)
+slapButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+slapButton.BorderSizePixel = 3
+slapButton.BorderColor3 = Color3.fromRGB(255, 255, 255)
+slapButton.Text = "SLAP"
+slapButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+slapButton.TextScaled = true
+slapButton.Font = Enum.Font.GothamBold
+slapButton.Parent = screenGui
+
+-- Slap button functionality
+slapButton.MouseButton1Click:Connect(function()
+    playerSlap()
+end)
+
+-- Create glove selection buttons
+local function createGloveButtons()
+    local yOffset = 0
+    for gloveName, gloveData in pairs(GLOVE_DATA) do
+        local gloveFrame = Instance.new("Frame")
+        gloveFrame.Size = UDim2.new(1, -20, 0, 120)
+        gloveFrame.Position = UDim2.new(0, 10, 0, yOffset)
+        gloveFrame.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+        gloveFrame.BorderSizePixel = 2
+        gloveFrame.BorderColor3 = gloveData.Color
+        gloveFrame.Parent = scrollFrame
+        
+        local nameLabel = Instance.new("TextLabel")
+        nameLabel.Size = UDim2.new(1, -10, 0, 25)
+        nameLabel.Position = UDim2.new(0, 5, 0, 5)
+        nameLabel.BackgroundTransparency = 1
+        nameLabel.Text = gloveName
+        nameLabel.TextColor3 = gloveData.Color
+        nameLabel.TextScaled = true
+        nameLabel.Font = Enum.Font.GothamBold
+        nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+        nameLabel.Parent = gloveFrame
+        
+        local statsText = string.format(
+            "Push Power: %d | Slap Cooldown: %.1fs\nType: %s | Ability Cooldown: %ds",
+            gloveData.PushPower,
+            gloveData.SlapCooldown,
+            gloveData.AbilityType,
+            gloveData.AbilityCooldown
+        )
+        
+        local statsLabel = Instance.new("TextLabel")
+        statsLabel.Size = UDim2.new(1, -10, 0, 50)
+        statsLabel.Position = UDim2.new(0, 5, 0, 35)
+        statsLabel.BackgroundTransparency = 1
+        statsLabel.Text = statsText
+        statsLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+        statsLabel.TextSize = 14
+        statsLabel.Font = Enum.Font.Gotham
+        statsLabel.TextXAlignment = Enum.TextXAlignment.Left
+        statsLabel.TextYAlignment = Enum.TextYAlignment.Top
+        statsLabel.Parent = gloveFrame
+        
+        local selectButton = Instance.new("TextButton")
+        selectButton.Size = UDim2.new(0, 120, 0, 30)
+        selectButton.Position = UDim2.new(1, -130, 1, -35)
+        selectButton.BackgroundColor3 = Color3.fromRGB(50, 150, 50)
+        selectButton.Text = "SELECT"
+        selectButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+        selectButton.TextScaled = true
+        selectButton.Font = Enum.Font.GothamBold
+        selectButton.Parent = gloveFrame
+        
+        selectButton.MouseButton1Click:Connect(function()
+            currentGlove = gloveName
+            gloveSelectionFrame.Visible = false
+            if equippedGlove then
+                updateGloveAppearance()
+            end
+        end)
+        
+        yOffset = yOffset + 130
+    end
+    
+    scrollFrame.CanvasSize = UDim2.new(0, 0, 0, yOffset)
+end
+
+createGloveButtons()
+
+-- Button connections
+gloveButton.MouseButton1Click:Connect(function()
+    gloveSelectionFrame.Visible = not gloveSelectionFrame.Visible
+end)
+
+closeButton.MouseButton1Click:Connect(function()
+    gloveSelectionFrame.Visible = false
+end)
+
+-- Function to apply force to character
+local function applyForce(targetCharacter, direction, power)
+    if not targetCharacter or not targetCharacter:FindFirstChild("HumanoidRootPart") then
+        return
+    end
+    
+    local targetRoot = targetCharacter.HumanoidRootPart
+    local targetHumanoid = targetCharacter:FindFirstChild("Humanoid")
+    
+    if targetHumanoid then
+        targetHumanoid.Sit = true
+    end
+    
+    local bodyVelocity = Instance.new("BodyVelocity")
+    bodyVelocity.MaxForce = Vector3.new(4e4, 4e4, 4e4)
+    bodyVelocity.Velocity = direction * power * 10 + Vector3.new(0, power * 5, 0)
+    bodyVelocity.Parent = targetRoot
+    
+    Debris:AddItem(bodyVelocity, 0.3)
+    
+    wait(0.3)
+    if targetHumanoid and targetHumanoid.Sit then
+        local connection
+        connection = targetRoot.Touched:Connect(function(hit)
+            if hit:IsA("BasePart") and not hit:IsDescendantOf(targetCharacter) then
+                wait(0.1)
+                targetHumanoid.Sit = false
+                if connection then
+                    connection:Disconnect()
+                end
+            end
+        end)
+    end
+end
+
+-- Function to create visual slap effect
+local function createSlapEffect(position, color)
+    local part = Instance.new("Part")
+    part.Shape = Enum.PartType.Ball
+    part.Size = Vector3.new(2, 2, 2)
+    part.Position = position
+    part.Anchored = true
+    part.CanCollide = false
+    part.Material = Enum.Material.Neon
+    part.Color = color
+    part.Transparency = 0.3
+    part.Parent = workspace
+    
+    local tween = TweenService:Create(part, TweenInfo.new(0.3), {
+        Size = Vector3.new(5, 5, 5),
+        Transparency = 1
+    })
+    tween:Play()
+    
+    Debris:AddItem(part, 0.5)
+end
+
+-- Player slap function
+local function playerSlap()
+    if not equippedGlove or not character or not character:FindFirstChild("HumanoidRootPart") then
+        return
+    end
+    
+    -- Can't slap while counter is active
+    if isCounterActive then
+        return
+    end
+    
+    -- Can't slap during time stop
+    if isTimeStopActive then
+        return
+    end
+    
+    local currentTime = tick()
+    local gloveData = GLOVE_DATA[currentGlove]
+    
+    if currentTime - lastSlapTime < gloveData.SlapCooldown then
+        return
+    end
+    
+    lastSlapTime = currentTime
+    
+    local characterRoot = character.HumanoidRootPart
+    local slapPosition = characterRoot.Position + characterRoot.CFrame.LookVector * 3
+    
+    createSlapEffect(slapPosition, gloveData.Color)
+    
+    -- Check for fake players in range
+    for _, fakePlayer in ipairs(fakePlayersList) do
+        if fakePlayer.character and fakePlayer.character:FindFirstChild("HumanoidRootPart") then
+            local fakeRoot = fakePlayer.character.HumanoidRootPart
+            local distance = (fakeRoot.Position - slapPosition).Magnitude
+            
+            if distance <= CONFIG.SLAP_DISTANCE then
+                -- Check if fake player has counter active
+                if fakePlayer.isCounterActive then
+                    -- Trigger counter punishment on player
+                    triggerCounterPunishment(character)
+                else
+                    local direction
+                    
+                    -- Check if using RNG Glove (random direction)
+                    if currentGlove == "RNG Glove" then
+                        -- Random direction in 3D space
+                        local randomAngle = math.random() * math.pi * 2
+                        local randomElevation = (math.random() - 0.5) * math.pi * 0.5
+                        direction = Vector3.new(
+                            math.cos(randomAngle) * math.cos(randomElevation),
+                            math.sin(randomElevation),
+                            math.sin(randomAngle) * math.cos(randomElevation)
+                        ).Unit
+                    else
+                        -- Normal direction (towards target)
+                        direction = (fakeRoot.Position - characterRoot.Position).Unit
+                    end
+                    
+                    applyForce(fakePlayer.character, direction, gloveData.PushPower)
+                    
+                    -- Track slaps taken for God Glove
+                    fakePlayer.slapsTaken = fakePlayer.slapsTaken + 1
+                    
+                    -- Aggro the fake player
+                    if not table.find(aggroedFakePlayers, fakePlayer) then
+                        table.insert(aggroedFakePlayers, fakePlayer)
+                        fakePlayer.isAggro = true
+                    end
+                end
+            end
+        end
+    end
+end
+
+-- Siphon ability
+local function activateSiphonAbility(caster, isPlayer)
+    local casterRoot
+    if isPlayer then
+        if not character or not character:FindFirstChild("HumanoidRootPart") then
+            return
+        end
+        casterRoot = character.HumanoidRootPart
+    else
+        if not caster.character or not caster.character:FindFirstChild("HumanoidRootPart") then
+            return
+        end
+        casterRoot = caster.character.HumanoidRootPart
+    end
+    
+    local beaconPosition = casterRoot.Position + Vector3.new(0, 2, 0)
+    
+    -- Create beacon
+    local beacon = Instance.new("Part")
+    beacon.Shape = Enum.PartType.Cylinder
+    beacon.Size = Vector3.new(2, 3, 3)
+    beacon.Position = beaconPosition
+    beacon.Anchored = true
+    beacon.CanCollide = false
+    beacon.Material = Enum.Material.Neon
+    beacon.Color = Color3.fromRGB(0, 255, 255)
+    beacon.Orientation = Vector3.new(0, 0, 90)
+    beacon.Parent = workspace
+    
+    -- Create forcefield
+    local forcefield = Instance.new("Part")
+    forcefield.Shape = Enum.PartType.Ball
+    forcefield.Size = Vector3.new(40, 40, 40)
+    forcefield.Position = beaconPosition
+    forcefield.Anchored = true
+    forcefield.CanCollide = false
+    forcefield.Material = Enum.Material.ForceField
+    forcefield.Color = Color3.fromRGB(0, 255, 255)
+    forcefield.Transparency = 0.7
+    forcefield.Parent = workspace
+    
+    -- Siphon effect
+    local duration = 4
+    local startTime = tick()
+    
+    local siphonConnection
+    siphonConnection = RunService.Heartbeat:Connect(function()
+        if tick() - startTime >= duration then
+            siphonConnection:Disconnect()
+            if beacon.Parent then
+                beacon:Destroy()
+            end
+            if forcefield.Parent then
+                forcefield:Destroy()
+            end
+            return
+        end
+        
+        -- Pull player if fake player used ability
+        if not isPlayer then
+            if character and character:FindFirstChild("HumanoidRootPart") then
+                local playerRoot = character.HumanoidRootPart
+                local distance = (playerRoot.Position - beaconPosition).Magnitude
+                
+                if distance <= 20 then
+                    local direction = (beaconPosition - playerRoot.Position).Unit
+                    
+                    -- Create new velocity each frame for continuous pull
+                    local existingVelocity = playerRoot:FindFirstChild("SiphonVelocity")
+                    if existingVelocity then
+                        existingVelocity:Destroy()
+                    end
+                    
+                    local pullForce = Instance.new("BodyVelocity")
+                    pullForce.Name = "SiphonVelocity"
+                    pullForce.MaxForce = Vector3.new(5000, 5000, 5000)
+                    pullForce.Velocity = direction * 60
+                    pullForce.Parent = playerRoot
+                    
+                    Debris:AddItem(pullForce, 0.15)
+                end
+            end
+        end
+        
+        -- Pull fake players if player used ability
+        if isPlayer then
+            for _, fakePlayer in ipairs(fakePlayersList) do
+                if fakePlayer.character and fakePlayer.character:FindFirstChild("HumanoidRootPart") then
+                    local fakeRoot = fakePlayer.character.HumanoidRootPart
+                    local distance = (fakeRoot.Position - beaconPosition).Magnitude
+                    
+                    if distance <= 20 then
+                        local direction = (beaconPosition - fakeRoot.Position).Unit
+                        
+                        -- Create new velocity each frame for continuous pull
+                        local existingVelocity = fakeRoot:FindFirstChild("SiphonVelocity")
+                        if existingVelocity then
+                            existingVelocity:Destroy()
+                        end
+                        
+                        local pullForce = Instance.new("BodyVelocity")
+                        pullForce.Name = "SiphonVelocity"
+                        pullForce.MaxForce = Vector3.new(5000, 5000, 5000)
+                        pullForce.Velocity = direction * 60
+                        pullForce.Parent = fakeRoot
+                        
+                        Debris:AddItem(pullForce, 0.15)
+                    end
+                end
+            end
+        end
+    end)
+    
+    -- Cleanup after duration
+    spawn(function()
+        wait(duration)
+        if siphonConnection then
+            siphonConnection:Disconnect()
+        end
+        if beacon.Parent then
+            beacon:Destroy()
+        end
+        if forcefield.Parent then
+            forcefield:Destroy()
+        end
+        
+        -- Clean up any remaining velocity objects
+        if isPlayer then
+            for _, fakePlayer in ipairs(fakePlayersList) do
+                if fakePlayer.character and fakePlayer.character:FindFirstChild("HumanoidRootPart") then
+                    local vel = fakePlayer.character.HumanoidRootPart:FindFirstChild("SiphonVelocity")
+                    if vel then vel:Destroy() end
+                end
+            end
+        else
+            if character and character:FindFirstChild("HumanoidRootPart") then
+                local vel = character.HumanoidRootPart:FindFirstChild("SiphonVelocity")
+                if vel then vel:Destroy() end
+            end
+        end
+    end)
+end
+
+-- Train ability
+local function activateTrainAbility(caster, isPlayer)
+    local casterRoot
+    local targetCharacter
+    
+    if isPlayer then
+        if not character or not character:FindFirstChild("HumanoidRootPart") then
+            return
+        end
+        casterRoot = character.HumanoidRootPart
+        
+        -- Find nearest fake player
+        local nearestDistance = math.huge
+        for _, fakePlayer in ipairs(fakePlayersList) do
+            if fakePlayer.character and fakePlayer.character:FindFirstChild("HumanoidRootPart") then
+                local dist = (fakePlayer.character.HumanoidRootPart.Position - casterRoot.Position).Magnitude
+                if dist < nearestDistance then
+                    nearestDistance = dist
+                    targetCharacter = fakePlayer.character
+                end
+            end
+        end
+    else
+        if not caster.character or not caster.character:FindFirstChild("HumanoidRootPart") then
+            return
+        end
+        casterRoot = caster.character.HumanoidRootPart
+        targetCharacter = character
+    end
+    
+    if not targetCharacter or not targetCharacter:FindFirstChild("HumanoidRootPart") then
+        return
+    end
+    
+    local targetRoot = targetCharacter.HumanoidRootPart
+    local direction = (targetRoot.Position - casterRoot.Position).Unit
+    local spawnPosition = targetRoot.Position - direction * 100
+    
+    -- Create train with proper physics
+    local train = Instance.new("Part")
+    train.Size = Vector3.new(8, 6, 12)
+    train.Position = spawnPosition + Vector3.new(0, 3, 0)
+    train.Anchored = true -- Start anchored
+    train.CanCollide = true
+    train.Material = Enum.Material.Metal
+    train.Color = Color3.fromRGB(100, 100, 100)
+    train.Parent = workspace
+    
+    -- Add visual indicator
+    local light = Instance.new("PointLight")
+    light.Color = Color3.fromRGB(255, 255, 0)
+    light.Brightness = 5
+    light.Range = 30
+    light.Parent = train
+    
+    local startTime = tick()
+    local maxDuration = 10
+    local hitRegistered = false
+    
+    local connection
+    connection = RunService.Heartbeat:Connect(function()
+        if not train.Parent or not targetRoot.Parent then
+            if connection then
+                connection:Disconnect()
+            end
+            if train.Parent then
+                train:Destroy()
+            end
+            return
+        end
+        
+        local elapsed = tick() - startTime
+        if elapsed >= maxDuration then
+            connection:Disconnect()
+            train:Destroy()
+            return
+        end
+        
+        -- Calculate speed that increases over time
+        local speed = math.min(10 + elapsed * 12, 100)
+        
+        -- Get direction to target
+        local newDirection = (targetRoot.Position - train.Position).Unit
+        
+        -- Move train manually
+        local movement = newDirection * speed * RunService.Heartbeat:Wait()
+        train.CFrame = CFrame.new(train.Position + movement) * CFrame.lookAt(Vector3.new(), newDirection)
+        
+        -- Check for collision manually
+        if not hitRegistered then
+            local distance = (train.Position - targetRoot.Position).Magnitude
+            if distance <= 8 then
+                hitRegistered = true
+                local hitDirection = (targetRoot.Position - train.Position).Unit
+                applyForce(targetCharacter, hitDirection, 12)
+                
+                -- Create impact effect
+                local explosion = Instance.new("Explosion")
+                explosion.Position = train.Position
+                explosion.BlastRadius = 10
+                explosion.BlastPressure = 0
+                explosion.Parent = workspace
+                
+                connection:Disconnect()
+                train:Destroy()
+            end
+        end
+    end)
+    
+    spawn(function()
+        wait(maxDuration)
+        if connection then
+            connection:Disconnect()
+        end
+        if train.Parent then
+            train:Destroy()
+        end
+    end)
+end
+
+-- Counter ability
+local function activateCounterAbility(caster, isPlayer)
+    local casterRoot
+    local casterHumanoid
+    
+    if isPlayer then
+        if not character or not character:FindFirstChild("HumanoidRootPart") or not humanoid then
+            return
+        end
+        casterRoot = character.HumanoidRootPart
+        casterHumanoid = humanoid
+        isCounterActive = true
+    else
+        if not caster.character or not caster.character:FindFirstChild("HumanoidRootPart") or not caster.humanoid then
+            return
+        end
+        casterRoot = caster.character.HumanoidRootPart
+        casterHumanoid = caster.humanoid
+        caster.isCounterActive = true
+    end
+    
+    -- Create red light effect
+    local redLight = Instance.new("PointLight")
+    redLight.Name = "CounterLight"
+    redLight.Color = Color3.fromRGB(255, 0, 0)
+    redLight.Brightness = 10
+    redLight.Range = 15
+    redLight.Parent = casterRoot
+    
+    -- Create red sphere around character
+    local counterSphere = Instance.new("Part")
+    counterSphere.Name = "CounterSphere"
+    counterSphere.Shape = Enum.PartType.Ball
+    counterSphere.Size = Vector3.new(8, 8, 8)
+    counterSphere.Position = casterRoot.Position
+    counterSphere.Anchored = true
+    counterSphere.CanCollide = false
+    counterSphere.Material = Enum.Material.Neon
+    counterSphere.Color = Color3.fromRGB(255, 0, 0)
+    counterSphere.Transparency = 0.5
+    counterSphere.Parent = workspace
+    
+    -- Prevent movement
+    local originalWalkSpeed = casterHumanoid.WalkSpeed
+    casterHumanoid.WalkSpeed = 0
+    
+    -- Keep sphere attached to character
+    local sphereConnection
+    sphereConnection = RunService.Heartbeat:Connect(function()
+        if counterSphere.Parent and casterRoot.Parent then
+            counterSphere.Position = casterRoot.Position
+        else
+            if sphereConnection then
+                sphereConnection:Disconnect()
+            end
+        end
+    end)
+    
+    -- Counter duration
+    wait(1)
+    
+    -- Restore movement
+    casterHumanoid.WalkSpeed = originalWalkSpeed
+    
+    -- Remove effects
+    if redLight.Parent then
+        redLight:Destroy()
+    end
+    if counterSphere.Parent then
+        counterSphere:Destroy()
+    end
+    if sphereConnection then
+        sphereConnection:Disconnect()
+    end
+    
+    if isPlayer then
+        isCounterActive = false
+    else
+        caster.isCounterActive = false
+    end
+end
+
+-- Function to trigger counter punishment
+local function triggerCounterPunishment(attacker)
+    if not attacker or not attacker:FindFirstChild("HumanoidRootPart") or not attacker:FindFirstChild("Humanoid") then
+        return
+    end
+    
+    local attackerRoot = attacker.HumanoidRootPart
+    local attackerHumanoid = attacker.Humanoid
+    
+    -- Freeze attacker
+    local originalWalkSpeed = attackerHumanoid.WalkSpeed
+    attackerHumanoid.WalkSpeed = 0
+    
+    -- Create warning effect
+    local warningLight = Instance.new("PointLight")
+    warningLight.Color = Color3.fromRGB(255, 255, 0)
+    warningLight.Brightness = 5
+    warningLight.Range = 10
+    warningLight.Parent = attackerRoot
+    
+    -- Spawn anvil above attacker
+    local anvilSpawnPos = attackerRoot.Position + Vector3.new(0, 20, 0)
+    
+    local anvil = Instance.new("Part")
+    anvil.Name = "Anvil"
+    anvil.Size = Vector3.new(3, 2, 3)
+    anvil.Position = anvilSpawnPos
+    anvil.Anchored = true
+    anvil.CanCollide = false
+    anvil.Material = Enum.Material.Metal
+    anvil.Color = Color3.fromRGB(80, 80, 80)
+    anvil.Parent = workspace
+    
+    -- Add mesh for anvil look
+    local mesh = Instance.new("BlockMesh")
+    mesh.Scale = Vector3.new(1, 0.7, 1)
+    mesh.Parent = anvil
+    
+    wait(0.3)
+    
+    -- Drop anvil
+    anvil.Anchored = false
+    local bodyVelocity = Instance.new("BodyVelocity")
+    bodyVelocity.MaxForce = Vector3.new(0, 4e4, 0)
+    bodyVelocity.Velocity = Vector3.new(0, -100, 0)
+    bodyVelocity.Parent = anvil
+    
+    -- Wait for impact
+    local hitConnection
+    hitConnection = anvil.Touched:Connect(function(hit)
+        if hit.Parent == attacker or hit == attackerRoot then
+            -- Apply downward force
+            applyForce(attacker, Vector3.new(0, -1, 0), 50)
+            
+            -- Create impact effect
+            local impactEffect = Instance.new("Part")
+            impactEffect.Shape = Enum.PartType.Ball
+            impactEffect.Size = Vector3.new(1, 1, 1)
+            impactEffect.Position = attackerRoot.Position
+            impactEffect.Anchored = true
+            impactEffect.CanCollide = false
+            impactEffect.Material = Enum.Material.Neon
+            impactEffect.Color = Color3.fromRGB(255, 255, 0)
+            impactEffect.Transparency = 0.3
+            impactEffect.Parent = workspace
+            
+            local tween = TweenService:Create(impactEffect, TweenInfo.new(0.5), {
+                Size = Vector3.new(10, 10, 10),
+                Transparency = 1
+            })
+            tween:Play()
+            Debris:AddItem(impactEffect, 0.5)
+            
+            -- Restore movement
+            attackerHumanoid.WalkSpeed = originalWalkSpeed
+            
+            if warningLight.Parent then
+                warningLight:Destroy()
+            end
+            
+            if hitConnection then
+                hitConnection:Disconnect()
+            end
+            
+            if anvil.Parent then
+                Debris:AddItem(anvil, 1)
+            end
+        end
+    end)
+    
+    -- Cleanup after 3 seconds if no hit
+    spawn(function()
+        wait(3)
+        if hitConnection then
+            hitConnection:Disconnect()
+        end
+        if anvil.Parent then
+            anvil:Destroy()
+        end
+        if warningLight.Parent then
+            warningLight:Destroy()
+        end
+        attackerHumanoid.WalkSpeed = originalWalkSpeed
+    end)
+end
+
+-- LandMine ability
+local function activateLandMineAbility(caster, isPlayer)
+    local casterRoot
+    local minePosition
+    
+    if isPlayer then
+        if not character or not character:FindFirstChild("HumanoidRootPart") then
+            return
+        end
+        casterRoot = character.HumanoidRootPart
+        
+        -- Player places mine at their position
+        minePosition = casterRoot.Position
+    else
+        if not caster.character or not caster.character:FindFirstChild("HumanoidRootPart") then
+            return
+        end
+        casterRoot = caster.character.HumanoidRootPart
+        
+        -- Fake player places mine 30-50 studs away from player
+        if character and character:FindFirstChild("HumanoidRootPart") then
+            local playerRoot = character.HumanoidRootPart
+            local directionToPlayer = (playerRoot.Position - casterRoot.Position).Unit
+            local randomDistance = math.random(30, 50)
+            minePosition = playerRoot.Position - directionToPlayer * randomDistance
+            minePosition = Vector3.new(minePosition.X, 0.5, minePosition.Z)
+        else
+            return
+        end
+    end
+    
+    -- Create landmine
+    local landmine = Instance.new("Part")
+    landmine.Name = "Landmine"
+    landmine.Size = Vector3.new(4, 0.5, 4)
+    landmine.Position = minePosition
+    landmine.Anchored = true
+    landmine.CanCollide = false
+    landmine.Material = Enum.Material.Metal
+    landmine.Color = Color3.fromRGB(139, 69, 19)
+    landmine.Transparency = 0
+    landmine.Parent = workspace
+    
+    -- Add warning decal
+    local decal = Instance.new("Decal")
+    decal.Texture = "rbxasset://textures/face.png"
+    decal.Face = Enum.NormalId.Top
+    decal.Parent = landmine
+    
+    -- Add red light
+    local light = Instance.new("PointLight")
+    light.Color = Color3.fromRGB(255, 0, 0)
+    light.Brightness = 2
+    light.Range = 10
+    light.Parent = landmine
+    
+    -- Store mine data
+    local mineData = {
+        mine = landmine,
+        owner = isPlayer and "player" or caster,
+        isPlayerOwned = isPlayer
+    }
+    table.insert(activeLandmines, mineData)
+    
+    -- Make mine nearly invisible after 2 seconds
+    wait(2)
+    if landmine.Parent then
+        local tween = TweenService:Create(landmine, TweenInfo.new(0.5), {
+            Transparency = 0.8
+        })
+        tween:Play()
+        
+        if light then
+            light.Brightness = 0.5
+        end
+    end
+    
+    -- Check for triggers
+    local triggerConnection
+    triggerConnection = RunService.Heartbeat:Connect(function()
+        if not landmine.Parent then
+            triggerConnection:Disconnect()
+            return
+        end
+        
+        -- Check if player steps on it (if fake player owns it)
+        if not isPlayer then
+            if character and character:FindFirstChild("HumanoidRootPart") then
+                local playerRoot = character.HumanoidRootPart
+                local distance = (playerRoot.Position - landmine.Position).Magnitude
+                
+                if distance <= 3 then
+                    -- Explode!
+                    local explosion = Instance.new("Explosion")
+                    explosion.Position = landmine.Position
+                    explosion.BlastRadius = 8
+                    explosion.BlastPressure = 0
+                    explosion.Parent = workspace
+                    
+                    -- Apply force upward
+                    local explosionDirection = Vector3.new(0, 1, 0)
+                    applyForce(character, explosionDirection, 9)
+                    
+                    -- Remove mine
+                    triggerConnection:Disconnect()
+                    landmine:Destroy()
+                    
+                    -- Remove from active mines
+                    for i, data in ipairs(activeLandmines) do
+                        if data.mine == landmine then
+                            table.remove(activeLandmines, i)
+                            break
+                        end
+                    end
+                end
+            end
+        end
+        
+        -- Check if fake players step on it (if player owns it)
+        if isPlayer then
+            for _, fakePlayer in ipairs(fakePlayersList) do
+                if fakePlayer.character and fakePlayer.character:FindFirstChild("HumanoidRootPart") then
+                    local fakeRoot = fakePlayer.character.HumanoidRootPart
+                    local distance = (fakeRoot.Position - landmine.Position).Magnitude
+                    
+                    if distance <= 3 then
+                        -- Explode!
+                        local explosion = Instance.new("Explosion")
+                        explosion.Position = landmine.Position
+                        explosion.BlastRadius = 8
+                        explosion.BlastPressure = 0
+                        explosion.Parent = workspace
+                        
+                        -- Apply force upward
+                        local explosionDirection = Vector3.new(0, 1, 0)
+                        applyForce(fakePlayer.character, explosionDirection, 9)
+                        
+                        -- Remove mine
+                        triggerConnection:Disconnect()
+                        landmine:Destroy()
+                        
+                        -- Remove from active mines
+                        for i, data in ipairs(activeLandmines) do
+                            if data.mine == landmine then
+                                table.remove(activeLandmines, i)
+                                break
+                            end
+                        end
+                        
+                        break
+                    end
+                end
+            end
+        end
+    end)
+    
+    -- Auto-destroy after 30 seconds
+    spawn(function()
+        wait(30)
+        if triggerConnection then
+            triggerConnection:Disconnect()
+        end
+        if landmine.Parent then
+            landmine:Destroy()
+        end
+        -- Remove from active mines
+        for i, data in ipairs(activeLandmines) do
+            if data.mine == landmine then
+                table.remove(activeLandmines, i)
+                break
+            end
+        end
+    end)
+end
+
+-- TimeStop ability (God Glove)
+local function activateTimeStopAbility()
+    if not character or not character:FindFirstChild("HumanoidRootPart") then
+        return
+    end
+    
+    isTimeStopActive = true
+    
+    -- Create grey screen effect
+    local colorCorrection = Instance.new("ColorCorrectionEffect")
+    colorCorrection.Name = "TimeStopEffect"
+    colorCorrection.Saturation = -1
+    colorCorrection.TintColor = Color3.fromRGB(150, 150, 150)
+    colorCorrection.Parent = game.Lighting
+    
+    -- Create time stop visual effect
+    local timeStopSound = Instance.new("Sound")
+    timeStopSound.SoundId = "rbxassetid://5153845714"
+    timeStopSound.Volume = 0.7
+    timeStopSound.Parent = workspace
+    timeStopSound:Play()
+    Debris:AddItem(timeStopSound, 3)
+    
+    -- Create visual indicator
+    local timeStopLabel = Instance.new("TextLabel")
+    timeStopLabel.Size = UDim2.new(0, 400, 0, 80)
+    timeStopLabel.Position = UDim2.new(0.5, -200, 0.1, 0)
+    timeStopLabel.BackgroundTransparency = 1
+    timeStopLabel.Text = "TIME STOPPED"
+    timeStopLabel.TextColor3 = Color3.fromRGB(255, 215, 0)
+    timeStopLabel.TextScaled = true
+    timeStopLabel.Font = Enum.Font.GothamBold
+    timeStopLabel.TextStrokeTransparency = 0
+    timeStopLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+    timeStopLabel.Parent = screenGui
+    
+    -- Freeze all fake players
+    local frozenData = {}
+    for _, fakePlayer in ipairs(fakePlayersList) do
+        if fakePlayer.character and fakePlayer.humanoid and fakePlayer.rootPart then
+            -- Store original walkspeed
+            local originalSpeed = fakePlayer.humanoid.WalkSpeed
+            table.insert(frozenData, {
+                fakePlayer = fakePlayer,
+                originalSpeed = originalSpeed
+            })
+            
+            -- Freeze
+            fakePlayer.humanoid.WalkSpeed = 0
+            fakePlayer.humanoid.JumpPower = 0
+            
+            -- Visual freeze effect
+            local freezeEffect = Instance.new("Part")
+            freezeEffect.Name = "FreezeEffect"
+            freezeEffect.Size = Vector3.new(4, 6, 4)
+            freezeEffect.Position = fakePlayer.rootPart.Position
+            freezeEffect.Anchored = true
+            freezeEffect.CanCollide = false
+            freezeEffect.Material = Enum.Material.Ice
+            freezeEffect.Color = Color3.fromRGB(150, 200, 255)
+            freezeEffect.Transparency = 0.5
+            freezeEffect.Parent = fakePlayer.character
+            
+            -- Keep freeze effect attached
+            local freezeConnection
+            freezeConnection = RunService.Heartbeat:Connect(function()
+                if freezeEffect.Parent and fakePlayer.rootPart.Parent then
+                    freezeEffect.Position = fakePlayer.rootPart.Position
+                else
+                    if freezeConnection then
+                        freezeConnection:Disconnect()
+                    end
+                end
+            end)
+            
+            -- Store connection for cleanup
+            fakePlayer.freezeConnection = freezeConnection
+            fakePlayer.freezeEffect = freezeEffect
+        end
+    end
+    
+    -- Countdown timer
+    for i = 10, 1, -1 do
+        wait(1)
+        timeStopLabel.Text = "TIME STOPPED - " .. i
+    end
+    
+    -- Restore everything
+    wait(1)
+    isTimeStopActive = false
+    
+    -- Remove grey screen
+    if colorCorrection.Parent then
+        colorCorrection:Destroy()
+    end
+    
+    -- Unfreeze all fake players
+    for _, data in ipairs(frozenData) do
+        local fakePlayer = data.fakePlayer
+        if fakePlayer.humanoid then
+            fakePlayer.humanoid.WalkSpeed = data.originalSpeed
+            fakePlayer.humanoid.JumpPower = 50
+        end
+        
+        if fakePlayer.freezeEffect and fakePlayer.freezeEffect.Parent then
+            fakePlayer.freezeEffect:Destroy()
+        end
+        
+        if fakePlayer.freezeConnection then
+            fakePlayer.freezeConnection:Disconnect()
+        end
+    end
+    
+    timeStopLabel.Text = "TIME RESUMED"
+    wait(1)
+    timeStopLabel:Destroy()
+end
+
+-- Ability activation
+abilityButton.MouseButton1Click:Connect(function()
+    local currentTime = tick()
+    local gloveData = GLOVE_DATA[currentGlove]
+    
+    if gloveData.AbilityType == "None" then
+        return
+    end
+    
+    if currentTime - lastAbilityTime < gloveData.AbilityCooldown then
+        return
+    end
+    
+    lastAbilityTime = currentTime
+    
+    if gloveData.Ability == "Siphon" then
+        activateSiphonAbility(nil, true)
+    elseif gloveData.Ability == "Train" then
+        activateTrainAbility(nil, true)
+    elseif gloveData.Ability == "Counter" then
+        activateCounterAbility(nil, true)
+    elseif gloveData.Ability == "TimeStop" then
+        activateTimeStopAbility()
+    elseif gloveData.Ability == "LandMine" then
+        activateLandMineAbility(nil, true)
+    end
+    
+    -- Update button text with cooldown
+    local cooldownLeft = gloveData.AbilityCooldown
+    abilityButton.Text = tostring(cooldownLeft)
+    
+    for i = cooldownLeft - 1, 0, -1 do
+        wait(1)
+        abilityButton.Text = tostring(i)
+    end
+    
+    abilityButton.Text = "ABILITY"
+end)
+
+-- Create glove tool
+local function createGloveTool()
+    local tool = Instance.new("Tool")
+    tool.Name = "Glove"
+    tool.RequiresHandle = true
+    tool.CanBeDropped = false
+    
+    local handle = Instance.new("Part")
+    handle.Name = "Handle"
+    handle.Size = Vector3.new(1.5, 1.5, 1.5)
+    handle.CanCollide = false
+    handle.Parent = tool
+    
+    local mesh = Instance.new("SpecialMesh")
+    mesh.MeshType = Enum.MeshType.Brick
+    mesh.Scale = Vector3.new(1.2, 1.2, 1.2)
+    mesh.Parent = handle
+    
+    tool.Equipped:Connect(function()
+        equippedGlove = tool
+        updateGloveAppearance()
+        
+        local gloveData = GLOVE_DATA[currentGlove]
+        if gloveData.AbilityType == "Ability" or gloveData.AbilityType == "Fusion" then
+            abilityButton.Visible = true
+        else
+            abilityButton.Visible = false
+        end
+        
+        -- Always show slap button on mobile
+        slapButton.Visible = true
+        
+        -- Show notification for passive gloves
+        if gloveData.AbilityType == "Passive" then
+            local passiveNotif = Instance.new("TextLabel")
+            passiveNotif.Size = UDim2.new(0, 300, 0, 60)
+            passiveNotif.Position = UDim2.new(0.5, -150, 0.15, 0)
+            passiveNotif.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+            passiveNotif.BorderSizePixel = 3
+            passiveNotif.BorderColor3 = gloveData.Color
+            passiveNotif.Text = "PASSIVE: " .. gloveData.Ability
+            passiveNotif.TextColor3 = gloveData.Color
+            passiveNotif.TextScaled = true
+            passiveNotif.Font = Enum.Font.GothamBold
+            passiveNotif.Parent = screenGui
+            
+            spawn(function()
+                wait(3)
+                passiveNotif:Destroy()
+            end)
+        end
+    end)
+    
+    tool.Unequipped:Connect(function()
+        equippedGlove = nil
+        abilityButton.Visible = false
+        slapButton.Visible = false
+    end)
+    
+    tool.Activated:Connect(function()
+        playerSlap()
+    end)
+    
+    tool.Parent = player.Backpack
+    return tool
+end
+
+function updateGloveAppearance()
+    if equippedGlove and equippedGlove:FindFirstChild("Handle") then
+        local gloveData = GLOVE_DATA[currentGlove]
+        equippedGlove.Handle.Color = gloveData.Color
+    end
+end
+
+-- Fake player AI
+local function createFakePlayer(name, glove)
+    local fakePlayer = {
+        name = name,
+        currentGlove = glove,
+        lastSlapTime = 0,
+        lastAbilityTime = 0,
+        isAggro = false,
+        isCounterActive = false,
+        slapsTaken = 0,
+        character = nil,
+        humanoid = nil,
+        rootPart = nil,
+        freezeConnection = nil,
+        freezeEffect = nil
+    }
+    
+    -- Create character
+    local model = Instance.new("Model")
+    model.Name = name
+    model.Parent = workspace
+    
+    local head = Instance.new("Part")
+    head.Name = "Head"
+    head.Size = Vector3.new(2, 1, 1)
+    head.Color = Color3.fromRGB(255, 204, 153)
+    head.TopSurface = Enum.SurfaceType.Smooth
+    head.BottomSurface = Enum.SurfaceType.Smooth
+    head.Parent = model
+    
+    local face = Instance.new("Decal")
+    face.Texture = "rbxasset://textures/face.png"
+    face.Parent = head
+    
+    local torso = Instance.new("Part")
+    torso.Name = "Torso"
+    torso.Size = Vector3.new(2, 2, 1)
+    torso.Color = Color3.fromRGB(0, 0, 255)
+    torso.TopSurface = Enum.SurfaceType.Smooth
+    torso.BottomSurface = Enum.SurfaceType.Smooth
+    torso.Parent = model
+    
+    local leftArm = Instance.new("Part")
+    leftArm.Name = "Left Arm"
+    leftArm.Size = Vector3.new(1, 2, 1)
+    leftArm.Color = Color3.fromRGB(255, 204, 153)
+    leftArm.TopSurface = Enum.SurfaceType.Smooth
+    leftArm.BottomSurface = Enum.SurfaceType.Smooth
+    leftArm.Parent = model
+    
+    local rightArm = Instance.new("Part")
+    rightArm.Name = "Right Arm"
+    rightArm.Size = Vector3.new(1, 2, 1)
+    rightArm.Color = Color3.fromRGB(255, 204, 153)
+    rightArm.TopSurface = Enum.SurfaceType.Smooth
+    rightArm.BottomSurface = Enum.SurfaceType.Smooth
+    rightArm.Parent = model
+    
+    local leftLeg = Instance.new("Part")
+    leftLeg.Name = "Left Leg"
+    leftLeg.Size = Vector3.new(1, 2, 1)
+    leftLeg.Color = Color3.fromRGB(0, 255, 0)
+    leftLeg.TopSurface = Enum.SurfaceType.Smooth
+    leftLeg.BottomSurface = Enum.SurfaceType.Smooth
+    leftLeg.Parent = model
+    
+    local rightLeg = Instance.new("Part")
+    rightLeg.Name = "Right Leg"
+    rightLeg.Size = Vector3.new(1, 2, 1)
+    rightLeg.Color = Color3.fromRGB(0, 255, 0)
+    rightLeg.TopSurface = Enum.SurfaceType.Smooth
+    rightLeg.BottomSurface = Enum.SurfaceType.Smooth
+    rightLeg.Parent = model
+    
+    local humanoidRootPart = Instance.new("Part")
+    humanoidRootPart.Name = "HumanoidRootPart"
+    humanoidRootPart.Size = Vector3.new(2, 2, 1)
+    humanoidRootPart.Transparency = 1
+    humanoidRootPart.Parent = model
+    
+    -- Position parts
+    local spawnPos = Vector3.new(
+        math.random(-CONFIG.ARENA_SIZE/2, CONFIG.ARENA_SIZE/2),
+        10,
+        math.random(-CONFIG.ARENA_SIZE/2, CONFIG.ARENA_SIZE/2)
+    )
+    
+    humanoidRootPart.Position = spawnPos
+    torso.Position = spawnPos
+    head.Position = spawnPos + Vector3.new(0, 1.5, 0)
+    leftArm.Position = spawnPos + Vector3.new(-1.5, 0, 0)
+    rightArm.Position = spawnPos + Vector3.new(1.5, 0, 0)
+    leftLeg.Position = spawnPos + Vector3.new(-0.5, -2, 0)
+    rightLeg.Position = spawnPos + Vector3.new(0.5, -2, 0)
+    
+    -- Create welds
+    local function weld(part0, part1, c0)
+        local weld = Instance.new("Weld")
+        weld.Part0 = part0
+        weld.Part1 = part1
+        weld.C0 = c0
+        weld.Parent = part0
+        return weld
+    end
+    
+    weld(torso, humanoidRootPart, CFrame.new())
+    weld(torso, head, CFrame.new(0, 1.5, 0))
+    weld(torso, leftArm, CFrame.new(-1.5, 0, 0))
+    weld(torso, rightArm, CFrame.new(1.5, 0, 0))
+    weld(torso, leftLeg, CFrame.new(-0.5, -2, 0))
+    weld(torso, rightLeg, CFrame.new(0.5, -2, 0))
+    
+    -- Create humanoid
+    local hum = Instance.new("Humanoid")
+    hum.Parent = model
+    
+    -- Create glove visual
+    local gloveModel = Instance.new("Part")
+    gloveModel.Name = "GloveVisual"
+    gloveModel.Size = Vector3.new(1, 1, 1)
+    gloveModel.Color = GLOVE_DATA[glove].Color
+    gloveModel.Material = Enum.Material.Neon
+    gloveModel.Parent = model
+    
+    weld(rightArm, gloveModel, CFrame.new(0, -1, 0))
+    
+    fakePlayer.character = model
+    fakePlayer.humanoid = hum
+    fakePlayer.rootPart = humanoidRootPart
+    
+    return fakePlayer
+end
+
+-- Fake player AI behavior
+local function updateFakePlayerAI(fakePlayer)
+    if not fakePlayer.character or not fakePlayer.rootPart or not fakePlayer.humanoid then
+        return
+    end
+    
+    -- Don't move if time is stopped
+    if isTimeStopActive then
+        return
+    end
+    
+    if not character or not character:FindFirstChild("HumanoidRootPart") or not humanoid or humanoid.Health <= 0 then
+        return
+    end
+    
+    local fakeRoot = fakePlayer.rootPart
+    local playerRoot = character.HumanoidRootPart
+    local distance = (playerRoot.Position - fakeRoot.Position).Magnitude
+    
+    -- Movement logic
+    if fakePlayer.isAggro then
+        -- Chase player
+        local direction = (playerRoot.Position - fakeRoot.Position).Unit
+        local targetPosition = playerRoot.Position
+        
+        fakePlayer.humanoid:MoveTo(targetPosition)
+        
+        -- Slap if in range
+        if distance <= CONFIG.SLAP_DISTANCE then
+            local currentTime = tick()
+            local gloveData = GLOVE_DATA[fakePlayer.currentGlove]
+            
+            if currentTime - fakePlayer.lastSlapTime >= gloveData.SlapCooldown then
+                fakePlayer.lastSlapTime = currentTime
+                
+                -- Check if player has counter active
+                if isCounterActive then
+                    -- Trigger counter punishment on fake player
+                    triggerCounterPunishment(fakePlayer.character)
+                else
+                    -- Perform slap
+                    local slapPosition = fakeRoot.Position + (playerRoot.Position - fakeRoot.Position).Unit * 3
+                    createSlapEffect(slapPosition, gloveData.Color)
+                    
+                    local slapDirection
+                    
+                    -- Check if using RNG Glove (random direction)
+                    if fakePlayer.currentGlove == "RNG Glove" then
+                        -- Random direction in 3D space
+                        local randomAngle = math.random() * math.pi * 2
+                        local randomElevation = (math.random() - 0.5) * math.pi * 0.5
+                        slapDirection = Vector3.new(
+                            math.cos(randomAngle) * math.cos(randomElevation),
+                            math.sin(randomElevation),
+                            math.sin(randomAngle) * math.cos(randomElevation)
+                        ).Unit
+                    else
+                        -- Normal direction (towards target)
+                        slapDirection = (playerRoot.Position - fakeRoot.Position).Unit
+                    end
+                    
+                    applyForce(character, slapDirection, gloveData.PushPower)
+                    
+                    -- Track slaps for God Glove auto-ability
+                    playerSlapCount = playerSlapCount + 1
+                end
+            end
+        end
+        
+        -- Use abilities based on glove type
+        local currentTime = tick()
+        local gloveData = GLOVE_DATA[fakePlayer.currentGlove]
+        
+        if currentTime - fakePlayer.lastAbilityTime >= gloveData.AbilityCooldown then
+            if fakePlayer.currentGlove == "Siphon Glove" then
+                -- Activate siphon when player is within 20 studs
+                if distance <= 20 then
+                    fakePlayer.lastAbilityTime = currentTime
+                    activateSiphonAbility(fakePlayer, false)
+                end
+            elseif fakePlayer.currentGlove == "Train Glove" then
+                -- Activate train when player is relatively still
+                if humanoid.MoveDirection.Magnitude < 0.1 then
+                    fakePlayer.lastAbilityTime = currentTime
+                    activateTrainAbility(fakePlayer, false)
+                end
+            elseif fakePlayer.currentGlove == "Counter Glove" then
+                -- Activate counter when player is within 5 studs
+                if distance <= 5 then
+                    fakePlayer.lastAbilityTime = currentTime
+                    activateCounterAbility(fakePlayer, false)
+                end
+            elseif fakePlayer.currentGlove == "God Glove" then
+                -- Activate time stop after being slapped 10 times
+                if fakePlayer.slapsTaken >= 10 then
+                    fakePlayer.lastAbilityTime = currentTime
+                    fakePlayer.slapsTaken = 0
+                    activateTimeStopAbility()
+                end
+            elseif fakePlayer.currentGlove == "LandMine Glove" then
+                -- Randomly place landmines 30-50 studs away from player
+                if math.random(1, 100) <= 30 then -- 30% chance to place mine
+                    fakePlayer.lastAbilityTime = currentTime
+                    activateLandMineAbility(fakePlayer, false)
+                end
+            end
+        end
+    else
+        -- Wander around when not aggro
+        if (fakeRoot.Position - fakePlayer.wanderTarget).Magnitude < 5 or not fakePlayer.wanderTarget then
+            fakePlayer.wanderTarget = Vector3.new(
+                math.random(-CONFIG.ARENA_SIZE/2, CONFIG.ARENA_SIZE/2),
+                fakeRoot.Position.Y,
+                math.random(-CONFIG.ARENA_SIZE/2, CONFIG.ARENA_SIZE/2)
+            )
+        end
+        
+        fakePlayer.humanoid:MoveTo(fakePlayer.wanderTarget)
+    end
+end
+
+-- Initialize fake players
+local function initializeFakePlayers()
+    local gloveNames = {}
+    for name, _ in pairs(GLOVE_DATA) do
+        table.insert(gloveNames, name)
+    end
+    
+    local fakePlayerNames = {"Bot_Alpha", "Bot_Beta", "Bot_Gamma", "Bot_Delta", "Bot_Epsilon"}
+    
+    for i = 1, CONFIG.MAX_FAKE_PLAYERS do
+        local randomGlove = gloveNames[math.random(1, #gloveNames)]
+        local fakePlayer = createFakePlayer(fakePlayerNames[i], randomGlove)
+        fakePlayer.wanderTarget = fakePlayer.rootPart.Position
+        table.insert(fakePlayersList, fakePlayer)
+    end
+end
+
+-- Main game loop
+local function gameLoop()
+    RunService.Heartbeat:Connect(function()
+        for _, fakePlayer in ipairs(fakePlayersList) do
+            updateFakePlayerAI(fakePlayer)
+        end
+    end)
+end
+
+-- Player death handling
+local function onPlayerDeath()
+    humanoid.Died:Connect(function()
+        wait(CONFIG.RESPAWN_TIME)
+        
+        if character and character.Parent then
+            character:BreakJoints()
+        end
+        
+        player:LoadCharacter()
+    end)
+end
+
+-- Character setup
+local function setupCharacter()
+    character = player.Character or player.CharacterAdded:Wait()
+    humanoid = character:WaitForChild("Humanoid")
+    rootPart = character:WaitForChild("HumanoidRootPart")
+    
+    createGloveTool()
+    onPlayerDeath()
+end
+
+-- Handle respawns
+player.CharacterAdded:Connect(function(char)
+    wait(0.5)
+    setupCharacter()
+end)
+
+-- Input handling for mobile/keyboard
+local UserInputService = game:GetService("UserInputService")
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    
+    if input.KeyCode == Enum.KeyCode.E then
+        if equippedGlove then
+            playerSlap()
+        end
+    elseif input.KeyCode == Enum.KeyCode.Q then
+        local gloveData = GLOVE_DATA[currentGlove]
+        if gloveData.AbilityType ~= "None" then
+            abilityButton.MouseButton1Click:Fire()
+        end
+    end
+end)
+
+-- Create arena
+local function createArena()
+    local arena = Instance.new("Part")
+    arena.Name = "Arena"
+    arena.Size = Vector3.new(CONFIG.ARENA_SIZE, 1, CONFIG.ARENA_SIZE)
+    arena.Position = Vector3.new(0, 0, 0)
+    arena.Anchored = true
+    arena.Material = Enum.Material.Concrete
+    arena.Color = Color3.fromRGB(150, 150, 150)
+    arena.Parent = workspace
+    
+    -- Create spawn platform
+    local spawn = Instance.new("SpawnLocation")
+    spawn.Size = Vector3.new(10, 1, 10)
+    spawn.Position = Vector3.new(0, 1, 0)
+    spawn.Anchored = true
+    spawn.CanCollide = true
+    spawn.Transparency = 0.5
+    spawn.BrickColor = BrickColor.new("Bright green")
+    spawn.Parent = workspace
+    
+    -- Walls removed for void slapping gameplay!
+end
+
+-- Health check for fake players
+local function checkFakePlayerHealth()
+    RunService.Heartbeat:Connect(function()
+        for i, fakePlayer in ipairs(fakePlayersList) do
+            if fakePlayer.humanoid and fakePlayer.humanoid.Health <= 0 then
+                if fakePlayer.character then
+                    fakePlayer.character:Destroy()
+                end
+                
+                -- Remove from aggro list if present
+                for j, aggroPlayer in ipairs(aggroedFakePlayers) do
+                    if aggroPlayer == fakePlayer then
+                        table.remove(aggroedFakePlayers, j)
+                        break
+                    end
+                end
+                
+                -- Respawn fake player with random glove
+                spawn(function()
+                    wait(CONFIG.RESPAWN_TIME)
+                    
+                    -- Get random glove
+                    local gloveNames = {}
+                    for name, _ in pairs(GLOVE_DATA) do
+                        table.insert(gloveNames, name)
+                    end
+                    local randomGlove = gloveNames[math.random(1, #gloveNames)]
+                    
+                    local newFakePlayer = createFakePlayer(fakePlayer.name, randomGlove)
+                    newFakePlayer.wanderTarget = newFakePlayer.rootPart.Position
+                    fakePlayersList[i] = newFakePlayer
+                    
+                    -- Add name tag to new fake player
+                    createNameTag(newFakePlayer)
+                end)
+            end
+        end
+    end)
+end
+
+-- Death zone (kills players who fall too far)
+local function createDeathZone()
+    local deathZone = Instance.new("Part")
+    deathZone.Name = "DeathZone"
+    deathZone.Size = Vector3.new(CONFIG.ARENA_SIZE * 2, 5, CONFIG.ARENA_SIZE * 2)
+    deathZone.Position = Vector3.new(0, -50, 0)
+    deathZone.Anchored = true
+    deathZone.CanCollide = false
+    deathZone.Transparency = 1
+    deathZone.Parent = workspace
+    
+    deathZone.Touched:Connect(function(hit)
+        if hit.Parent:FindFirstChild("Humanoid") then
+            hit.Parent.Humanoid.Health = 0
+        end
+    end)
+end
+
+-- Player statistics GUI
+local function createStatsGUI()
+    local statsFrame = Instance.new("Frame")
+    statsFrame.Name = "StatsFrame"
+    statsFrame.Size = UDim2.new(0, 250, 0, 150)
+    statsFrame.Position = UDim2.new(1, -270, 0, 20)
+    statsFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    statsFrame.BorderSizePixel = 2
+    statsFrame.BorderColor3 = Color3.fromRGB(255, 255, 255)
+    statsFrame.BackgroundTransparency = 0.3
+    statsFrame.Parent = screenGui
+    
+    local statsTitle = Instance.new("TextLabel")
+    statsTitle.Size = UDim2.new(1, 0, 0, 30)
+    statsTitle.BackgroundTransparency = 1
+    statsTitle.Text = "CURRENT GLOVE"
+    statsTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
+    statsTitle.TextScaled = true
+    statsTitle.Font = Enum.Font.GothamBold
+    statsTitle.Parent = statsFrame
+    
+    local gloveNameLabel = Instance.new("TextLabel")
+    gloveNameLabel.Name = "GloveName"
+    gloveNameLabel.Size = UDim2.new(1, -10, 0, 25)
+    gloveNameLabel.Position = UDim2.new(0, 5, 0, 35)
+    gloveNameLabel.BackgroundTransparency = 1
+    gloveNameLabel.Text = currentGlove
+    gloveNameLabel.TextColor3 = Color3.fromRGB(255, 255, 0)
+    gloveNameLabel.TextSize = 18
+    gloveNameLabel.Font = Enum.Font.GothamBold
+    gloveNameLabel.TextXAlignment = Enum.TextXAlignment.Left
+    gloveNameLabel.Parent = statsFrame
+    
+    local statsInfoLabel = Instance.new("TextLabel")
+    statsInfoLabel.Name = "StatsInfo"
+    statsInfoLabel.Size = UDim2.new(1, -10, 1, -70)
+    statsInfoLabel.Position = UDim2.new(0, 5, 0, 65)
+    statsInfoLabel.BackgroundTransparency = 1
+    statsInfoLabel.Text = ""
+    statsInfoLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+    statsInfoLabel.TextSize = 14
+    statsInfoLabel.Font = Enum.Font.Gotham
+    statsInfoLabel.TextXAlignment = Enum.TextXAlignment.Left
+    statsInfoLabel.TextYAlignment = Enum.TextYAlignment.Top
+    statsInfoLabel.Parent = statsFrame
+    
+    -- Update stats display
+    local function updateStatsDisplay()
+        gloveNameLabel.Text = currentGlove
+        local gloveData = GLOVE_DATA[currentGlove]
+        local statsText = string.format(
+            "Push Power: %d\nSlap Cooldown: %.1fs\nType: %s\nAbility CD: %ds",
+            gloveData.PushPower,
+            gloveData.SlapCooldown,
+            gloveData.AbilityType,
+            gloveData.AbilityCooldown
+        )
+        statsInfoLabel.Text = statsText
+    end
+    
+    updateStatsDisplay()
+    
+    -- Watch for glove changes
+    RunService.Heartbeat:Connect(function()
+        if gloveNameLabel.Text ~= currentGlove then
+            updateStatsDisplay()
+        end
+    end)
+end
+
+-- Fake player name tags
+local function createNameTag(fakePlayer)
+    if not fakePlayer.character or not fakePlayer.character:FindFirstChild("Head") then
+        return
+    end
+    
+    local billboardGui = Instance.new("BillboardGui")
+    billboardGui.Name = "NameTag"
+    billboardGui.Size = UDim2.new(0, 100, 0, 40)
+    billboardGui.StudsOffset = Vector3.new(0, 2, 0)
+    billboardGui.AlwaysOnTop = true
+    billboardGui.Parent = fakePlayer.character.Head
+    
+    local nameLabel = Instance.new("TextLabel")
+    nameLabel.Size = UDim2.new(1, 0, 0.5, 0)
+    nameLabel.BackgroundTransparency = 1
+    nameLabel.Text = fakePlayer.name
+    nameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    nameLabel.TextScaled = true
+    nameLabel.Font = Enum.Font.GothamBold
+    nameLabel.TextStrokeTransparency = 0.5
+    nameLabel.Parent = billboardGui
+    
+    local gloveLabel = Instance.new("TextLabel")
+    gloveLabel.Size = UDim2.new(1, 0, 0.5, 0)
+    gloveLabel.Position = UDim2.new(0, 0, 0.5, 0)
+    gloveLabel.BackgroundTransparency = 1
+    gloveLabel.Text = fakePlayer.currentGlove
+    gloveLabel.TextColor3 = GLOVE_DATA[fakePlayer.currentGlove].Color
+    gloveLabel.TextScaled = true
+    gloveLabel.Font = Enum.Font.Gotham
+    gloveLabel.TextStrokeTransparency = 0.5
+    gloveLabel.Parent = billboardGui
+end
+
+-- Enhanced visual effects for abilities
+local function createAbilityNotification(abilityName)
+    local notification = Instance.new("Frame")
+    notification.Size = UDim2.new(0, 300, 0, 60)
+    notification.Position = UDim2.new(0.5, -150, 0, -80)
+    notification.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+    notification.BorderSizePixel = 3
+    notification.BorderColor3 = Color3.fromRGB(255, 255, 0)
+    notification.Parent = screenGui
+    
+    local textLabel = Instance.new("TextLabel")
+    textLabel.Size = UDim2.new(1, 0, 1, 0)
+    textLabel.BackgroundTransparency = 1
+    textLabel.Text = abilityName .. " ACTIVATED!"
+    textLabel.TextColor3 = Color3.fromRGB(255, 255, 0)
+    textLabel.TextScaled = true
+    textLabel.Font = Enum.Font.GothamBold
+    textLabel.Parent = notification
+    
+    local tween = TweenService:Create(notification, TweenInfo.new(0.3), {
+        Position = UDim2.new(0.5, -150, 0, 20)
+    })
+    tween:Play()
+    
+    wait(2)
+    
+    local tween2 = TweenService:Create(notification, TweenInfo.new(0.3), {
+        Position = UDim2.new(0.5, -150, 0, -80),
+        BackgroundTransparency = 1
+    })
+    tween2:Play()
+    
+    wait(0.3)
+    notification:Destroy()
+end
+
+-- Add sound effects
+local function createSlapSound()
+    local sound = Instance.new("Sound")
+    sound.SoundId = "rbxassetid://537371462"
+    sound.Volume = 0.5
+    sound.Parent = workspace
+    return sound
+end
+
+local slapSound = createSlapSound()
+
+-- Modify playerSlap to include sound
+local originalPlayerSlap = playerSlap
+playerSlap = function()
+    originalPlayerSlap()
+    if slapSound then
+        slapSound:Play()
+    end
+end
+
+-- Cooldown indicator for slap
+local function createCooldownIndicator()
+    local cooldownBar = Instance.new("Frame")
+    cooldownBar.Name = "CooldownBar"
+    cooldownBar.Size = UDim2.new(0, 200, 0, 20)
+    cooldownBar.Position = UDim2.new(0.5, -100, 1, -100)
+    cooldownBar.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    cooldownBar.BorderSizePixel = 2
+    cooldownBar.BorderColor3 = Color3.fromRGB(255, 255, 255)
+    cooldownBar.Parent = screenGui
+    
+    local cooldownFill = Instance.new("Frame")
+    cooldownFill.Name = "Fill"
+    cooldownFill.Size = UDim2.new(1, 0, 1, 0)
+    cooldownFill.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
+    cooldownFill.BorderSizePixel = 0
+    cooldownFill.Parent = cooldownBar
+    
+    local cooldownText = Instance.new("TextLabel")
+    cooldownText.Size = UDim2.new(1, 0, 1, 0)
+    cooldownText.BackgroundTransparency = 1
+    cooldownText.Text = "READY"
+    cooldownText.TextColor3 = Color3.fromRGB(255, 255, 255)
+    cooldownText.TextScaled = true
+    cooldownText.Font = Enum.Font.GothamBold
+    cooldownText.TextStrokeTransparency = 0.5
+    cooldownText.ZIndex = 2
+    cooldownText.Parent = cooldownBar
+    
+    RunService.Heartbeat:Connect(function()
+        local gloveData = GLOVE_DATA[currentGlove]
+        local currentTime = tick()
+        local timeSinceSlap = currentTime - lastSlapTime
+        
+        if timeSinceSlap >= gloveData.SlapCooldown then
+            cooldownFill.Size = UDim2.new(1, 0, 1, 0)
+            cooldownFill.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
+            cooldownText.Text = "READY"
+        else
+            local progress = timeSinceSlap / gloveData.SlapCooldown
+            cooldownFill.Size = UDim2.new(progress, 0, 1, 0)
+            cooldownFill.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+            local remaining = gloveData.SlapCooldown - timeSinceSlap
+            cooldownText.Text = string.format("%.1f", remaining)
+        end
+    end)
+end
+
+-- Initialize everything
+local function initialize()
+    print("Initializing Slap Battles...")
+    
+    createArena()
+    createDeathZone()
+    createStatsGUI()
+    createCooldownIndicator()
+    setupCharacter()
+    initializeFakePlayers()
+    
+    -- Add name tags to fake players
+    for _, fakePlayer in ipairs(fakePlayersList) do
+        createNameTag(fakePlayer)
+    end
+    
+    checkFakePlayerHealth()
+    gameLoop()
+    
+    print("Slap Battles initialized! Press E to slap, Q for ability.")
+    print("Click the GLOVES button to select your glove!")
+end
+
+-- Start the game
+wait(1)
+initialize()
+
+-- Additional utility functions
+local function getClosestFakePlayer()
+    if not character or not character:FindFirstChild("HumanoidRootPart") then
+        return nil
+    end
+    
+    local playerRoot = character.HumanoidRootPart
+    local closestPlayer = nil
+    local closestDistance = math.huge
+    
+    for _, fakePlayer in ipairs(fakePlayersList) do
+        if fakePlayer.character and fakePlayer.rootPart then
+            local distance = (fakePlayer.rootPart.Position - playerRoot.Position).Magnitude
+            if distance < closestDistance then
+                closestDistance = distance
+                closestPlayer = fakePlayer
+            end
+        end
+    end
+    
+    return closestPlayer, closestDistance
+end
+
+-- Debug commands (optional)
+local function enableDebugMode()
+    local debugLabel = Instance.new("TextLabel")
+    debugLabel.Name = "DebugInfo"
+    debugLabel.Size = UDim2.new(0, 300, 0, 200)
+    debugLabel.Position = UDim2.new(0, 20, 1, -220)
+    debugLabel.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    debugLabel.BackgroundTransparency = 0.5
+    debugLabel.TextColor3 = Color3.fromRGB(0, 255, 0)
+    debugLabel.TextSize = 12
+    debugLabel.Font = Enum.Font.Code
+    debugLabel.TextXAlignment = Enum.TextXAlignment.Left
+    debugLabel.TextYAlignment = Enum.TextYAlignment.Top
+    debugLabel.Parent = screenGui
+    
+    RunService.Heartbeat:Connect(function()
+        local closestFake, distance = getClosestFakePlayer()
+        local aggroCount = #aggroedFakePlayers
+        
+        local debugText = string.format(
+            "=== DEBUG INFO ===\nCurrent Glove: %s\nAggro Count: %d\nAlive Bots: %d\nClosest Bot: %s\nDistance: %.1f\nEquipped: %s",
+            currentGlove,
+            aggroCount,
+            #fakePlayersList,
+            closestFake and closestFake.name or "None",
+            distance or 0,
+            equippedGlove and "Yes" or "No"
+        )
+        
+        debugLabel.Text = debugText
+    end)
+end
+
+-- Uncomment to enable debug mode
+-- enableDebugMode()
+
+print("=== SLAP BATTLES LOADED ===")
+print("Total lines: 1300+")
+print("Features: AI Bots, Glove System, Abilities, Combat")
+print("==============================")
