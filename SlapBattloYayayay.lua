@@ -24,7 +24,7 @@ local CONFIG = {
 -- Glove data with all properties
 local GLOVE_DATA = {
     ["Default Glove"] = {
-        PushPower = 53817458429357172927346829237,
+        PushPower = 5,
         SlapCooldown = 2,
         AbilityType = "None",
         Ability = nil,
@@ -95,6 +95,14 @@ local GLOVE_DATA = {
         Ability = "AirBomb",
         AbilityCooldown = 25,
         Color = Color3.fromRGB(135, 206, 235)
+    },
+    ["Admin Glove"] = {
+        PushPower = 8,
+        SlapCooldown = 1.5,
+        AbilityType = "Ability",
+        Ability = "Admin",
+        AbilityCooldown = 0,
+        Color = Color3.fromRGB(255, 255, 255)
     }
 }
 
@@ -116,6 +124,17 @@ local activeTurrets = {}
 local activeRoombas = {}
 local airBombTargetingActive = false
 local activeHighlights = {}
+local adminCommandCooldowns = {
+    explode = 0,
+    speed = 0,
+    anvil = 0,
+    jumppower = 0,
+    bring = 0,
+    goto = 0,
+    train = 0,
+    freeze = 0,
+    ragdoll = 0
+}
 
 -- UI Elements
 local screenGui = Instance.new("ScreenGui")
@@ -905,6 +924,687 @@ local function triggerCounterPunishment(attacker)
     end)
 end
 
+-- Admin Panel System
+local adminPanelGui = Instance.new("Frame")
+adminPanelGui.Name = "AdminPanel"
+adminPanelGui.Size = UDim2.new(0, 600, 0, 500)
+adminPanelGui.Position = UDim2.new(0.5, -300, 0.5, -250)
+adminPanelGui.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+adminPanelGui.BorderSizePixel = 3
+adminPanelGui.BorderColor3 = Color3.fromRGB(255, 255, 255)
+adminPanelGui.Visible = false
+adminPanelGui.Parent = screenGui
+
+local adminTitle = Instance.new("TextLabel")
+adminTitle.Size = UDim2.new(1, 0, 0, 40)
+adminTitle.BackgroundColor3 = Color3.fromRGB(10, 10, 10)
+adminTitle.BorderSizePixel = 0
+adminTitle.Text = "ADMIN PANEL"
+adminTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
+adminTitle.TextScaled = true
+adminTitle.Font = Enum.Font.GothamBold
+adminTitle.Parent = adminPanelGui
+
+local closeAdminButton = Instance.new("TextButton")
+closeAdminButton.Size = UDim2.new(0, 35, 0, 35)
+closeAdminButton.Position = UDim2.new(1, -38, 0, 2.5)
+closeAdminButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+closeAdminButton.Text = "X"
+closeAdminButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+closeAdminButton.TextScaled = true
+closeAdminButton.Font = Enum.Font.GothamBold
+closeAdminButton.Parent = adminPanelGui
+
+local adminScrollFrame = Instance.new("ScrollingFrame")
+adminScrollFrame.Size = UDim2.new(1, -20, 1, -60)
+adminScrollFrame.Position = UDim2.new(0, 10, 0, 50)
+adminScrollFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+adminScrollFrame.BorderSizePixel = 0
+adminScrollFrame.ScrollBarThickness = 8
+adminScrollFrame.Parent = adminPanelGui
+
+-- Admin Panel Button (replaces ability button for Admin Glove)
+local adminPanelButton = Instance.new("TextButton")
+adminPanelButton.Name = "AdminPanelButton"
+adminPanelButton.Size = UDim2.new(0, 120, 0, 120)
+adminPanelButton.Position = UDim2.new(1, -140, 1, -260)
+adminPanelButton.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+adminPanelButton.BorderSizePixel = 3
+adminPanelButton.BorderColor3 = Color3.fromRGB(0, 0, 0)
+adminPanelButton.Text = "ADMIN"
+adminPanelButton.TextColor3 = Color3.fromRGB(0, 0, 0)
+adminPanelButton.TextScaled = true
+adminPanelButton.Font = Enum.Font.GothamBold
+adminPanelButton.Visible = false
+adminPanelButton.Parent = screenGui
+
+adminPanelButton.MouseButton1Click:Connect(function()
+    adminPanelGui.Visible = not adminPanelGui.Visible
+end)
+
+closeAdminButton.MouseButton1Click:Connect(function()
+    adminPanelGui.Visible = false
+end)
+
+-- Chat function
+local function sendAdminChat(message)
+    local chatLabel = Instance.new("TextLabel")
+    chatLabel.Size = UDim2.new(0, 400, 0, 30)
+    chatLabel.Position = UDim2.new(0, 20, 0, 100)
+    chatLabel.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    chatLabel.BackgroundTransparency = 0.5
+    chatLabel.BorderSizePixel = 2
+    chatLabel.BorderColor3 = Color3.fromRGB(255, 255, 255)
+    chatLabel.Text = message
+    chatLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    chatLabel.TextSize = 18
+    chatLabel.Font = Enum.Font.Gotham
+    chatLabel.TextXAlignment = Enum.TextXAlignment.Left
+    chatLabel.Parent = screenGui
+    
+    spawn(function()
+        wait(3)
+        chatLabel:Destroy()
+    end)
+end
+
+-- Fake player chat function
+local function sendFakePlayerChat(fakePlayerName, message)
+    local chatLabel = Instance.new("TextLabel")
+    chatLabel.Size = UDim2.new(0, 450, 0, 35)
+    chatLabel.Position = UDim2.new(0, 20, 0, 140)
+    chatLabel.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    chatLabel.BackgroundTransparency = 0.3
+    chatLabel.BorderSizePixel = 2
+    chatLabel.BorderColor3 = Color3.fromRGB(100, 150, 255)
+    chatLabel.Text = "[" .. fakePlayerName .. "]: " .. message
+    chatLabel.TextColor3 = Color3.fromRGB(200, 220, 255)
+    chatLabel.TextSize = 16
+    chatLabel.Font = Enum.Font.Gotham
+    chatLabel.TextXAlignment = Enum.TextXAlignment.Left
+    chatLabel.Parent = screenGui
+    
+    spawn(function()
+        wait(4)
+        chatLabel:Destroy()
+    end)
+end
+
+-- Admin Commands
+local adminCommands = {
+    {
+        name = "Explode",
+        cooldown = 30,
+        func = function()
+            local currentTime = tick()
+            if currentTime - adminCommandCooldowns.explode < 30 then
+                return
+            end
+            
+            adminCommandCooldowns.explode = currentTime
+            
+            -- Clear existing highlights
+            for _, h in ipairs(activeHighlights) do
+                if h.Parent then h:Destroy() end
+            end
+            activeHighlights = {}
+            
+            local selectedNames = {}
+            
+            -- Highlight all fake players
+            for _, fakePlayer in ipairs(fakePlayersList) do
+                if fakePlayer.character then
+                    local highlight = Instance.new("Highlight")
+                    highlight.FillColor = Color3.fromRGB(255, 100, 0)
+                    highlight.OutlineColor = Color3.fromRGB(255, 0, 0)
+                    highlight.FillTransparency = 0.5
+                    highlight.OutlineTransparency = 0
+                    highlight.Parent = fakePlayer.character
+                    table.insert(activeHighlights, highlight)
+                    
+                    local clickDetector = Instance.new("ClickDetector")
+                    clickDetector.MaxActivationDistance = 100
+                    clickDetector.Parent = fakePlayer.character.HumanoidRootPart
+                    
+                    clickDetector.MouseClick:Connect(function()
+                        table.insert(selectedNames, fakePlayer.name)
+                        
+                        if fakePlayer.character and fakePlayer.character:FindFirstChild("HumanoidRootPart") then
+                            local explosion = Instance.new("Explosion")
+                            explosion.Position = fakePlayer.character.HumanoidRootPart.Position
+                            explosion.BlastRadius = 10
+                            explosion.BlastPressure = 0
+                            explosion.Parent = workspace
+                            
+                            local randomAngle = math.random() * math.pi * 2
+                            local randomElevation = (math.random() - 0.5) * math.pi * 0.5
+                            local direction = Vector3.new(
+                                math.cos(randomAngle) * math.cos(randomElevation),
+                                math.sin(randomElevation),
+                                math.sin(randomAngle) * math.cos(randomElevation)
+                            ).Unit
+                            
+                            applyForce(fakePlayer.character, direction, 12)
+                        end
+                        
+                        clickDetector:Destroy()
+                        if highlight.Parent then highlight:Destroy() end
+                    end)
+                end
+            end
+            
+            spawn(function()
+                wait(10)
+                for _, h in ipairs(activeHighlights) do
+                    if h.Parent then h:Destroy() end
+                end
+                activeHighlights = {}
+                
+                if #selectedNames > 0 then
+                    local nameStr = table.concat(selectedNames, ", ")
+                    sendAdminChat("/Explode " .. nameStr)
+                end
+            end)
+        end
+    },
+    {
+        name = "Speed",
+        cooldown = 50,
+        func = function()
+            local currentTime = tick()
+            if currentTime - adminCommandCooldowns.speed < 50 then
+                return
+            end
+            
+            adminCommandCooldowns.speed = currentTime
+            
+            local inputFrame = Instance.new("Frame")
+            inputFrame.Size = UDim2.new(0, 300, 0, 150)
+            inputFrame.Position = UDim2.new(0.5, -150, 0.5, -75)
+            inputFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+            inputFrame.BorderSizePixel = 3
+            inputFrame.BorderColor3 = Color3.fromRGB(255, 255, 255)
+            inputFrame.Parent = screenGui
+            
+            local inputBox = Instance.new("TextBox")
+            inputBox.Size = UDim2.new(1, -20, 0, 40)
+            inputBox.Position = UDim2.new(0, 10, 0, 30)
+            inputBox.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+            inputBox.Text = "16"
+            inputBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+            inputBox.TextScaled = true
+            inputBox.Font = Enum.Font.Gotham
+            inputBox.Parent = inputFrame
+            
+            local confirmBtn = Instance.new("TextButton")
+            confirmBtn.Size = UDim2.new(0, 100, 0, 40)
+            confirmBtn.Position = UDim2.new(0.5, -50, 1, -50)
+            confirmBtn.BackgroundColor3 = Color3.fromRGB(50, 150, 50)
+            confirmBtn.Text = "SET"
+            confirmBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+            confirmBtn.TextScaled = true
+            confirmBtn.Font = Enum.Font.GothamBold
+            confirmBtn.Parent = inputFrame
+            
+            confirmBtn.MouseButton1Click:Connect(function()
+                local speedValue = tonumber(inputBox.Text) or 16
+                if humanoid then
+                    humanoid.WalkSpeed = speedValue
+                    sendAdminChat("/Speed " .. speedValue)
+                end
+                inputFrame:Destroy()
+            end)
+        end
+    },
+    {
+        name = "Anvil",
+        cooldown = 35,
+        func = function()
+            local currentTime = tick()
+            if currentTime - adminCommandCooldowns.anvil < 35 then
+                return
+            end
+            
+            adminCommandCooldowns.anvil = currentTime
+            
+            for _, h in ipairs(activeHighlights) do
+                if h.Parent then h:Destroy() end
+            end
+            activeHighlights = {}
+            
+            local selectedNames = {}
+            
+            for _, fakePlayer in ipairs(fakePlayersList) do
+                if fakePlayer.character then
+                    local highlight = Instance.new("Highlight")
+                    highlight.FillColor = Color3.fromRGB(100, 100, 100)
+                    highlight.OutlineColor = Color3.fromRGB(255, 255, 0)
+                    highlight.FillTransparency = 0.5
+                    highlight.OutlineTransparency = 0
+                    highlight.Parent = fakePlayer.character
+                    table.insert(activeHighlights, highlight)
+                    
+                    local clickDetector = Instance.new("ClickDetector")
+                    clickDetector.MaxActivationDistance = 100
+                    clickDetector.Parent = fakePlayer.character.HumanoidRootPart
+                    
+                    clickDetector.MouseClick:Connect(function()
+                        table.insert(selectedNames, fakePlayer.name)
+                        
+                        if fakePlayer.character and fakePlayer.character:FindFirstChild("HumanoidRootPart") then
+                            local targetRoot = fakePlayer.character.HumanoidRootPart
+                            local anvilSpawnPos = targetRoot.Position + Vector3.new(0, 20, 0)
+                            
+                            local anvil = Instance.new("Part")
+                            anvil.Name = "Anvil"
+                            anvil.Size = Vector3.new(3, 2, 3)
+                            anvil.Position = anvilSpawnPos
+                            anvil.Anchored = false
+                            anvil.Material = Enum.Material.Metal
+                            anvil.Color = Color3.fromRGB(80, 80, 80)
+                            anvil.Parent = workspace
+                            
+                            local bv = Instance.new("BodyVelocity")
+                            bv.MaxForce = Vector3.new(0, 4e4, 0)
+                            bv.Velocity = Vector3.new(0, -100, 0)
+                            bv.Parent = anvil
+                            
+                            local hitConn
+                            hitConn = anvil.Touched:Connect(function(hit)
+                                if hit.Parent == fakePlayer.character then
+                                    applyForce(fakePlayer.character, Vector3.new(0, -1, 0), 13)
+                                    hitConn:Disconnect()
+                                    Debris:AddItem(anvil, 1)
+                                end
+                            end)
+                            
+                            Debris:AddItem(anvil, 3)
+                        end
+                        
+                        clickDetector:Destroy()
+                        if highlight.Parent then highlight:Destroy() end
+                    end)
+                end
+            end
+            
+            spawn(function()
+                wait(10)
+                for _, h in ipairs(activeHighlights) do
+                    if h.Parent then h:Destroy() end
+                end
+                
+                if #selectedNames > 0 then
+                    local nameStr = table.concat(selectedNames, ", ")
+                    sendAdminChat("/Anvil " .. nameStr)
+                end
+            end)
+        end
+    },
+    {
+        name = "JumpPower",
+        cooldown = 50,
+        func = function()
+            local currentTime = tick()
+            if currentTime - adminCommandCooldowns.jumppower < 50 then
+                return
+            end
+            
+            adminCommandCooldowns.jumppower = currentTime
+            
+            local inputFrame = Instance.new("Frame")
+            inputFrame.Size = UDim2.new(0, 300, 0, 150)
+            inputFrame.Position = UDim2.new(0.5, -150, 0.5, -75)
+            inputFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+            inputFrame.BorderSizePixel = 3
+            inputFrame.BorderColor3 = Color3.fromRGB(255, 255, 255)
+            inputFrame.Parent = screenGui
+            
+            local inputBox = Instance.new("TextBox")
+            inputBox.Size = UDim2.new(1, -20, 0, 40)
+            inputBox.Position = UDim2.new(0, 10, 0, 30)
+            inputBox.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+            inputBox.Text = "50"
+            inputBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+            inputBox.TextScaled = true
+            inputBox.Font = Enum.Font.Gotham
+            inputBox.Parent = inputFrame
+            
+            local confirmBtn = Instance.new("TextButton")
+            confirmBtn.Size = UDim2.new(0, 100, 0, 40)
+            confirmBtn.Position = UDim2.new(0.5, -50, 1, -50)
+            confirmBtn.BackgroundColor3 = Color3.fromRGB(50, 150, 50)
+            confirmBtn.Text = "SET"
+            confirmBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+            confirmBtn.TextScaled = true
+            confirmBtn.Font = Enum.Font.GothamBold
+            confirmBtn.Parent = inputFrame
+            
+            confirmBtn.MouseButton1Click:Connect(function()
+                local jumpValue = tonumber(inputBox.Text) or 50
+                if humanoid then
+                    humanoid.JumpPower = jumpValue
+                    sendAdminChat("/JumpPower " .. jumpValue)
+                end
+                inputFrame:Destroy()
+            end)
+        end
+    },
+    {
+        name = "Bring",
+        cooldown = 55,
+        func = function()
+            local currentTime = tick()
+            if currentTime - adminCommandCooldowns.bring < 55 then
+                return
+            end
+            
+            adminCommandCooldowns.bring = currentTime
+            
+            local dropdownFrame = Instance.new("Frame")
+            dropdownFrame.Size = UDim2.new(0, 300, 0, 300)
+            dropdownFrame.Position = UDim2.new(0.5, -150, 0.5, -150)
+            dropdownFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+            dropdownFrame.BorderSizePixel = 3
+            dropdownFrame.BorderColor3 = Color3.fromRGB(255, 255, 255)
+            dropdownFrame.Parent = screenGui
+            
+            local scrollFrame = Instance.new("ScrollingFrame")
+            scrollFrame.Size = UDim2.new(1, -20, 1, -20)
+            scrollFrame.Position = UDim2.new(0, 10, 0, 10)
+            scrollFrame.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+            scrollFrame.BorderSizePixel = 0
+            scrollFrame.ScrollBarThickness = 6
+            scrollFrame.Parent = dropdownFrame
+            
+            local yOffset = 0
+            for _, fakePlayer in ipairs(fakePlayersList) do
+                local btn = Instance.new("TextButton")
+                btn.Size = UDim2.new(1, -10, 0, 40)
+                btn.Position = UDim2.new(0, 5, 0, yOffset)
+                btn.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+                btn.Text = fakePlayer.name
+                btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+                btn.TextScaled = true
+                btn.Font = Enum.Font.Gotham
+                btn.Parent = scrollFrame
+                
+                btn.MouseButton1Click:Connect(function()
+                    if fakePlayer.character and fakePlayer.rootPart and character and rootPart then
+                        fakePlayer.rootPart.CFrame = rootPart.CFrame + Vector3.new(5, 0, 0)
+                        sendAdminChat("/Bring " .. fakePlayer.name)
+                    end
+                    dropdownFrame:Destroy()
+                end)
+                
+                yOffset = yOffset + 45
+            end
+            
+            scrollFrame.CanvasSize = UDim2.new(0, 0, 0, yOffset)
+        end
+    },
+    {
+        name = "Goto",
+        cooldown = 53,
+        func = function()
+            local currentTime = tick()
+            if currentTime - adminCommandCooldowns.goto < 53 then
+                return
+            end
+            
+            adminCommandCooldowns.goto = currentTime
+            
+            local dropdownFrame = Instance.new("Frame")
+            dropdownFrame.Size = UDim2.new(0, 300, 0, 300)
+            dropdownFrame.Position = UDim2.new(0.5, -150, 0.5, -150)
+            dropdownFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+            dropdownFrame.BorderSizePixel = 3
+            dropdownFrame.BorderColor3 = Color3.fromRGB(255, 255, 255)
+            dropdownFrame.Parent = screenGui
+            
+            local scrollFrame = Instance.new("ScrollingFrame")
+            scrollFrame.Size = UDim2.new(1, -20, 1, -20)
+            scrollFrame.Position = UDim2.new(0, 10, 0, 10)
+            scrollFrame.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+            scrollFrame.BorderSizePixel = 0
+            scrollFrame.ScrollBarThickness = 6
+            scrollFrame.Parent = dropdownFrame
+            
+            local yOffset = 0
+            for _, fakePlayer in ipairs(fakePlayersList) do
+                local btn = Instance.new("TextButton")
+                btn.Size = UDim2.new(1, -10, 0, 40)
+                btn.Position = UDim2.new(0, 5, 0, yOffset)
+                btn.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+                btn.Text = fakePlayer.name
+                btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+                btn.TextScaled = true
+                btn.Font = Enum.Font.Gotham
+                btn.Parent = scrollFrame
+                
+                btn.MouseButton1Click:Connect(function()
+                    if fakePlayer.character and fakePlayer.rootPart and character and rootPart then
+                        rootPart.CFrame = fakePlayer.rootPart.CFrame + Vector3.new(5, 0, 0)
+                        sendAdminChat("/Goto " .. fakePlayer.name)
+                    end
+                    dropdownFrame:Destroy()
+                end)
+                
+                yOffset = yOffset + 45
+            end
+            
+            scrollFrame.CanvasSize = UDim2.new(0, 0, 0, yOffset)
+        end
+    },
+    {
+        name = "Train",
+        cooldown = 60,
+        func = function()
+            local currentTime = tick()
+            if currentTime - adminCommandCooldowns.train < 60 then
+                return
+            end
+            
+            adminCommandCooldowns.train = currentTime
+            
+            activateTrainAbility(nil, true)
+            sendAdminChat("/Train")
+        end
+    },
+    {
+        name = "Freeze",
+        cooldown = 40,
+        func = function()
+            local currentTime = tick()
+            if currentTime - adminCommandCooldowns.freeze < 40 then
+                return
+            end
+            
+            adminCommandCooldowns.freeze = currentTime
+            
+            for _, h in ipairs(activeHighlights) do
+                if h.Parent then h:Destroy() end
+            end
+            activeHighlights = {}
+            
+            local selectedNames = {}
+            
+            for _, fakePlayer in ipairs(fakePlayersList) do
+                if fakePlayer.character then
+                    local highlight = Instance.new("Highlight")
+                    highlight.FillColor = Color3.fromRGB(100, 200, 255)
+                    highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+                    highlight.FillTransparency = 0.5
+                    highlight.OutlineTransparency = 0
+                    highlight.Parent = fakePlayer.character
+                    table.insert(activeHighlights, highlight)
+                    
+                    local clickDetector = Instance.new("ClickDetector")
+                    clickDetector.MaxActivationDistance = 100
+                    clickDetector.Parent = fakePlayer.character.HumanoidRootPart
+                    
+                    clickDetector.MouseClick:Connect(function()
+                        table.insert(selectedNames, fakePlayer.name)
+                        
+                        if fakePlayer.humanoid then
+                            local originalSpeed = fakePlayer.humanoid.WalkSpeed
+                            fakePlayer.humanoid.WalkSpeed = 0
+                            
+                            spawn(function()
+                                wait(5)
+                                if fakePlayer.humanoid then
+                                    fakePlayer.humanoid.WalkSpeed = originalSpeed
+                                end
+                            end)
+                        end
+                        
+                        clickDetector:Destroy()
+                        if highlight.Parent then highlight:Destroy() end
+                    end)
+                end
+            end
+            
+            spawn(function()
+                wait(10)
+                for _, h in ipairs(activeHighlights) do
+                    if h.Parent then h:Destroy() end
+                end
+                
+                if #selectedNames > 0 then
+                    local nameStr = table.concat(selectedNames, ", ")
+                    sendAdminChat("/Freeze " .. nameStr)
+                end
+            end)
+        end
+    },
+    {
+        name = "Ragdoll",
+        cooldown = 45,
+        func = function()
+            local currentTime = tick()
+            if currentTime - adminCommandCooldowns.ragdoll < 45 then
+                return
+            end
+            
+            adminCommandCooldowns.ragdoll = currentTime
+            
+            for _, h in ipairs(activeHighlights) do
+                if h.Parent then h:Destroy() end
+            end
+            activeHighlights = {}
+            
+            local selectedNames = {}
+            
+            for _, fakePlayer in ipairs(fakePlayersList) do
+                if fakePlayer.character then
+                    local highlight = Instance.new("Highlight")
+                    highlight.FillColor = Color3.fromRGB(200, 100, 255)
+                    highlight.OutlineColor = Color3.fromRGB(255, 100, 255)
+                    highlight.FillTransparency = 0.5
+                    highlight.OutlineTransparency = 0
+                    highlight.Parent = fakePlayer.character
+                    table.insert(activeHighlights, highlight)
+                    
+                    local clickDetector = Instance.new("ClickDetector")
+                    clickDetector.MaxActivationDistance = 100
+                    clickDetector.Parent = fakePlayer.character.HumanoidRootPart
+                    
+                    clickDetector.MouseButton1Click:Connect(function()
+                        table.insert(selectedNames, fakePlayer.name)
+                        
+                        if fakePlayer.humanoid and fakePlayer.rootPart then
+                            fakePlayer.humanoid.PlatformStand = true
+                            
+                            local randomDir = Vector3.new(
+                                math.random(-1, 1),
+                                math.random(0, 1),
+                                math.random(-1, 1)
+                            ).Unit
+                            
+                            applyForce(fakePlayer.character, randomDir, 15)
+                            
+                            spawn(function()
+                                wait(3)
+                                if fakePlayer.humanoid then
+                                    fakePlayer.humanoid.PlatformStand = false
+                                end
+                            end)
+                        end
+                        
+                        clickDetector:Destroy()
+                        if highlight.Parent then highlight:Destroy() end
+                    end)
+                end
+            end
+            
+            spawn(function()
+                wait(10)
+                for _, h in ipairs(activeHighlights) do
+                    if h.Parent then h:Destroy() end
+                end
+                
+                if #selectedNames > 0 then
+                    local nameStr = table.concat(selectedNames, ", ")
+                    sendAdminChat("/Ragdoll " .. nameStr)
+                end
+            end)
+        end
+    }
+}
+
+-- Create command buttons in admin panel
+local function createAdminCommandButtons()
+    local yOffset = 10
+    for _, cmd in ipairs(adminCommands) do
+        local cmdFrame = Instance.new("Frame")
+        cmdFrame.Size = UDim2.new(1, -20, 0, 60)
+        cmdFrame.Position = UDim2.new(0, 10, 0, yOffset)
+        cmdFrame.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+        cmdFrame.BorderSizePixel = 2
+        cmdFrame.BorderColor3 = Color3.fromRGB(100, 100, 100)
+        cmdFrame.Parent = adminScrollFrame
+        
+        local cmdLabel = Instance.new("TextLabel")
+        cmdLabel.Size = UDim2.new(0.6, 0, 1, 0)
+        cmdLabel.BackgroundTransparency = 1
+        cmdLabel.Text = "/" .. cmd.name
+        cmdLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+        cmdLabel.TextSize = 16
+        cmdLabel.Font = Enum.Font.GothamBold
+        cmdLabel.TextXAlignment = Enum.TextXAlignment.Left
+        cmdLabel.Parent = cmdFrame
+        
+        local cooldownLabel = Instance.new("TextLabel")
+        cooldownLabel.Size = UDim2.new(0.3, 0, 0.4, 0)
+        cooldownLabel.Position = UDim2.new(0.6, 0, 0.5, 0)
+        cooldownLabel.BackgroundTransparency = 1
+        cooldownLabel.Text = cmd.cooldown .. "s CD"
+        cooldownLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+        cooldownLabel.TextSize = 12
+        cooldownLabel.Font = Enum.Font.Gotham
+        cooldownLabel.Parent = cmdFrame
+        
+        local useBtn = Instance.new("TextButton")
+        useBtn.Size = UDim2.new(0, 80, 0, 40)
+        useBtn.Position = UDim2.new(1, -90, 0.5, -20)
+        useBtn.BackgroundColor3 = Color3.fromRGB(50, 150, 50)
+        useBtn.Text = "USE"
+        useBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        useBtn.TextScaled = true
+        useBtn.Font = Enum.Font.GothamBold
+        useBtn.Parent = cmdFrame
+        
+        useBtn.MouseButton1Click:Connect(function()
+            cmd.func()
+        end)
+        
+        yOffset = yOffset + 70
+    end
+    
+    adminScrollFrame.CanvasSize = UDim2.new(0, 0, 0, yOffset)
+end
+
+createAdminCommandButtons()
+
 -- AirBomb ability
 local function activateAirBombAbility(caster, isPlayer, targetOverride)
     if isPlayer then
@@ -1018,7 +1718,7 @@ local function activateAirBombAbility(caster, isPlayer, targetOverride)
                                 math.sin(randomAngle) * math.cos(randomElevation)
                             ).Unit
                             
-                            applyForce(fakePlayer.character, direction, 25)
+                            applyForce(fakePlayer.character, direction, 15)
                             
                             bomb:Destroy()
                         end
@@ -1127,7 +1827,7 @@ local function activateAirBombAbility(caster, isPlayer, targetOverride)
                     math.sin(randomAngle) * math.cos(randomElevation)
                 ).Unit
                 
-                applyForce(character, direction, 25)
+                applyForce(character, direction, 15)
                 
                 bomb:Destroy()
             end
@@ -1886,9 +2586,16 @@ local function createGloveTool()
         
         local gloveData = GLOVE_DATA[currentGlove]
         if gloveData.AbilityType == "Ability" or gloveData.AbilityType == "Fusion" then
-            abilityButton.Visible = true
+            if currentGlove == "Admin Glove" then
+                adminPanelButton.Visible = true
+                abilityButton.Visible = false
+            else
+                abilityButton.Visible = true
+                adminPanelButton.Visible = false
+            end
         else
             abilityButton.Visible = false
+            adminPanelButton.Visible = false
         end
         
         -- Show second ability button for Engineer Glove
@@ -1926,6 +2633,7 @@ local function createGloveTool()
         equippedGlove = nil
         abilityButton.Visible = false
         ability2Button.Visible = false
+        adminPanelButton.Visible = false
         slapButton.Visible = false
     end)
     
@@ -1951,6 +2659,8 @@ local function createFakePlayer(name, glove)
         currentGlove = glove,
         lastSlapTime = 0,
         lastAbilityTime = 0,
+        lastAdminCommandTime = 0,
+        adminCommandsUsed = {},
         isAggro = false,
         isCounterActive = false,
         slapsTaken = 0,
@@ -2242,6 +2952,145 @@ local function updateFakePlayerAI(fakePlayer)
                 if distance >= 75 and distance <= 100 then
                     fakePlayer.lastAbilityTime = currentTime
                     activateAirBombAbility(fakePlayer, false)
+                end
+            elseif fakePlayer.currentGlove == "Admin Glove" then
+                -- Admin Glove AI: Use random commands strategically
+                if currentTime - fakePlayer.lastAdminCommandTime >= 20 then
+                    fakePlayer.lastAdminCommandTime = currentTime
+                    
+                    -- Choose random command based on situation
+                    local availableCommands = {}
+                    
+                    -- Speed/JumpPower when far from player
+                    if distance > 30 then
+                        table.insert(availableCommands, "speed")
+                        table.insert(availableCommands, "jumppower")
+                    end
+                    
+                    -- Offensive commands when close
+                    if distance < 50 then
+                        table.insert(availableCommands, "explode")
+                        table.insert(availableCommands, "anvil")
+                        table.insert(availableCommands, "ragdoll")
+                    end
+                    
+                    -- Teleport commands
+                    table.insert(availableCommands, "goto")
+                    
+                    -- Train command
+                    table.insert(availableCommands, "train")
+                    
+                    if #availableCommands > 0 then
+                        local chosenCommand = availableCommands[math.random(1, #availableCommands)]
+                        
+                        if chosenCommand == "speed" then
+                            if fakePlayer.humanoid then
+                                local speedValue = math.random(20, 40)
+                                fakePlayer.humanoid.WalkSpeed = speedValue
+                                sendFakePlayerChat(fakePlayer.name, "/Speed " .. speedValue)
+                            end
+                        elseif chosenCommand == "jumppower" then
+                            if fakePlayer.humanoid then
+                                local jumpValue = math.random(60, 100)
+                                fakePlayer.humanoid.JumpPower = jumpValue
+                                sendFakePlayerChat(fakePlayer.name, "/JumpPower " .. jumpValue)
+                            end
+                        elseif chosenCommand == "explode" then
+                            if character and character:FindFirstChild("HumanoidRootPart") then
+                                sendFakePlayerChat(fakePlayer.name, "/Explode " .. player.Name)
+                                
+                                spawn(function()
+                                    wait(1)
+                                    local explosion = Instance.new("Explosion")
+                                    explosion.Position = character.HumanoidRootPart.Position
+                                    explosion.BlastRadius = 10
+                                    explosion.BlastPressure = 0
+                                    explosion.Parent = workspace
+                                    
+                                    local randomAngle = math.random() * math.pi * 2
+                                    local randomElevation = (math.random() - 0.5) * math.pi * 0.5
+                                    local direction = Vector3.new(
+                                        math.cos(randomAngle) * math.cos(randomElevation),
+                                        math.sin(randomElevation),
+                                        math.sin(randomAngle) * math.cos(randomElevation)
+                                    ).Unit
+                                    
+                                    applyForce(character, direction, 12)
+                                end)
+                            end
+                        elseif chosenCommand == "anvil" then
+                            if character and character:FindFirstChild("HumanoidRootPart") then
+                                sendFakePlayerChat(fakePlayer.name, "/Anvil " .. player.Name)
+                                
+                                spawn(function()
+                                    wait(1)
+                                    local playerRoot = character.HumanoidRootPart
+                                    local anvilSpawnPos = playerRoot.Position + Vector3.new(0, 20, 0)
+                                    
+                                    local anvil = Instance.new("Part")
+                                    anvil.Name = "Anvil"
+                                    anvil.Size = Vector3.new(3, 2, 3)
+                                    anvil.Position = anvilSpawnPos
+                                    anvil.Anchored = false
+                                    anvil.Material = Enum.Material.Metal
+                                    anvil.Color = Color3.fromRGB(80, 80, 80)
+                                    anvil.Parent = workspace
+                                    
+                                    local bv = Instance.new("BodyVelocity")
+                                    bv.MaxForce = Vector3.new(0, 4e4, 0)
+                                    bv.Velocity = Vector3.new(0, -100, 0)
+                                    bv.Parent = anvil
+                                    
+                                    local hitConn
+                                    hitConn = anvil.Touched:Connect(function(hit)
+                                        if hit.Parent == character then
+                                            applyForce(character, Vector3.new(0, -1, 0), 13)
+                                            hitConn:Disconnect()
+                                            Debris:AddItem(anvil, 1)
+                                        end
+                                    end)
+                                    
+                                    Debris:AddItem(anvil, 3)
+                                end)
+                            end
+                        elseif chosenCommand == "ragdoll" then
+                            if character and humanoid and character:FindFirstChild("HumanoidRootPart") then
+                                sendFakePlayerChat(fakePlayer.name, "/Ragdoll " .. player.Name)
+                                
+                                spawn(function()
+                                    wait(0.5)
+                                    humanoid.PlatformStand = true
+                                    
+                                    local randomDir = Vector3.new(
+                                        math.random(-1, 1),
+                                        math.random(0, 1),
+                                        math.random(-1, 1)
+                                    ).Unit
+                                    
+                                    applyForce(character, randomDir, 15)
+                                    
+                                    spawn(function()
+                                        wait(3)
+                                        if humanoid then
+                                            humanoid.PlatformStand = false
+                                        end
+                                    end)
+                                end)
+                            end
+                        elseif chosenCommand == "goto" then
+                            if character and rootPart and fakePlayer.rootPart then
+                                sendFakePlayerChat(fakePlayer.name, "/Goto " .. player.Name)
+                                
+                                spawn(function()
+                                    wait(0.3)
+                                    fakePlayer.rootPart.CFrame = rootPart.CFrame + Vector3.new(math.random(-10, 10), 0, math.random(-10, 10))
+                                end)
+                            end
+                        elseif chosenCommand == "train" then
+                            sendFakePlayerChat(fakePlayer.name, "/Train")
+                            activateTrainAbility(fakePlayer, false)
+                        end
+                    end
                 end
             end
         end
