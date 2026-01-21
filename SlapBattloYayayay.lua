@@ -87,6 +87,14 @@ local GLOVE_DATA = {
         AbilityCooldown = 180, -- 3 minutes for turret
         AbilityCooldown2 = 150, -- 2.5 minutes for roombas
         Color = Color3.fromRGB(255, 140, 0)
+    },
+    ["AirBomb Glove"] = {
+        PushPower = 8,
+        SlapCooldown = 2.5,
+        AbilityType = "Ability",
+        Ability = "AirBomb",
+        AbilityCooldown = 25,
+        Color = Color3.fromRGB(135, 206, 235)
     }
 }
 
@@ -106,6 +114,8 @@ local playerSlapCount = 0
 local activeLandmines = {}
 local activeTurrets = {}
 local activeRoombas = {}
+local airBombTargetingActive = false
+local activeHighlights = {}
 
 -- UI Elements
 local screenGui = Instance.new("ScreenGui")
@@ -895,6 +905,241 @@ local function triggerCounterPunishment(attacker)
     end)
 end
 
+-- AirBomb ability
+local function activateAirBombAbility(caster, isPlayer, targetOverride)
+    if isPlayer then
+        if not character or not character:FindFirstChild("HumanoidRootPart") then
+            return
+        end
+        
+        -- Clear any existing highlights
+        for _, highlight in ipairs(activeHighlights) do
+            if highlight.Parent then
+                highlight:Destroy()
+            end
+        end
+        activeHighlights = {}
+        
+        airBombTargetingActive = true
+        
+        -- Highlight all fake players
+        for _, fakePlayer in ipairs(fakePlayersList) do
+            if fakePlayer.character then
+                local highlight = Instance.new("Highlight")
+                highlight.FillColor = Color3.fromRGB(135, 206, 235)
+                highlight.OutlineColor = Color3.fromRGB(255, 255, 0)
+                highlight.FillTransparency = 0.5
+                highlight.OutlineTransparency = 0
+                highlight.Parent = fakePlayer.character
+                table.insert(activeHighlights, highlight)
+                
+                -- Create click detector for selection
+                local clickDetector = Instance.new("ClickDetector")
+                clickDetector.MaxActivationDistance = 100
+                clickDetector.Parent = fakePlayer.character.HumanoidRootPart
+                
+                clickDetector.MouseClick:Connect(function()
+                    if not airBombTargetingActive then return end
+                    
+                    airBombTargetingActive = false
+                    
+                    -- Remove all highlights except selected
+                    for _, h in ipairs(activeHighlights) do
+                        if h.Parent ~= fakePlayer.character and h.Parent then
+                            h:Destroy()
+                        end
+                    end
+                    
+                    -- Remove click detectors from all
+                    for _, fp in ipairs(fakePlayersList) do
+                        if fp.character and fp.character:FindFirstChild("HumanoidRootPart") then
+                            local cd = fp.character.HumanoidRootPart:FindFirstChild("ClickDetector")
+                            if cd then cd:Destroy() end
+                        end
+                    end
+                    
+                    -- Drop bomb on selected target
+                    spawn(function()
+                        wait(3)
+                        
+                        if fakePlayer.character and fakePlayer.character:FindFirstChild("HumanoidRootPart") then
+                            local targetRoot = fakePlayer.character.HumanoidRootPart
+                            local bombSpawnPos = targetRoot.Position + Vector3.new(0, 50, 0)
+                            
+                            -- Create bomb
+                            local bomb = Instance.new("Part")
+                            bomb.Name = "AirBomb"
+                            bomb.Shape = Enum.PartType.Ball
+                            bomb.Size = Vector3.new(3, 3, 3)
+                            bomb.Position = bombSpawnPos
+                            bomb.Anchored = true
+                            bomb.CanCollide = false
+                            bomb.Material = Enum.Material.Neon
+                            bomb.Color = Color3.fromRGB(255, 0, 0)
+                            bomb.Parent = workspace
+                            
+                            -- Create trail effect
+                            local trail = Instance.new("Trail")
+                            local attach0 = Instance.new("Attachment")
+                            local attach1 = Instance.new("Attachment")
+                            attach0.Position = Vector3.new(0, 1, 0)
+                            attach1.Position = Vector3.new(0, -1, 0)
+                            attach0.Parent = bomb
+                            attach1.Parent = bomb
+                            trail.Attachment0 = attach0
+                            trail.Attachment1 = attach1
+                            trail.Color = ColorSequence.new(Color3.fromRGB(255, 100, 0))
+                            trail.Lifetime = 0.5
+                            trail.Parent = bomb
+                            
+                            -- Animate bomb falling
+                            local startTime = tick()
+                            local fallDuration = 1.5
+                            
+                            while tick() - startTime < fallDuration do
+                                local progress = (tick() - startTime) / fallDuration
+                                bomb.Position = bombSpawnPos:Lerp(targetRoot.Position, progress)
+                                RunService.Heartbeat:Wait()
+                            end
+                            
+                            -- Explosion
+                            local explosion = Instance.new("Explosion")
+                            explosion.Position = targetRoot.Position
+                            explosion.BlastRadius = 10
+                            explosion.BlastPressure = 0
+                            explosion.Parent = workspace
+                            
+                            -- Random direction push
+                            local randomAngle = math.random() * math.pi * 2
+                            local randomElevation = (math.random() - 0.5) * math.pi * 0.5
+                            local direction = Vector3.new(
+                                math.cos(randomAngle) * math.cos(randomElevation),
+                                math.sin(randomElevation),
+                                math.sin(randomAngle) * math.cos(randomElevation)
+                            ).Unit
+                            
+                            applyForce(fakePlayer.character, direction, 25)
+                            
+                            bomb:Destroy()
+                        end
+                        
+                        -- Remove highlight
+                        for _, h in ipairs(activeHighlights) do
+                            if h.Parent then
+                                h:Destroy()
+                            end
+                        end
+                        activeHighlights = {}
+                    end)
+                end)
+            end
+        end
+        
+        -- Auto-cancel after 10 seconds if no selection
+        spawn(function()
+            wait(10)
+            if airBombTargetingActive then
+                airBombTargetingActive = false
+                for _, h in ipairs(activeHighlights) do
+                    if h.Parent then
+                        h:Destroy()
+                    end
+                end
+                activeHighlights = {}
+                
+                -- Remove click detectors
+                for _, fp in ipairs(fakePlayersList) do
+                    if fp.character and fp.character:FindFirstChild("HumanoidRootPart") then
+                        local cd = fp.character.HumanoidRootPart:FindFirstChild("ClickDetector")
+                        if cd then cd:Destroy() end
+                    end
+                end
+            end
+        end)
+    else
+        -- Fake player using AirBomb on real player
+        if not caster.character or not caster.character:FindFirstChild("HumanoidRootPart") then
+            return
+        end
+        
+        if not character or not character:FindFirstChild("HumanoidRootPart") then
+            return
+        end
+        
+        local playerRoot = character.HumanoidRootPart
+        local distance = (playerRoot.Position - caster.character.HumanoidRootPart.Position).Magnitude
+        
+        -- Only activate if player is 75-100 studs away
+        if distance < 75 or distance > 100 then
+            return
+        end
+        
+        -- Highlight player
+        local highlight = Instance.new("Highlight")
+        highlight.FillColor = Color3.fromRGB(135, 206, 235)
+        highlight.OutlineColor = Color3.fromRGB(255, 255, 0)
+        highlight.FillTransparency = 0.5
+        highlight.OutlineTransparency = 0
+        highlight.Parent = character
+        
+        -- Wait 3 seconds then drop bomb
+        spawn(function()
+            wait(3)
+            
+            if character and playerRoot.Parent then
+                local bombSpawnPos = playerRoot.Position + Vector3.new(0, 50, 0)
+                
+                -- Create bomb
+                local bomb = Instance.new("Part")
+                bomb.Name = "AirBomb"
+                bomb.Shape = Enum.PartType.Ball
+                bomb.Size = Vector3.new(3, 3, 3)
+                bomb.Position = bombSpawnPos
+                bomb.Anchored = true
+                bomb.CanCollide = false
+                bomb.Material = Enum.Material.Neon
+                bomb.Color = Color3.fromRGB(255, 0, 0)
+                bomb.Parent = workspace
+                
+                -- Animate bomb falling
+                local startTime = tick()
+                local fallDuration = 1.5
+                
+                while tick() - startTime < fallDuration do
+                    local progress = (tick() - startTime) / fallDuration
+                    bomb.Position = bombSpawnPos:Lerp(playerRoot.Position, progress)
+                    RunService.Heartbeat:Wait()
+                end
+                
+                -- Explosion
+                local explosion = Instance.new("Explosion")
+                explosion.Position = playerRoot.Position
+                explosion.BlastRadius = 10
+                explosion.BlastPressure = 0
+                explosion.Parent = workspace
+                
+                -- Random direction push
+                local randomAngle = math.random() * math.pi * 2
+                local randomElevation = (math.random() - 0.5) * math.pi * 0.5
+                local direction = Vector3.new(
+                    math.cos(randomAngle) * math.cos(randomElevation),
+                    math.sin(randomElevation),
+                    math.sin(randomAngle) * math.cos(randomElevation)
+                ).Unit
+                
+                applyForce(character, direction, 25)
+                
+                bomb:Destroy()
+            end
+            
+            -- Remove highlight
+            if highlight.Parent then
+                highlight:Destroy()
+            end
+        end)
+    end
+end
+
 -- Engineer Turret ability
 local function activateEngineerTurret(caster, isPlayer)
     local casterRoot
@@ -1573,6 +1818,8 @@ abilityButton.MouseButton1Click:Connect(function()
         activateLandMineAbility(nil, true)
     elseif gloveData.Ability == "Engineer" then
         activateEngineerTurret(nil, true)
+    elseif gloveData.Ability == "AirBomb" then
+        activateAirBombAbility(nil, true)
     end
     
     -- Update button text with cooldown
@@ -1989,6 +2236,12 @@ local function updateFakePlayerAI(fakePlayer)
                 if fakePlayer.slapsGiven >= 3 then
                     fakePlayer.slapsGiven = 0
                     activateEngineerRoombas(fakePlayer, false)
+                end
+            elseif fakePlayer.currentGlove == "AirBomb Glove" then
+                -- Activate when player is 75-100 studs away
+                if distance >= 75 and distance <= 100 then
+                    fakePlayer.lastAbilityTime = currentTime
+                    activateAirBombAbility(fakePlayer, false)
                 end
             end
         end
