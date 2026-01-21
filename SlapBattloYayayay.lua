@@ -24,7 +24,7 @@ local CONFIG = {
 -- Glove data with all properties
 local GLOVE_DATA = {
     ["Default Glove"] = {
-        PushPower = 5,
+        PushPower = 53817458429357172927346829237,
         SlapCooldown = 2,
         AbilityType = "None",
         Ability = nil,
