@@ -85,8 +85,8 @@ local GLOVE_DATA = {
         AbilityType = "Ability",
         Ability = "Engineer",
         AbilityCooldown = 180, -- 3 minutes for turret
-        SecondAbilityCooldown = 150, -- 2.5 minutes for roombas
-        Color = Color3.fromRGB(255, 165, 0)
+        AbilityCooldown2 = 150, -- 2.5 minutes for roombas
+        Color = Color3.fromRGB(255, 140, 0)
     }
 }
 
@@ -95,7 +95,7 @@ local currentGlove = "Default Glove"
 local equippedGlove = nil
 local lastSlapTime = 0
 local lastAbilityTime = 0
-local lastSecondAbilityTime = 0
+local lastAbility2Time = 0
 local isPlayerSitting = false
 local fakePlayersList = {}
 local aggroedFakePlayers = {}
@@ -182,19 +182,19 @@ abilityButton.Visible = false
 abilityButton.Parent = screenGui
 
 -- Second Ability Button (for Engineer Glove)
-local secondAbilityButton = Instance.new("TextButton")
-secondAbilityButton.Name = "SecondAbilityButton"
-secondAbilityButton.Size = UDim2.new(0, 120, 0, 120)
-secondAbilityButton.Position = UDim2.new(1, -140, 1, -390)
-secondAbilityButton.BackgroundColor3 = Color3.fromRGB(200, 100, 50)
-secondAbilityButton.BorderSizePixel = 3
-secondAbilityButton.BorderColor3 = Color3.fromRGB(255, 255, 255)
-secondAbilityButton.Text = "ABILITY 2"
-secondAbilityButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-secondAbilityButton.TextScaled = true
-secondAbilityButton.Font = Enum.Font.GothamBold
-secondAbilityButton.Visible = false
-secondAbilityButton.Parent = screenGui
+local ability2Button = Instance.new("TextButton")
+ability2Button.Name = "Ability2Button"
+ability2Button.Size = UDim2.new(0, 120, 0, 120)
+ability2Button.Position = UDim2.new(1, -270, 1, -260)
+ability2Button.BackgroundColor3 = Color3.fromRGB(50, 100, 200)
+ability2Button.BorderSizePixel = 3
+ability2Button.BorderColor3 = Color3.fromRGB(255, 255, 255)
+ability2Button.Text = "ABILITY 2"
+ability2Button.TextColor3 = Color3.fromRGB(255, 255, 255)
+ability2Button.TextScaled = true
+ability2Button.Font = Enum.Font.GothamBold
+ability2Button.Visible = false
+ability2Button.Parent = screenGui
 
 -- Add mobile slap button
 local slapButton = Instance.new("TextButton")
@@ -414,33 +414,31 @@ local function playerSlap()
                     -- Track slaps taken for God Glove
                     fakePlayer.slapsTaken = fakePlayer.slapsTaken + 1
                     
+                    -- Damage turrets and roombas
+                    for _, turretData in ipairs(activeTurrets) do
+                        if not turretData.isPlayerOwned and turretData.head and turretData.head.Parent then
+                            local turretDist = (turretData.head.Position - slapPosition).Magnitude
+                            if turretDist <= CONFIG.SLAP_DISTANCE then
+                                turretData.health = turretData.health - 5
+                            end
+                        end
+                    end
+                    
+                    for _, roombaData in ipairs(activeRoombas) do
+                        if not roombaData.isPlayerOwned and roombaData.part and roombaData.part.Parent then
+                            local roombaDist = (roombaData.part.Position - slapPosition).Magnitude
+                            if roombaDist <= CONFIG.SLAP_DISTANCE then
+                                roombaData.health = roombaData.health - 5
+                            end
+                        end
+                    end
+                    
                     -- Aggro the fake player
                     if not table.find(aggroedFakePlayers, fakePlayer) then
                         table.insert(aggroedFakePlayers, fakePlayer)
                         fakePlayer.isAggro = true
                     end
                 end
-            end
-        end
-    end
-    
-    -- Check for turrets and roombas
-    for _, turretData in ipairs(activeTurrets) do
-        if turretData.turret and turretData.turret.Parent then
-            local distance = (turretData.turret.Position - slapPosition).Magnitude
-            if distance <= CONFIG.SLAP_DISTANCE then
-                turretData.health = turretData.health - 5
-                createSlapEffect(turretData.turret.Position, Color3.fromRGB(255, 0, 0))
-            end
-        end
-    end
-    
-    for _, roombaData in ipairs(activeRoombas) do
-        if roombaData.roomba and roombaData.roomba.Parent then
-            local distance = (roombaData.roomba.Position - slapPosition).Magnitude
-            if distance <= CONFIG.SLAP_DISTANCE then
-                roombaData.health = roombaData.health - 5
-                createSlapEffect(roombaData.roomba.Position, Color3.fromRGB(255, 0, 0))
             end
         end
     end
@@ -898,48 +896,50 @@ local function triggerCounterPunishment(attacker)
 end
 
 -- Engineer Turret ability
-local function placeEngineerTurret(isPlayer, caster)
-    local spawnPosition
+local function activateEngineerTurret(caster, isPlayer)
+    local casterRoot
     
     if isPlayer then
         if not character or not character:FindFirstChild("HumanoidRootPart") then
             return
         end
-        spawnPosition = character.HumanoidRootPart.Position + Vector3.new(0, 2, 0)
+        casterRoot = character.HumanoidRootPart
     else
-        if not caster or not caster.character or not caster.character:FindFirstChild("HumanoidRootPart") then
+        if not caster.character or not caster.character:FindFirstChild("HumanoidRootPart") then
             return
         end
-        spawnPosition = caster.character.HumanoidRootPart.Position + Vector3.new(0, 2, 0)
+        casterRoot = caster.character.HumanoidRootPart
     end
     
+    local turretPosition = casterRoot.Position + Vector3.new(0, 0, 5)
+    
     -- Create turret base
-    local turret = Instance.new("Part")
-    turret.Name = "Turret"
-    turret.Size = Vector3.new(3, 4, 3)
-    turret.Position = spawnPosition
-    turret.Anchored = true
-    turret.CanCollide = true
-    turret.Material = Enum.Material.Metal
-    turret.Color = Color3.fromRGB(100, 100, 100)
-    turret.Parent = workspace
+    local turretBase = Instance.new("Part")
+    turretBase.Name = "TurretBase"
+    turretBase.Size = Vector3.new(3, 1, 3)
+    turretBase.Position = turretPosition
+    turretBase.Anchored = true
+    turretBase.CanCollide = true
+    turretBase.Material = Enum.Material.Metal
+    turretBase.Color = Color3.fromRGB(100, 100, 100)
+    turretBase.Parent = workspace
     
     -- Create turret head
     local turretHead = Instance.new("Part")
     turretHead.Name = "TurretHead"
     turretHead.Size = Vector3.new(2, 2, 2)
-    turretHead.Position = spawnPosition + Vector3.new(0, 3, 0)
+    turretHead.Position = turretPosition + Vector3.new(0, 1.5, 0)
     turretHead.Anchored = true
     turretHead.CanCollide = false
     turretHead.Material = Enum.Material.Metal
-    turretHead.Color = Color3.fromRGB(255, 165, 0)
-    turretHead.Parent = turret
+    turretHead.Color = Color3.fromRGB(255, 140, 0)
+    turretHead.Parent = workspace
     
     -- Create barrel
     local barrel = Instance.new("Part")
     barrel.Name = "Barrel"
-    barrel.Size = Vector3.new(0.5, 0.5, 3)
-    barrel.Position = turretHead.Position + Vector3.new(0, 0, 1.5)
+    barrel.Size = Vector3.new(0.5, 0.5, 2)
+    barrel.Position = turretHead.Position + Vector3.new(0, 0, 1)
     barrel.Anchored = true
     barrel.CanCollide = false
     barrel.Material = Enum.Material.Metal
@@ -947,25 +947,26 @@ local function placeEngineerTurret(isPlayer, caster)
     barrel.Parent = turretHead
     
     local turretData = {
-        turret = turret,
+        base = turretBase,
         head = turretHead,
         barrel = barrel,
         health = 30,
-        lastFireTime = 0,
-        isPlayer = isPlayer
+        owner = isPlayer and "player" or caster,
+        isPlayerOwned = isPlayer,
+        lastShootTime = 0
     }
+    
     table.insert(activeTurrets, turretData)
     
-    -- Turret AI
-    local turretConnection
-    turretConnection = RunService.Heartbeat:Connect(function()
-        if not turret.Parent or turretData.health <= 0 then
-            turretConnection:Disconnect()
-            if turret.Parent then
-                turret:Destroy()
-            end
-            for i, data in ipairs(activeTurrets) do
-                if data == turretData then
+    -- Turret shooting logic
+    local shootConnection
+    shootConnection = RunService.Heartbeat:Connect(function()
+        if not turretHead.Parent or turretData.health <= 0 then
+            shootConnection:Disconnect()
+            if turretBase.Parent then turretBase:Destroy() end
+            if turretHead.Parent then turretHead:Destroy() end
+            for i, t in ipairs(activeTurrets) do
+                if t == turretData then
                     table.remove(activeTurrets, i)
                     break
                 end
@@ -973,102 +974,104 @@ local function placeEngineerTurret(isPlayer, caster)
             return
         end
         
+        local currentTime = tick()
+        if currentTime - turretData.lastShootTime < 5 then
+            return
+        end
+        
         local nearestTarget = nil
         local nearestDistance = math.huge
         
-        -- Find target based on owner
+        -- Find nearest target
         if isPlayer then
-            -- Player turret targets fake players
+            -- Turret owned by player - target fake players
             for _, fakePlayer in ipairs(fakePlayersList) do
                 if fakePlayer.character and fakePlayer.character:FindFirstChild("HumanoidRootPart") then
-                    local distance = (fakePlayer.character.HumanoidRootPart.Position - turretHead.Position).Magnitude
-                    if distance < nearestDistance then
-                        nearestDistance = distance
+                    local dist = (fakePlayer.character.HumanoidRootPart.Position - turretHead.Position).Magnitude
+                    if dist < nearestDistance then
+                        nearestDistance = dist
                         nearestTarget = fakePlayer.character
                     end
                 end
             end
         else
-            -- Fake player turret targets player
+            -- Turret owned by fake player - target real player
             if character and character:FindFirstChild("HumanoidRootPart") then
                 nearestTarget = character
             end
         end
         
-        -- Aim at target
         if nearestTarget and nearestTarget:FindFirstChild("HumanoidRootPart") then
-            local targetPos = nearestTarget.HumanoidRootPart.Position
-            turretHead.CFrame = CFrame.lookAt(turretHead.Position, targetPos)
-            barrel.CFrame = turretHead.CFrame * CFrame.new(0, 0, 1.5)
+            local targetRoot = nearestTarget.HumanoidRootPart
             
-            -- Fire every 5 seconds
-            local currentTime = tick()
-            if currentTime - turretData.lastFireTime >= 5 then
-                turretData.lastFireTime = currentTime
+            -- Rotate turret to face target
+            local lookDirection = (targetRoot.Position - turretHead.Position).Unit
+            turretHead.CFrame = CFrame.lookAt(turretHead.Position, targetRoot.Position)
+            barrel.CFrame = CFrame.lookAt(barrel.Position, targetRoot.Position) * CFrame.new(0, 0, -1)
+            
+            -- Shoot bullet
+            turretData.lastShootTime = currentTime
+            
+            local bullet = Instance.new("Part")
+            bullet.Name = "TurretBullet"
+            bullet.Size = Vector3.new(0.5, 0.5, 1)
+            bullet.Position = barrel.Position + lookDirection * 2
+            bullet.Anchored = false
+            bullet.CanCollide = false
+            bullet.Material = Enum.Material.Neon
+            bullet.Color = Color3.fromRGB(255, 255, 0)
+            bullet.Parent = workspace
+            
+            local bodyVelocity = Instance.new("BodyVelocity")
+            bodyVelocity.MaxForce = Vector3.new(4e4, 4e4, 4e4)
+            bodyVelocity.Velocity = lookDirection * 80
+            bodyVelocity.Parent = bullet
+            
+            -- Bullet hit detection
+            local hitConnection
+            hitConnection = RunService.Heartbeat:Connect(function()
+                if not bullet.Parent then
+                    hitConnection:Disconnect()
+                    return
+                end
                 
-                -- Create bullet
-                local bullet = Instance.new("Part")
-                bullet.Name = "TurretBullet"
-                bullet.Size = Vector3.new(0.5, 0.5, 1)
-                bullet.Position = barrel.Position + barrel.CFrame.LookVector * 2
-                bullet.Anchored = true
-                bullet.CanCollide = false
-                bullet.Material = Enum.Material.Neon
-                bullet.Color = Color3.fromRGB(255, 255, 0)
-                bullet.Parent = workspace
-                
-                local bulletDirection = (targetPos - barrel.Position).Unit
-                local bulletSpeed = 100
-                
-                -- Bullet movement
-                local bulletConnection
-                bulletConnection = RunService.Heartbeat:Connect(function()
-                    if not bullet.Parent then
-                        bulletConnection:Disconnect()
-                        return
-                    end
-                    
-                    bullet.Position = bullet.Position + bulletDirection * bulletSpeed * RunService.Heartbeat:Wait()
-                    
-                    -- Check collision with target
-                    if nearestTarget and nearestTarget:FindFirstChild("HumanoidRootPart") then
-                        local dist = (bullet.Position - nearestTarget.HumanoidRootPart.Position).Magnitude
-                        if dist <= 3 then
-                            applyForce(nearestTarget, bulletDirection, 5)
-                            
-                            -- Aggro to turret
-                            if isPlayer then
-                                for _, fakePlayer in ipairs(fakePlayersList) do
-                                    if fakePlayer.character == nearestTarget then
-                                        fakePlayer.aggroTarget = "turret"
-                                        fakePlayer.aggroTurretData = turretData
-                                        break
-                                    end
-                                end
+                if nearestTarget and nearestTarget:FindFirstChild("HumanoidRootPart") then
+                    local dist = (nearestTarget.HumanoidRootPart.Position - bullet.Position).Magnitude
+                    if dist <= 3 then
+                        local direction = (nearestTarget.HumanoidRootPart.Position - bullet.Position).Unit
+                        applyForce(nearestTarget, direction, 5)
+                        
+                        -- Aggro target to turret
+                        if not isPlayer then
+                            -- Player got hit, aggro to turret
+                            if not table.find(aggroedFakePlayers, caster) then
+                                table.insert(aggroedFakePlayers, caster)
+                                caster.isAggro = true
+                                caster.aggroTarget = "turret"
+                                caster.aggroTurret = turretData
                             end
-                            
-                            bulletConnection:Disconnect()
-                            bullet:Destroy()
                         end
+                        
+                        hitConnection:Disconnect()
+                        bullet:Destroy()
                     end
-                end)
-                
-                Debris:AddItem(bullet, 3)
-            end
+                end
+            end)
+            
+            Debris:AddItem(bullet, 3)
         end
     end)
     
     -- Auto-destroy after 2 minutes
     spawn(function()
         wait(120)
-        if turretConnection then
-            turretConnection:Disconnect()
+        if shootConnection then
+            shootConnection:Disconnect()
         end
-        if turret.Parent then
-            turret:Destroy()
-        end
-        for i, data in ipairs(activeTurrets) do
-            if data == turretData then
+        if turretBase.Parent then turretBase:Destroy() end
+        if turretHead.Parent then turretHead:Destroy() end
+        for i, t in ipairs(activeTurrets) do
+            if t == turretData then
                 table.remove(activeTurrets, i)
                 break
             end
@@ -1077,68 +1080,65 @@ local function placeEngineerTurret(isPlayer, caster)
 end
 
 -- Engineer Roomba ability
-local function placeEngineerRoombas(isPlayer, caster)
-    local spawnPosition
+local function activateEngineerRoombas(caster, isPlayer)
+    local casterRoot
     
     if isPlayer then
         if not character or not character:FindFirstChild("HumanoidRootPart") then
             return
         end
-        spawnPosition = character.HumanoidRootPart.Position
+        casterRoot = character.HumanoidRootPart
     else
-        if not caster or not caster.character or not caster.character:FindFirstChild("HumanoidRootPart") then
+        if not caster.character or not caster.character:FindFirstChild("HumanoidRootPart") then
             return
         end
-        spawnPosition = caster.character.HumanoidRootPart.Position
+        casterRoot = caster.character.HumanoidRootPart
     end
     
-    -- Place 3 roombas
+    -- Create 3 roombas
     for i = 1, 3 do
-        local offset = Vector3.new(math.cos(i * 2.1) * 5, 0.5, math.sin(i * 2.1) * 5)
-        local roombaPos = spawnPosition + offset
+        local angle = (i - 1) * (math.pi * 2 / 3)
+        local offset = Vector3.new(math.cos(angle) * 5, 0, math.sin(angle) * 5)
+        local roombaPosition = casterRoot.Position + offset
         
         -- Create roomba
         local roomba = Instance.new("Part")
         roomba.Name = "Roomba"
         roomba.Shape = Enum.PartType.Cylinder
-        roomba.Size = Vector3.new(0.5, 2, 2)
-        roomba.Position = roombaPos
+        roomba.Size = Vector3.new(1, 2, 2)
+        roomba.Position = roombaPosition
         roomba.Anchored = false
         roomba.CanCollide = true
         roomba.Material = Enum.Material.Plastic
-        roomba.Color = Color3.fromRGB(150, 150, 150)
+        roomba.Color = Color3.fromRGB(100, 200, 255)
         roomba.Orientation = Vector3.new(0, 0, 90)
         roomba.Parent = workspace
         
-        local bodyVelocity = Instance.new("BodyVelocity")
-        bodyVelocity.MaxForce = Vector3.new(4000, 0, 4000)
-        bodyVelocity.Velocity = Vector3.new(0, 0, 0)
-        bodyVelocity.Parent = roomba
-        
+        -- Add bodygyro for stability
         local bodyGyro = Instance.new("BodyGyro")
-        bodyGyro.MaxTorque = Vector3.new(0, 4000, 0)
+        bodyGyro.MaxTorque = Vector3.new(4e4, 4e4, 4e4)
+        bodyGyro.P = 3000
         bodyGyro.Parent = roomba
         
         local roombaData = {
-            roomba = roomba,
-            bodyVelocity = bodyVelocity,
-            bodyGyro = bodyGyro,
+            part = roomba,
             health = 15,
-            lastFireTime = 0,
-            isPlayer = isPlayer
+            owner = isPlayer and "player" or caster,
+            isPlayerOwned = isPlayer,
+            lastShootTime = 0,
+            bodyGyro = bodyGyro
         }
+        
         table.insert(activeRoombas, roombaData)
         
-        -- Roomba AI
+        -- Roomba AI and shooting
         local roombaConnection
         roombaConnection = RunService.Heartbeat:Connect(function()
             if not roomba.Parent or roombaData.health <= 0 then
                 roombaConnection:Disconnect()
-                if roomba.Parent then
-                    roomba:Destroy()
-                end
-                for j, data in ipairs(activeRoombas) do
-                    if data == roombaData then
+                if roomba.Parent then roomba:Destroy() end
+                for j, r in ipairs(activeRoombas) do
+                    if r == roombaData then
                         table.remove(activeRoombas, j)
                         break
                     end
@@ -1149,82 +1149,83 @@ local function placeEngineerRoombas(isPlayer, caster)
             local nearestTarget = nil
             local nearestDistance = math.huge
             
-            -- Find target based on owner
+            -- Find nearest target
             if isPlayer then
-                -- Player roomba targets fake players
                 for _, fakePlayer in ipairs(fakePlayersList) do
                     if fakePlayer.character and fakePlayer.character:FindFirstChild("HumanoidRootPart") then
-                        local distance = (fakePlayer.character.HumanoidRootPart.Position - roomba.Position).Magnitude
-                        if distance < nearestDistance then
-                            nearestDistance = distance
+                        local dist = (fakePlayer.character.HumanoidRootPart.Position - roomba.Position).Magnitude
+                        if dist < nearestDistance then
+                            nearestDistance = dist
                             nearestTarget = fakePlayer.character
                         end
                     end
                 end
             else
-                -- Fake player roomba targets player
                 if character and character:FindFirstChild("HumanoidRootPart") then
                     nearestTarget = character
+                    nearestDistance = (character.HumanoidRootPart.Position - roomba.Position).Magnitude
                 end
             end
             
-            -- Move toward target
             if nearestTarget and nearestTarget:FindFirstChild("HumanoidRootPart") then
-                local targetPos = nearestTarget.HumanoidRootPart.Position
-                local direction = (Vector3.new(targetPos.X, roomba.Position.Y, targetPos.Z) - roomba.Position).Unit
+                local targetRoot = nearestTarget.HumanoidRootPart
                 
-                bodyVelocity.Velocity = direction * 15
-                bodyGyro.CFrame = CFrame.lookAt(roomba.Position, Vector3.new(targetPos.X, roomba.Position.Y, targetPos.Z))
+                -- Move towards target
+                local direction = (targetRoot.Position - roomba.Position).Unit
+                local moveForce = roomba:FindFirstChild("MoveForce")
+                if not moveForce then
+                    moveForce = Instance.new("BodyVelocity")
+                    moveForce.Name = "MoveForce"
+                    moveForce.MaxForce = Vector3.new(3000, 0, 3000)
+                    moveForce.Parent = roomba
+                end
+                moveForce.Velocity = Vector3.new(direction.X * 10, 0, direction.Z * 10)
                 
-                -- Fire every 3 seconds
+                -- Shoot every 3 seconds
                 local currentTime = tick()
-                if currentTime - roombaData.lastFireTime >= 3 then
-                    roombaData.lastFireTime = currentTime
+                if currentTime - roombaData.lastShootTime >= 3 then
+                    roombaData.lastShootTime = currentTime
                     
-                    -- Create bullet
                     local bullet = Instance.new("Part")
                     bullet.Name = "RoombaBullet"
-                    bullet.Size = Vector3.new(0.3, 0.3, 0.8)
+                    bullet.Size = Vector3.new(0.3, 0.3, 0.6)
                     bullet.Position = roomba.Position + direction * 2
-                    bullet.Anchored = true
+                    bullet.Anchored = false
                     bullet.CanCollide = false
                     bullet.Material = Enum.Material.Neon
-                    bullet.Color = Color3.fromRGB(0, 255, 255)
+                    bullet.Color = Color3.fromRGB(100, 200, 255)
                     bullet.Parent = workspace
                     
-                    local bulletDirection = direction
-                    local bulletSpeed = 80
+                    local bv = Instance.new("BodyVelocity")
+                    bv.MaxForce = Vector3.new(4e4, 4e4, 4e4)
+                    bv.Velocity = direction * 60
+                    bv.Parent = bullet
                     
-                    -- Bullet movement
-                    local bulletConnection
-                    bulletConnection = RunService.Heartbeat:Connect(function()
+                    -- Bullet hit
+                    local hitConn
+                    hitConn = RunService.Heartbeat:Connect(function()
                         if not bullet.Parent then
-                            bulletConnection:Disconnect()
+                            hitConn:Disconnect()
                             return
                         end
                         
-                        bullet.Position = bullet.Position + bulletDirection * bulletSpeed * RunService.Heartbeat:Wait()
-                        
-                        -- Check collision
                         if nearestTarget and nearestTarget:FindFirstChild("HumanoidRootPart") then
-                            local dist = (bullet.Position - nearestTarget.HumanoidRootPart.Position).Magnitude
-                            if dist <= 3 then
-                                applyForce(nearestTarget, bulletDirection, 2)
+                            local dist = (nearestTarget.HumanoidRootPart.Position - bullet.Position).Magnitude
+                            if dist <= 2.5 then
+                                local dir = (nearestTarget.HumanoidRootPart.Position - bullet.Position).Unit
+                                applyForce(nearestTarget, dir, 2)
                                 
                                 -- Aggro to roomba
-                                if isPlayer then
-                                    for _, fakePlayer in ipairs(fakePlayersList) do
-                                        if fakePlayer.character == nearestTarget then
-                                            if fakePlayer.aggroTarget ~= "turret" then
-                                                fakePlayer.aggroTarget = "roomba"
-                                                fakePlayer.aggroRoombaData = roombaData
-                                            end
-                                            break
-                                        end
+                                if not isPlayer then
+                                    if not table.find(aggroedFakePlayers, caster) then
+                                        table.insert(aggroedFakePlayers, caster)
+                                        caster.isAggro = true
+                                        caster.aggroTarget = "roomba"
+                                        caster.aggroRoomba = roombaData
                                     end
                                 end
                                 
-                                bulletConnection:Disconnect()
+                                hitConn:Disconnect()
                                 bullet:Destroy()
                             end
                         end
@@ -1232,8 +1233,6 @@ local function placeEngineerRoombas(isPlayer, caster)
                     
                     Debris:AddItem(bullet, 2)
                 end
-            else
-                bodyVelocity.Velocity = Vector3.new(0, 0, 0)
             end
         end)
         
@@ -1243,11 +1242,9 @@ local function placeEngineerRoombas(isPlayer, caster)
             if roombaConnection then
                 roombaConnection:Disconnect()
             end
-            if roomba.Parent then
-                roomba:Destroy()
-            end
-            for j, data in ipairs(activeRoombas) do
-                if data == roombaData then
+            if roomba.Parent then roomba:Destroy() end
+            for j, r in ipairs(activeRoombas) do
+                if r == roombaData then
                     table.remove(activeRoombas, j)
                     break
                 end
@@ -1575,52 +1572,8 @@ abilityButton.MouseButton1Click:Connect(function()
     elseif gloveData.Ability == "LandMine" then
         activateLandMineAbility(nil, true)
     elseif gloveData.Ability == "Engineer" then
-        placeEngineerTurret(true, nil)
+        activateEngineerTurret(nil, true)
     end
-    
-    -- Update button text with cooldown
-    local cooldownLeft = gloveData.AbilityCooldown
-    abilityButton.Text = tostring(cooldownLeft)
-    
-    spawn(function()
-        for i = cooldownLeft - 1, 0, -1 do
-            wait(1)
-            abilityButton.Text = tostring(i)
-        end
-        
-        abilityButton.Text = currentGlove == "Engineer Glove" and "TURRET" or "ABILITY"
-    end)
-end)
-
--- Second ability activation (Engineer Glove)
-secondAbilityButton.MouseButton1Click:Connect(function()
-    if currentGlove ~= "Engineer Glove" then
-        return
-    end
-    
-    local currentTime = tick()
-    local gloveData = GLOVE_DATA[currentGlove]
-    
-    if currentTime - lastSecondAbilityTime < gloveData.SecondAbilityCooldown then
-        return
-    end
-    
-    lastSecondAbilityTime = currentTime
-    placeEngineerRoombas(true, nil)
-    
-    -- Update button text with cooldown
-    local cooldownLeft = gloveData.SecondAbilityCooldown
-    secondAbilityButton.Text = tostring(cooldownLeft)
-    
-    spawn(function()
-        for i = cooldownLeft - 1, 0, -1 do
-            wait(1)
-            secondAbilityButton.Text = tostring(i)
-        end
-        
-        secondAbilityButton.Text = "ROOMBAS"
-    end)
-end)
     
     -- Update button text with cooldown
     local cooldownLeft = gloveData.AbilityCooldown
@@ -1632,6 +1585,34 @@ end)
     end
     
     abilityButton.Text = "ABILITY"
+end)
+
+-- Second ability button activation
+ability2Button.MouseButton1Click:Connect(function()
+    local currentTime = tick()
+    local gloveData = GLOVE_DATA[currentGlove]
+    
+    if currentGlove ~= "Engineer Glove" then
+        return
+    end
+    
+    if currentTime - lastAbility2Time < gloveData.AbilityCooldown2 then
+        return
+    end
+    
+    lastAbility2Time = currentTime
+    activateEngineerRoombas(nil, true)
+    
+    -- Update button text with cooldown
+    local cooldownLeft = gloveData.AbilityCooldown2
+    ability2Button.Text = tostring(cooldownLeft)
+    
+    for i = cooldownLeft - 1, 0, -1 do
+        wait(1)
+        ability2Button.Text = tostring(i)
+    end
+    
+    ability2Button.Text = "ABILITY 2"
 end)
 
 -- Create glove tool
@@ -1659,17 +1640,15 @@ local function createGloveTool()
         local gloveData = GLOVE_DATA[currentGlove]
         if gloveData.AbilityType == "Ability" or gloveData.AbilityType == "Fusion" then
             abilityButton.Visible = true
-            if currentGlove == "Engineer Glove" then
-                abilityButton.Text = "TURRET"
-                secondAbilityButton.Visible = true
-                secondAbilityButton.Text = "ROOMBAS"
-            else
-                abilityButton.Text = "ABILITY"
-                secondAbilityButton.Visible = false
-            end
         else
             abilityButton.Visible = false
-            secondAbilityButton.Visible = false
+        end
+        
+        -- Show second ability button for Engineer Glove
+        if currentGlove == "Engineer Glove" then
+            ability2Button.Visible = true
+        else
+            ability2Button.Visible = false
         end
         
         -- Always show slap button on mobile
@@ -1699,7 +1678,7 @@ local function createGloveTool()
     tool.Unequipped:Connect(function()
         equippedGlove = nil
         abilityButton.Visible = false
-        secondAbilityButton.Visible = false
+        ability2Button.Visible = false
         slapButton.Visible = false
     end)
     
@@ -1725,18 +1704,18 @@ local function createFakePlayer(name, glove)
         currentGlove = glove,
         lastSlapTime = 0,
         lastAbilityTime = 0,
-        lastSecondAbilityTime = 0,
         isAggro = false,
         isCounterActive = false,
         slapsTaken = 0,
-        aggroTarget = "player", -- "player", "turret", or "roomba"
-        aggroTurretData = nil,
-        aggroRoombaData = nil,
+        slapsGiven = 0,
         character = nil,
         humanoid = nil,
         rootPart = nil,
         freezeConnection = nil,
-        freezeEffect = nil
+        freezeEffect = nil,
+        aggroTarget = nil,
+        aggroTurret = nil,
+        aggroRoomba = nil
     }
     
     -- Create character
@@ -1874,109 +1853,91 @@ local function updateFakePlayerAI(fakePlayer)
     local playerRoot = character.HumanoidRootPart
     local distance = (playerRoot.Position - fakeRoot.Position).Magnitude
     
-    -- Check aggro target priority: turret > roomba > player
-    if fakePlayer.aggroTarget == "turret" then
-        if fakePlayer.aggroTurretData and fakePlayer.aggroTurretData.turret and fakePlayer.aggroTurretData.turret.Parent and fakePlayer.aggroTurretData.health > 0 then
-            -- Attack turret
-            local turretPos = fakePlayer.aggroTurretData.turret.Position
-            fakePlayer.humanoid:MoveTo(turretPos)
-            
-            local turretDist = (turretPos - fakeRoot.Position).Magnitude
-            if turretDist <= CONFIG.SLAP_DISTANCE then
-                local currentTime = tick()
-                local gloveData = GLOVE_DATA[fakePlayer.currentGlove]
-                
-                if currentTime - fakePlayer.lastSlapTime >= gloveData.SlapCooldown then
-                    fakePlayer.lastSlapTime = currentTime
-                    fakePlayer.aggroTurretData.health = fakePlayer.aggroTurretData.health - 5
-                    createSlapEffect(turretPos, gloveData.Color)
-                    
-                    if fakePlayer.aggroTurretData.health <= 0 then
-                        fakePlayer.aggroTarget = "player"
-                        fakePlayer.aggroTurretData = nil
-                    end
-                end
-            end
-            return
-        else
-            fakePlayer.aggroTarget = "roomba"
-        end
-    end
-    
-    if fakePlayer.aggroTarget == "roomba" then
-        if fakePlayer.aggroRoombaData and fakePlayer.aggroRoombaData.roomba and fakePlayer.aggroRoombaData.roomba.Parent and fakePlayer.aggroRoombaData.health > 0 then
-            -- Attack roomba
-            local roombaPos = fakePlayer.aggroRoombaData.roomba.Position
-            fakePlayer.humanoid:MoveTo(roombaPos)
-            
-            local roombaDist = (roombaPos - fakeRoot.Position).Magnitude
-            if roombaDist <= CONFIG.SLAP_DISTANCE then
-                local currentTime = tick()
-                local gloveData = GLOVE_DATA[fakePlayer.currentGlove]
-                
-                if currentTime - fakePlayer.lastSlapTime >= gloveData.SlapCooldown then
-                    fakePlayer.lastSlapTime = currentTime
-                    fakePlayer.aggroRoombaData.health = fakePlayer.aggroRoombaData.health - 5
-                    createSlapEffect(roombaPos, gloveData.Color)
-                    
-                    if fakePlayer.aggroRoombaData.health <= 0 then
-                        fakePlayer.aggroTarget = "player"
-                        fakePlayer.aggroRoombaData = nil
-                    end
-                end
-            end
-            return
-        else
-            fakePlayer.aggroTarget = "player"
-        end
-    end
-    
-    -- Movement logic (attack player)
+    -- Movement logic
     if fakePlayer.isAggro then
-        -- Chase player
-        local direction = (playerRoot.Position - fakeRoot.Position).Unit
-        local targetPosition = playerRoot.Position
+        -- Determine target based on aggro priority: turret > roomba > player
+        local targetPosition
+        local targetValid = false
         
+        if fakePlayer.aggroTarget == "turret" and fakePlayer.aggroTurret then
+            if fakePlayer.aggroTurret.head and fakePlayer.aggroTurret.head.Parent and fakePlayer.aggroTurret.health > 0 then
+                targetPosition = fakePlayer.aggroTurret.head.Position
+                targetValid = true
+            else
+                fakePlayer.aggroTarget = "roomba"
+            end
+        end
+        
+        if fakePlayer.aggroTarget == "roomba" and fakePlayer.aggroRoomba then
+            if fakePlayer.aggroRoomba.part and fakePlayer.aggroRoomba.part.Parent and fakePlayer.aggroRoomba.health > 0 then
+                targetPosition = fakePlayer.aggroRoomba.part.Position
+                targetValid = true
+            else
+                fakePlayer.aggroTarget = nil
+            end
+        end
+        
+        if not targetValid then
+            targetPosition = playerRoot.Position
+        end
+        
+        -- Chase target
         fakePlayer.humanoid:MoveTo(targetPosition)
         
+        -- Calculate distance to current target
+        local distanceToTarget = (targetPosition - fakeRoot.Position).Magnitude
+        
         -- Slap if in range
-        if distance <= CONFIG.SLAP_DISTANCE then
+        if distanceToTarget <= CONFIG.SLAP_DISTANCE then
             local currentTime = tick()
             local gloveData = GLOVE_DATA[fakePlayer.currentGlove]
             
             if currentTime - fakePlayer.lastSlapTime >= gloveData.SlapCooldown then
                 fakePlayer.lastSlapTime = currentTime
                 
-                -- Check if player has counter active
-                if isCounterActive then
+                -- Check if slapping player with counter active
+                if not targetValid and isCounterActive then
                     -- Trigger counter punishment on fake player
                     triggerCounterPunishment(fakePlayer.character)
                 else
                     -- Perform slap
-                    local slapPosition = fakeRoot.Position + (playerRoot.Position - fakeRoot.Position).Unit * 3
+                    local slapPosition = fakeRoot.Position + (targetPosition - fakeRoot.Position).Unit * 3
                     createSlapEffect(slapPosition, gloveData.Color)
                     
-                    local slapDirection
-                    
-                    -- Check if using RNG Glove (random direction)
-                    if fakePlayer.currentGlove == "RNG Glove" then
-                        -- Random direction in 3D space
-                        local randomAngle = math.random() * math.pi * 2
-                        local randomElevation = (math.random() - 0.5) * math.pi * 0.5
-                        slapDirection = Vector3.new(
-                            math.cos(randomAngle) * math.cos(randomElevation),
-                            math.sin(randomElevation),
-                            math.sin(randomAngle) * math.cos(randomElevation)
-                        ).Unit
+                    -- Check if slapping turret or roomba
+                    if fakePlayer.aggroTarget == "turret" and fakePlayer.aggroTurret then
+                        fakePlayer.aggroTurret.health = fakePlayer.aggroTurret.health - 5
+                        if fakePlayer.aggroTurret.health <= 0 then
+                            fakePlayer.aggroTarget = "roomba"
+                        end
+                    elseif fakePlayer.aggroTarget == "roomba" and fakePlayer.aggroRoomba then
+                        fakePlayer.aggroRoomba.health = fakePlayer.aggroRoomba.health - 5
+                        if fakePlayer.aggroRoomba.health <= 0 then
+                            fakePlayer.aggroTarget = nil
+                        end
                     else
-                        -- Normal direction (towards target)
-                        slapDirection = (playerRoot.Position - fakeRoot.Position).Unit
+                        -- Slapping player
+                        local slapDirection
+                        
+                        -- Check if using RNG Glove (random direction)
+                        if fakePlayer.currentGlove == "RNG Glove" then
+                            local randomAngle = math.random() * math.pi * 2
+                            local randomElevation = (math.random() - 0.5) * math.pi * 0.5
+                            slapDirection = Vector3.new(
+                                math.cos(randomAngle) * math.cos(randomElevation),
+                                math.sin(randomElevation),
+                                math.sin(randomAngle) * math.cos(randomElevation)
+                            ).Unit
+                        else
+                            slapDirection = (playerRoot.Position - fakeRoot.Position).Unit
+                        end
+                        
+                        applyForce(character, slapDirection, gloveData.PushPower)
+                        
+                        -- Track slaps for God Glove auto-ability
+                        playerSlapCount = playerSlapCount + 1
+                        fakePlayer.slapsGiven = fakePlayer.slapsGiven + 1
                     end
-                    
-                    applyForce(character, slapDirection, gloveData.PushPower)
-                    
-                    -- Track slaps for God Glove auto-ability
-                    playerSlapCount = playerSlapCount + 1
                 end
             end
         end
@@ -2018,18 +1979,16 @@ local function updateFakePlayerAI(fakePlayer)
                     activateLandMineAbility(fakePlayer, false)
                 end
             elseif fakePlayer.currentGlove == "Engineer Glove" then
-                -- Place turret if low on health or randomly
-                if fakePlayer.humanoid.Health < 50 or math.random(1, 100) <= 10 then
+                -- Place turret after being slapped (1st time, then every 5 slaps)
+                if fakePlayer.slapsTaken == 1 or (fakePlayer.slapsTaken > 1 and fakePlayer.slapsTaken % 5 == 0) then
                     fakePlayer.lastAbilityTime = currentTime
-                    placeEngineerTurret(false, fakePlayer)
+                    activateEngineerTurret(fakePlayer, false)
                 end
                 
-                -- Place roombas when player is close
-                if distance <= 30 then
-                    if currentTime - fakePlayer.lastSecondAbilityTime >= GLOVE_DATA["Engineer Glove"].SecondAbilityCooldown then
-                        fakePlayer.lastSecondAbilityTime = currentTime
-                        placeEngineerRoombas(false, fakePlayer)
-                    end
+                -- Place roombas after being slapped 3 times
+                if fakePlayer.slapsGiven >= 3 then
+                    fakePlayer.slapsGiven = 0
+                    activateEngineerRoombas(fakePlayer, false)
                 end
             end
         end
