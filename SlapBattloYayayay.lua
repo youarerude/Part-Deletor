@@ -898,7 +898,7 @@ local function triggerCounterPunishment(attacker)
 end
 
 -- Engineer Turret ability
-local function placeEngineerTurret(isPlayer)
+local function placeEngineerTurret(isPlayer, caster)
     local spawnPosition
     
     if isPlayer then
@@ -907,7 +907,10 @@ local function placeEngineerTurret(isPlayer)
         end
         spawnPosition = character.HumanoidRootPart.Position + Vector3.new(0, 2, 0)
     else
-        return -- Fake players don't use Engineer
+        if not caster or not caster.character or not caster.character:FindFirstChild("HumanoidRootPart") then
+            return
+        end
+        spawnPosition = caster.character.HumanoidRootPart.Position + Vector3.new(0, 2, 0)
     end
     
     -- Create turret base
@@ -970,17 +973,25 @@ local function placeEngineerTurret(isPlayer)
             return
         end
         
-        -- Find nearest fake player
         local nearestTarget = nil
         local nearestDistance = math.huge
         
-        for _, fakePlayer in ipairs(fakePlayersList) do
-            if fakePlayer.character and fakePlayer.character:FindFirstChild("HumanoidRootPart") then
-                local distance = (fakePlayer.character.HumanoidRootPart.Position - turretHead.Position).Magnitude
-                if distance < nearestDistance then
-                    nearestDistance = distance
-                    nearestTarget = fakePlayer.character
+        -- Find target based on owner
+        if isPlayer then
+            -- Player turret targets fake players
+            for _, fakePlayer in ipairs(fakePlayersList) do
+                if fakePlayer.character and fakePlayer.character:FindFirstChild("HumanoidRootPart") then
+                    local distance = (fakePlayer.character.HumanoidRootPart.Position - turretHead.Position).Magnitude
+                    if distance < nearestDistance then
+                        nearestDistance = distance
+                        nearestTarget = fakePlayer.character
+                    end
                 end
+            end
+        else
+            -- Fake player turret targets player
+            if character and character:FindFirstChild("HumanoidRootPart") then
+                nearestTarget = character
             end
         end
         
@@ -1026,11 +1037,13 @@ local function placeEngineerTurret(isPlayer)
                             applyForce(nearestTarget, bulletDirection, 5)
                             
                             -- Aggro to turret
-                            for _, fakePlayer in ipairs(fakePlayersList) do
-                                if fakePlayer.character == nearestTarget then
-                                    fakePlayer.aggroTarget = "turret"
-                                    fakePlayer.aggroTurretData = turretData
-                                    break
+                            if isPlayer then
+                                for _, fakePlayer in ipairs(fakePlayersList) do
+                                    if fakePlayer.character == nearestTarget then
+                                        fakePlayer.aggroTarget = "turret"
+                                        fakePlayer.aggroTurretData = turretData
+                                        break
+                                    end
                                 end
                             end
                             
@@ -1064,7 +1077,7 @@ local function placeEngineerTurret(isPlayer)
 end
 
 -- Engineer Roomba ability
-local function placeEngineerRoombas(isPlayer)
+local function placeEngineerRoombas(isPlayer, caster)
     local spawnPosition
     
     if isPlayer then
@@ -1073,7 +1086,10 @@ local function placeEngineerRoombas(isPlayer)
         end
         spawnPosition = character.HumanoidRootPart.Position
     else
-        return
+        if not caster or not caster.character or not caster.character:FindFirstChild("HumanoidRootPart") then
+            return
+        end
+        spawnPosition = caster.character.HumanoidRootPart.Position
     end
     
     -- Place 3 roombas
@@ -1130,17 +1146,25 @@ local function placeEngineerRoombas(isPlayer)
                 return
             end
             
-            -- Find nearest fake player
             local nearestTarget = nil
             local nearestDistance = math.huge
             
-            for _, fakePlayer in ipairs(fakePlayersList) do
-                if fakePlayer.character and fakePlayer.character:FindFirstChild("HumanoidRootPart") then
-                    local distance = (fakePlayer.character.HumanoidRootPart.Position - roomba.Position).Magnitude
-                    if distance < nearestDistance then
-                        nearestDistance = distance
-                        nearestTarget = fakePlayer.character
+            -- Find target based on owner
+            if isPlayer then
+                -- Player roomba targets fake players
+                for _, fakePlayer in ipairs(fakePlayersList) do
+                    if fakePlayer.character and fakePlayer.character:FindFirstChild("HumanoidRootPart") then
+                        local distance = (fakePlayer.character.HumanoidRootPart.Position - roomba.Position).Magnitude
+                        if distance < nearestDistance then
+                            nearestDistance = distance
+                            nearestTarget = fakePlayer.character
+                        end
                     end
+                end
+            else
+                -- Fake player roomba targets player
+                if character and character:FindFirstChild("HumanoidRootPart") then
+                    nearestTarget = character
                 end
             end
             
@@ -1188,13 +1212,15 @@ local function placeEngineerRoombas(isPlayer)
                                 applyForce(nearestTarget, bulletDirection, 2)
                                 
                                 -- Aggro to roomba
-                                for _, fakePlayer in ipairs(fakePlayersList) do
-                                    if fakePlayer.character == nearestTarget then
-                                        if fakePlayer.aggroTarget ~= "turret" then
-                                            fakePlayer.aggroTarget = "roomba"
-                                            fakePlayer.aggroRoombaData = roombaData
+                                if isPlayer then
+                                    for _, fakePlayer in ipairs(fakePlayersList) do
+                                        if fakePlayer.character == nearestTarget then
+                                            if fakePlayer.aggroTarget ~= "turret" then
+                                                fakePlayer.aggroTarget = "roomba"
+                                                fakePlayer.aggroRoombaData = roombaData
+                                            end
+                                            break
                                         end
-                                        break
                                     end
                                 end
                                 
@@ -1549,7 +1575,7 @@ abilityButton.MouseButton1Click:Connect(function()
     elseif gloveData.Ability == "LandMine" then
         activateLandMineAbility(nil, true)
     elseif gloveData.Ability == "Engineer" then
-        placeEngineerTurret(true)
+        placeEngineerTurret(true, nil)
     end
     
     -- Update button text with cooldown
@@ -1580,7 +1606,7 @@ secondAbilityButton.MouseButton1Click:Connect(function()
     end
     
     lastSecondAbilityTime = currentTime
-    placeEngineerRoombas(true)
+    placeEngineerRoombas(true, nil)
     
     -- Update button text with cooldown
     local cooldownLeft = gloveData.SecondAbilityCooldown
@@ -1699,6 +1725,7 @@ local function createFakePlayer(name, glove)
         currentGlove = glove,
         lastSlapTime = 0,
         lastAbilityTime = 0,
+        lastSecondAbilityTime = 0,
         isAggro = false,
         isCounterActive = false,
         slapsTaken = 0,
@@ -1989,6 +2016,20 @@ local function updateFakePlayerAI(fakePlayer)
                 if math.random(1, 100) <= 30 then -- 30% chance to place mine
                     fakePlayer.lastAbilityTime = currentTime
                     activateLandMineAbility(fakePlayer, false)
+                end
+            elseif fakePlayer.currentGlove == "Engineer Glove" then
+                -- Place turret if low on health or randomly
+                if fakePlayer.humanoid.Health < 50 or math.random(1, 100) <= 10 then
+                    fakePlayer.lastAbilityTime = currentTime
+                    placeEngineerTurret(false, fakePlayer)
+                end
+                
+                -- Place roombas when player is close
+                if distance <= 30 then
+                    if currentTime - fakePlayer.lastSecondAbilityTime >= GLOVE_DATA["Engineer Glove"].SecondAbilityCooldown then
+                        fakePlayer.lastSecondAbilityTime = currentTime
+                        placeEngineerRoombas(false, fakePlayer)
+                    end
                 end
             end
         end
