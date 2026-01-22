@@ -1837,8 +1837,12 @@ local function checkNoteHit(laneIndex)
     end
 end
 
+-- Input handling for mobile/keyboard
+local UserInputService = game:GetService("UserInputService")
+
 -- Input handling for rhythm game
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
+local rhythmInputConnection
+rhythmInputConnection = UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed or not rhythmGameActive then return end
     
     for i, key in ipairs(laneKeys) do
@@ -3539,12 +3543,12 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
     
     if input.KeyCode == Enum.KeyCode.E then
-        if equippedGlove then
+        if equippedGlove and currentGlove ~= "Song Glove" then
             playerSlap()
         end
     elseif input.KeyCode == Enum.KeyCode.Q then
         local gloveData = GLOVE_DATA[currentGlove]
-        if gloveData.AbilityType ~= "None" then
+        if gloveData and gloveData.AbilityType ~= "None" and currentGlove ~= "Song Glove" then
             abilityButton.MouseButton1Click:Fire()
         end
     end
