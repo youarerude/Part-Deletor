@@ -105,12 +105,12 @@ local GLOVE_DATA = {
         Color = Color3.fromRGB(255, 255, 255)
     },
     ["Song Glove"] = {
-        PushPower = 0, -- Variable based on timing
+        PushPower = 0, -- Variable based on rhythm
         SlapCooldown = 0,
         AbilityType = "Passive",
         Ability = "Rhythm",
         AbilityCooldown = 0,
-        Color = Color3.fromRGB(255, 100, 200)
+        Color = Color3.fromRGB(255, 105, 180)
     }
 }
 
@@ -143,10 +143,10 @@ local adminCommandCooldowns = {
     freeze = 0,
     ragdoll = 0
 }
-local songGloveActive = false
-local songSound = nil
-local rhythmNotes = {}
+local songPlaying = false
 local songStartTime = 0
+local rhythmNotes = {}
+local rhythmGameActive = false
 
 -- UI Elements
 local screenGui = Instance.new("ScreenGui")
@@ -394,14 +394,6 @@ end
 -- Player slap function
 local function playerSlap()
     if not equippedGlove or not character or not character:FindFirstChild("HumanoidRootPart") then
-        return
-    end
-    
-    -- Song Glove starts performance instead of slapping
-    if currentGlove == "Song Glove" then
-        if not songGloveActive then
-            startSongGlove()
-        end
         return
     end
     
@@ -1626,94 +1618,88 @@ end
 createAdminCommandButtons()
 
 -- Song Glove Rhythm Game System
-local rhythmGameGui = Instance.new("Frame")
-rhythmGameGui.Name = "RhythmGame"
-rhythmGameGui.Size = UDim2.new(0, 600, 0, 200)
-rhythmGameGui.Position = UDim2.new(0.5, -300, 0.8, -100)
-rhythmGameGui.BackgroundTransparency = 1
-rhythmGameGui.Visible = false
-rhythmGameGui.Parent = screenGui
+local rhythmGui = Instance.new("Frame")
+rhythmGui.Name = "RhythmGame"
+rhythmGui.Size = UDim2.new(0, 400, 0, 600)
+rhythmGui.Position = UDim2.new(0.5, -200, 0.5, -300)
+rhythmGui.BackgroundTransparency = 1
+rhythmGui.Visible = false
+rhythmGui.Parent = screenGui
 
--- Create 4 grey target blocks (lanes)
-local targetBlocks = {}
-local lanePositions = {0.15, 0.35, 0.55, 0.75}
-local laneKeys = {Enum.KeyCode.D, Enum.KeyCode.F, Enum.KeyCode.J, Enum.KeyCode.K}
+-- Create 4 lanes
+local lanes = {}
 local laneColors = {
-    Color3.fromRGB(150, 150, 150),
-    Color3.fromRGB(150, 150, 150),
-    Color3.fromRGB(150, 150, 150),
-    Color3.fromRGB(150, 150, 150)
+    Color3.fromRGB(255, 0, 0),    -- Red
+    Color3.fromRGB(0, 255, 0),    -- Green
+    Color3.fromRGB(0, 0, 255),    -- Blue
+    Color3.fromRGB(255, 255, 0)   -- Yellow
 }
 
+local laneKeys = {Enum.KeyCode.D, Enum.KeyCode.F, Enum.KeyCode.J, Enum.KeyCode.K}
+
 for i = 1, 4 do
-    local targetBlock = Instance.new("Frame")
-    targetBlock.Size = UDim2.new(0, 100, 0, 100)
-    targetBlock.Position = UDim2.new(lanePositions[i], -50, 0.5, -50)
-    targetBlock.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
-    targetBlock.BorderSizePixel = 3
-    targetBlock.BorderColor3 = Color3.fromRGB(255, 255, 255)
-    targetBlock.Parent = rhythmGameGui
-    targetBlocks[i] = targetBlock
+    -- Grey target zones
+    local targetZone = Instance.new("Frame")
+    targetZone.Name = "TargetZone" .. i
+    targetZone.Size = UDim2.new(0, 80, 0, 80)
+    targetZone.Position = UDim2.new(0, (i - 1) * 100, 1, -100)
+    targetZone.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
+    targetZone.BorderSizePixel = 3
+    targetZone.BorderColor3 = Color3.fromRGB(255, 255, 255)
+    targetZone.BackgroundTransparency = 0.5
+    targetZone.Parent = rhythmGui
     
-    -- Key label
+    -- Key indicators
     local keyLabel = Instance.new("TextLabel")
-    keyLabel.Size = UDim2.new(1, 0, 0.3, 0)
-    keyLabel.Position = UDim2.new(0, 0, 0.7, 0)
+    keyLabel.Size = UDim2.new(1, 0, 1, 0)
     keyLabel.BackgroundTransparency = 1
-    keyLabel.Text = string.sub(laneKeys[i].Name, 8) -- Remove "KeyCode."
+    keyLabel.Text = string.sub(laneKeys[i].Name, 8)
     keyLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
     keyLabel.TextScaled = true
     keyLabel.Font = Enum.Font.GothamBold
-    keyLabel.Parent = targetBlock
+    keyLabel.Parent = targetZone
+    
+    -- Mobile buttons
+    local mobileButton = Instance.new("TextButton")
+    mobileButton.Name = "LaneButton" .. i
+    mobileButton.Size = UDim2.new(0, 80, 0, 80)
+    mobileButton.Position = UDim2.new(0, (i - 1) * 100, 1, -200)
+    mobileButton.BackgroundColor3 = laneColors[i]
+    mobileButton.BorderSizePixel = 3
+    mobileButton.BorderColor3 = Color3.fromRGB(255, 255, 255)
+    mobileButton.Text = string.sub(laneKeys[i].Name, 8)
+    mobileButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    mobileButton.TextScaled = true
+    mobileButton.Font = Enum.Font.GothamBold
+    mobileButton.Parent = rhythmGui
+    
+    lanes[i] = {
+        targetZone = targetZone,
+        button = mobileButton,
+        notes = {}
+    }
 end
 
--- Create 4 clickable buttons below grey blocks
-local clickButtons = {}
-for i = 1, 4 do
-    local button = Instance.new("TextButton")
-    button.Size = UDim2.new(0, 100, 0, 50)
-    button.Position = UDim2.new(lanePositions[i], -50, 1, 10)
-    button.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-    button.BorderSizePixel = 2
-    button.BorderColor3 = Color3.fromRGB(255, 255, 255)
-    button.Text = string.sub(laneKeys[i].Name, 8)
-    button.TextColor3 = Color3.fromRGB(255, 255, 255)
-    button.TextScaled = true
-    button.Font = Enum.Font.GothamBold
-    button.Parent = rhythmGameGui
-    clickButtons[i] = button
-end
+-- Song sound
+local songSound = Instance.new("Sound")
+songSound.Name = "SongSound"
+songSound.SoundId = "rbxassetid://112166141751710"
+songSound.Volume = 1
+songSound.Parent = workspace
 
--- Song Glove Functions
-local function getForcefieldStats(songTime)
-    if songTime >= 128 then -- 2:08
-        return 150, 17, Color3.fromRGB(0, 0, 0), "black"
-    elseif songTime >= 82 then -- 1:22
-        return 65, 13, Color3.fromRGB(128, 0, 128), "purple"
-    elseif songTime >= 65 then -- 1:05
-        return 50, 10, Color3.fromRGB(255, 0, 0), "red"
-    elseif songTime >= 51 then -- 0:51
-        return 35, 8, Color3.fromRGB(0, 100, 255), "blue"
-    elseif songTime >= 9 then -- 0:09
-        return 20, 5, Color3.fromRGB(255, 255, 255), "white"
-    else
-        return 10, 3, Color3.fromRGB(150, 150, 150), "grey"
-    end
-end
-
-local function createForcefield(pushPower, size, color)
+-- Function to create forcefield
+local function createRhythmForcefield(size, pushPower, color)
     if not character or not character:FindFirstChild("HumanoidRootPart") then
         return
     end
     
-    local playerRoot = character.HumanoidRootPart
+    local characterRoot = character.HumanoidRootPart
     
-    -- Create forcefield
     local forcefield = Instance.new("Part")
     forcefield.Name = "RhythmForcefield"
     forcefield.Shape = Enum.PartType.Ball
     forcefield.Size = Vector3.new(size, size, size)
-    forcefield.Position = playerRoot.Position
+    forcefield.Position = characterRoot.Position
     forcefield.Anchored = true
     forcefield.CanCollide = false
     forcefield.Material = Enum.Material.ForceField
@@ -1725,10 +1711,10 @@ local function createForcefield(pushPower, size, color)
     for _, fakePlayer in ipairs(fakePlayersList) do
         if fakePlayer.character and fakePlayer.character:FindFirstChild("HumanoidRootPart") then
             local fakeRoot = fakePlayer.character.HumanoidRootPart
-            local distance = (fakeRoot.Position - playerRoot.Position).Magnitude
+            local distance = (fakeRoot.Position - characterRoot.Position).Magnitude
             
             if distance <= size / 2 then
-                local direction = (fakeRoot.Position - playerRoot.Position).Unit
+                local direction = (fakeRoot.Position - characterRoot.Position).Unit
                 applyForce(fakePlayer.character, direction, pushPower)
                 
                 -- Aggro the fake player
@@ -1750,182 +1736,232 @@ local function createForcefield(pushPower, size, color)
     Debris:AddItem(forcefield, 0.5)
 end
 
-local function spawnNote(lane)
+-- Function to spawn note
+local function spawnNote(laneIndex, isBlackNote)
+    if not lanes[laneIndex] then return end
+    
     local note = Instance.new("Frame")
-    note.Size = UDim2.new(0, 80, 0, 80)
-    note.Position = UDim2.new(lanePositions[lane], -40, -0.2, 0)
-    note.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-    note.BorderSizePixel = 2
-    note.BorderColor3 = Color3.fromRGB(0, 0, 0)
-    note.Parent = rhythmGameGui
-    
-    local songTime = tick() - songStartTime
-    
-    -- Check if it's time for black note (special note at 2:08)
-    if songTime >= 127 and songTime <= 129 and math.random() < 0.3 then
-        note.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-        note.BorderColor3 = Color3.fromRGB(255, 0, 0)
-    end
+    note.Name = isBlackNote and "BlackNote" or "Note"
+    note.Size = UDim2.new(0, 70, 0, 70)
+    note.Position = UDim2.new(0, (laneIndex - 1) * 100 + 5, 0, -70)
+    note.BackgroundColor3 = isBlackNote and Color3.fromRGB(0, 0, 0) or Color3.fromRGB(255, 255, 255)
+    note.BorderSizePixel = 3
+    note.BorderColor3 = isBlackNote and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(0, 0, 0)
+    note.Parent = rhythmGui
     
     local noteData = {
-        gui = note,
-        lane = lane,
-        startTime = tick(),
-        hit = false
+        frame = note,
+        lane = laneIndex,
+        isBlack = isBlackNote,
+        startTime = tick()
     }
     
+    table.insert(lanes[laneIndex].notes, noteData)
     table.insert(rhythmNotes, noteData)
     
     return noteData
 end
 
-local function checkNoteHit(lane)
-    local songTime = tick() - songStartTime
-    local size, push, color, colorName = getForcefieldStats(songTime)
+-- Function to check note hit
+local function checkNoteHit(laneIndex)
+    if not lanes[laneIndex] then return end
     
-    -- Find notes in this lane
-    for i, noteData in ipairs(rhythmNotes) do
-        if noteData.lane == lane and not noteData.hit then
-            local notePos = noteData.gui.Position.Y.Scale
-            local targetPos = targetBlocks[lane].Position.Y.Scale
-            
-            -- Check if note is within hit range (0.4 to 0.6 on screen)
-            if notePos >= targetPos - 0.1 and notePos <= targetPos + 0.1 then
-                noteData.hit = true
-                noteData.gui.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
-                
-                -- Create forcefield
-                createForcefield(push, size, color)
-                
-                -- Visual feedback
-                local flash = Instance.new("Frame")
-                flash.Size = UDim2.new(1, 0, 1, 0)
-                flash.BackgroundColor3 = color
-                flash.BackgroundTransparency = 0.5
-                flash.BorderSizePixel = 0
-                flash.Parent = targetBlocks[lane]
-                
-                spawn(function()
-                    wait(0.1)
-                    flash:Destroy()
-                end)
-                
-                Debris:AddItem(noteData.gui, 0.2)
+    local currentTime = tick()
+    local songTime = currentTime - songStartTime
+    
+    -- Find closest note in lane
+    local closestNote = nil
+    local closestDistance = math.huge
+    
+    for i, noteData in ipairs(lanes[laneIndex].notes) do
+        local noteY = noteData.frame.Position.Y.Offset
+        local targetY = lanes[laneIndex].targetZone.Position.Y.Offset
+        local distance = math.abs(noteY - targetY)
+        
+        if distance < closestDistance then
+            closestDistance = distance
+            closestNote = noteData
+        end
+    end
+    
+    if closestNote and closestDistance < 50 then
+        -- Hit successful!
+        local hitQuality = closestDistance < 20 and "perfect" or "good"
+        
+        -- Determine forcefield properties based on song time
+        local size, power, color
+        
+        if closestNote.isBlack then
+            -- Black note at 2:08
+            size = 150
+            power = 17
+            color = Color3.fromRGB(0, 0, 0)
+        elseif songTime >= 82 then -- 1:22
+            size = 65
+            power = 13
+            color = Color3.fromRGB(128, 0, 128) -- Purple
+        elseif songTime >= 65 then -- 1:05
+            size = 50
+            power = 10
+            color = Color3.fromRGB(255, 0, 0) -- Red
+        elseif songTime >= 51 then -- 0:51
+            size = 35
+            power = 8
+            color = Color3.fromRGB(0, 0, 255) -- Blue
+        elseif songTime >= 9 then -- 0:09
+            size = 20
+            power = 5
+            color = Color3.fromRGB(255, 255, 255) -- White
+        else
+            size = 10
+            power = 3
+            color = Color3.fromRGB(100, 100, 100) -- Grey
+        end
+        
+        createRhythmForcefield(size, power, color)
+        
+        -- Remove note
+        closestNote.frame:Destroy()
+        for i, n in ipairs(lanes[laneIndex].notes) do
+            if n == closestNote then
+                table.remove(lanes[laneIndex].notes, i)
+                break
+            end
+        end
+        for i, n in ipairs(rhythmNotes) do
+            if n == closestNote then
+                table.remove(rhythmNotes, i)
                 break
             end
         end
     end
 end
 
--- Start Song Glove performance
-local function startSongGlove()
-    if songGloveActive then return end
+-- Input handling for mobile/keyboard
+local UserInputService = game:GetService("UserInputService")
+
+-- Input handling for rhythm game
+local rhythmInputConnection
+rhythmInputConnection = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed or not rhythmGameActive then return end
     
-    songGloveActive = true
-    rhythmGameGui.Visible = true
+    for i, key in ipairs(laneKeys) do
+        if input.KeyCode == key then
+            checkNoteHit(i)
+            
+            -- Visual feedback
+            lanes[i].targetZone.BackgroundColor3 = laneColors[i]
+            spawn(function()
+                wait(0.1)
+                lanes[i].targetZone.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
+            end)
+            break
+        end
+    end
+end)
+
+-- Mobile button clicks
+for i, lane in ipairs(lanes) do
+    lane.button.MouseButton1Click:Connect(function()
+        if not rhythmGameActive then return end
+        checkNoteHit(i)
+        
+        -- Visual feedback
+        lane.targetZone.BackgroundColor3 = laneColors[i]
+        spawn(function()
+            wait(0.1)
+            lane.targetZone.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
+        end)
+    end)
+end
+
+-- Function to start song and rhythm game
+local function startSongGlovePerformance()
+    if songPlaying then return end
+    
+    songPlaying = true
+    rhythmGameActive = true
     songStartTime = tick()
+    rhythmGui.Visible = true
     
-    -- Create and play song
-    songSound = Instance.new("Sound")
-    songSound.SoundId = "rbxassetid://112166141751710"
-    songSound.Volume = 1
-    songSound.Parent = workspace
+    -- Start song
     songSound:Play()
     
-    -- Spawn notes randomly
+    -- Schedule notes based on song timing
     spawn(function()
-        while songGloveActive and songSound.Playing do
-            local randomLane = math.random(1, 4)
-            local randomDelay = math.random(20, 100) / 100 -- 0.2 to 1 second
-            
-            spawnNote(randomLane)
-            wait(randomDelay)
+        local noteSchedule = {}
+        
+        -- Generate random notes throughout the song
+        for t = 0, 128, 0.1 do
+            if math.random() < 0.3 then
+                local lane = math.random(1, 4)
+                local isBlack = (t >= 128 and t <= 130) -- Black notes at 2:08
+                table.insert(noteSchedule, {time = t, lane = lane, isBlack = isBlack})
+            end
         end
-    end)
-    
-    -- Update notes movement
-    spawn(function()
-        while songGloveActive do
-            RunService.RenderStepped:Wait()
-            
-            for i = #rhythmNotes, 1, -1 do
-                local noteData = rhythmNotes[i]
-                if noteData.gui.Parent then
-                    local elapsed = tick() - noteData.startTime
-                    local progress = elapsed / 2 -- 2 seconds to reach target
-                    
-                    noteData.gui.Position = UDim2.new(
-                        lanePositions[noteData.lane],
-                        -40,
-                        -0.2 + (progress * 0.9),
-                        0
-                    )
-                    
-                    -- Remove if past target
-                    if progress > 1.2 then
-                        noteData.gui:Destroy()
-                        table.remove(rhythmNotes, i)
-                    end
-                else
-                    table.remove(rhythmNotes, i)
+        
+        -- Spawn notes
+        for _, noteInfo in ipairs(noteSchedule) do
+            local waitTime = noteInfo.time - (tick() - songStartTime)
+            if waitTime > 0 then
+                wait(waitTime - 2) -- Spawn 2 seconds before they should be hit
+                if rhythmGameActive then
+                    spawnNote(noteInfo.lane, noteInfo.isBlack)
                 end
             end
         end
     end)
     
-    -- Auto-stop when song ends
+    -- Update note positions
     spawn(function()
-        songSound.Ended:Wait()
-        stopSongGlove()
+        while rhythmGameActive do
+            for _, noteData in ipairs(rhythmNotes) do
+                if noteData.frame.Parent then
+                    local currentPos = noteData.frame.Position.Y.Offset
+                    local targetY = lanes[noteData.lane].targetZone.Position.Y.Offset
+                    local newY = currentPos + 3 -- Move down
+                    
+                    noteData.frame.Position = UDim2.new(
+                        noteData.frame.Position.X.Scale,
+                        noteData.frame.Position.X.Offset,
+                        0,
+                        newY
+                    )
+                    
+                    -- Remove if too far past target
+                    if newY > targetY + 150 then
+                        noteData.frame:Destroy()
+                    end
+                end
+            end
+            RunService.Heartbeat:Wait()
+        end
+    end)
+    
+    -- Stop after song ends
+    spawn(function()
+        wait(130) -- Song length
+        stopSongGlovePerformance()
     end)
 end
 
-function stopSongGlove()
-    songGloveActive = false
-    rhythmGameGui.Visible = false
-    
-    if songSound then
-        songSound:Stop()
-        songSound:Destroy()
-        songSound = nil
-    end
+local function stopSongGlovePerformance()
+    songPlaying = false
+    rhythmGameActive = false
+    rhythmGui.Visible = false
+    songSound:Stop()
     
     -- Clear all notes
     for _, noteData in ipairs(rhythmNotes) do
-        if noteData.gui.Parent then
-            noteData.gui:Destroy()
+        if noteData.frame.Parent then
+            noteData.frame:Destroy()
         end
     end
     rhythmNotes = {}
-end
-
--- Button inputs
-for i = 1, 4 do
-    clickButtons[i].MouseButton1Click:Connect(function()
-        checkNoteHit(i)
-    end)
-end
-
--- Keyboard inputs
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if gameProcessed then return end
-    
-    if not songGloveActive then
-        -- Start song when equipped
-        if currentGlove == "Song Glove" and equippedGlove and input.UserInputType == Enum.UserInputType.MouseButton1 then
-            startSongGlove()
-        end
-        return
+    for _, lane in ipairs(lanes) do
+        lane.notes = {}
     end
-    
-    -- Check keyboard inputs for rhythm game
-    for i = 1, 4 do
-        if input.KeyCode == laneKeys[i] then
-            checkNoteHit(i)
-            break
-        end
-    end
-end)
+end
 
 -- AirBomb ability
 local function activateAirBombAbility(caster, isPlayer, targetOverride)
@@ -2635,57 +2671,6 @@ local function activateLandMineAbility(caster, isPlayer)
                         end
                     end
                 end
-            elseif fakePlayer.currentGlove == "Song Glove" then
-                -- Fake player starts performing when they slap (get close to player)
-                if distance <= 10 and not songGloveActive then
-                    fakePlayer.lastAbilityTime = currentTime
-                    -- Fake player creates their own rhythm performance
-                    -- They automatically hit notes and create forcefields
-                    spawn(function()
-                        local performanceTime = 0
-                        local performanceStartTime = tick()
-                        
-                        while performanceTime < 30 and fakePlayer.character do -- Perform for 30 seconds
-                            performanceTime = tick() - performanceStartTime
-                            
-                            if character and character:FindFirstChild("HumanoidRootPart") and fakePlayer.rootPart then
-                                local dist = (character.HumanoidRootPart.Position - fakePlayer.rootPart.Position).Magnitude
-                                
-                                local size, push, color, colorName = getForcefieldStats(performanceTime)
-                                
-                                -- Create forcefield around fake player
-                                local forcefield = Instance.new("Part")
-                                forcefield.Name = "RhythmForcefield"
-                                forcefield.Shape = Enum.PartType.Ball
-                                forcefield.Size = Vector3.new(size, size, size)
-                                forcefield.Position = fakePlayer.rootPart.Position
-                                forcefield.Anchored = true
-                                forcefield.CanCollide = false
-                                forcefield.Material = Enum.Material.ForceField
-                                forcefield.Color = color
-                                forcefield.Transparency = 0.5
-                                forcefield.Parent = workspace
-                                
-                                -- Check if player is in range
-                                if dist <= size / 2 then
-                                    local direction = (character.HumanoidRootPart.Position - fakePlayer.rootPart.Position).Unit
-                                    applyForce(character, direction, push)
-                                end
-                                
-                                -- Fade out
-                                local tween = TweenService:Create(forcefield, TweenInfo.new(0.5), {
-                                    Transparency = 1,
-                                    Size = Vector3.new(size * 1.2, size * 1.2, size * 1.2)
-                                })
-                                tween:Play()
-                                
-                                Debris:AddItem(forcefield, 0.5)
-                            end
-                            
-                            wait(math.random(50, 150) / 100) -- Random interval between forcefields
-                        end
-                    end)
-                end
             end
         end
         
@@ -2959,27 +2944,22 @@ local function createGloveTool()
         
         local gloveData = GLOVE_DATA[currentGlove]
         
-        -- Special handling for Song Glove
+        -- Start song performance for Song Glove
         if currentGlove == "Song Glove" then
-            abilityButton.Visible = false
-            adminPanelButton.Visible = false
-            slapButton.Visible = true
-            slapButton.Text = "PERFORM"
-        else
-            slapButton.Text = "SLAP"
-            
-            if gloveData.AbilityType == "Ability" or gloveData.AbilityType == "Fusion" then
-                if currentGlove == "Admin Glove" then
-                    adminPanelButton.Visible = true
-                    abilityButton.Visible = false
-                else
-                    abilityButton.Visible = true
-                    adminPanelButton.Visible = false
-                end
-            else
+            startSongGlovePerformance()
+        end
+        
+        if gloveData.AbilityType == "Ability" or gloveData.AbilityType == "Fusion" then
+            if currentGlove == "Admin Glove" then
+                adminPanelButton.Visible = true
                 abilityButton.Visible = false
+            else
+                abilityButton.Visible = true
                 adminPanelButton.Visible = false
             end
+        else
+            abilityButton.Visible = false
+            adminPanelButton.Visible = false
         end
         
         -- Show second ability button for Engineer Glove
@@ -2989,11 +2969,15 @@ local function createGloveTool()
             ability2Button.Visible = false
         end
         
-        -- Always show slap button on mobile
-        slapButton.Visible = true
+        -- Always show slap button on mobile (except Song Glove)
+        if currentGlove ~= "Song Glove" then
+            slapButton.Visible = true
+        else
+            slapButton.Visible = false
+        end
         
         -- Show notification for passive gloves
-        if gloveData.AbilityType == "Passive" then
+        if gloveData.AbilityType == "Passive" and currentGlove ~= "Song Glove" then
             local passiveNotif = Instance.new("TextLabel")
             passiveNotif.Size = UDim2.new(0, 300, 0, 60)
             passiveNotif.Position = UDim2.new(0.5, -150, 0.15, 0)
@@ -3020,9 +3004,9 @@ local function createGloveTool()
         adminPanelButton.Visible = false
         slapButton.Visible = false
         
-        -- Stop song if active
-        if songGloveActive then
-            stopSongGlove()
+        -- Stop song performance
+        if currentGlove == "Song Glove" then
+            stopSongGlovePerformance()
         end
     end)
     
@@ -3559,12 +3543,12 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
     
     if input.KeyCode == Enum.KeyCode.E then
-        if equippedGlove then
+        if equippedGlove and currentGlove ~= "Song Glove" then
             playerSlap()
         end
     elseif input.KeyCode == Enum.KeyCode.Q then
         local gloveData = GLOVE_DATA[currentGlove]
-        if gloveData.AbilityType ~= "None" then
+        if gloveData and gloveData.AbilityType ~= "None" and currentGlove ~= "Song Glove" then
             abilityButton.MouseButton1Click:Fire()
         end
     end
