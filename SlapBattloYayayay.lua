@@ -1321,6 +1321,8 @@ for i, btn in ipairs(laneButtons) do
 end
 
 -- Keyboard inputs
+local UserInputService = game:GetService("UserInputService")
+
 UserInputService.InputBegan:Connect(function(input, processed)
     if processed or not rhythmGameActive then return end
     
