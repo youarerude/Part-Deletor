@@ -1,0 +1,2005 @@
+-- ============================================================
+-- JUJUTSU KAISEN  |  LocalScript → StarterPlayerScripts
+-- ============================================================
+
+local Players          = game:GetService("Players")
+local RunService       = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local TweenService     = game:GetService("TweenService")
+local Debris           = game:GetService("Debris")
+
+local player    = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local hrp       = character:WaitForChild("HumanoidRootPart")
+local playerHum = character:WaitForChild("Humanoid")
+local camera    = workspace.CurrentCamera
+
+-- ============================================================
+-- GRADE CONFIG
+-- ============================================================
+local GRADES = {
+	{name="Grade 4", spawnInterval=5,  maxCount=20, color=Color3.fromRGB(180,180,180), size=2,   dmg=3,  attackRate=2,   aggroRange=35, speed=10},
+	{name="Grade 3", spawnInterval=10, maxCount=15, color=Color3.fromRGB(100,200,100), size=2.5, dmg=6,  attackRate=2.5, aggroRange=40, speed=13},
+	{name="Grade 2", spawnInterval=25, maxCount=8,  color=Color3.fromRGB(200,150,50),  size=3,   dmg=12, attackRate=3,   aggroRange=45, speed=15},
+	{name="Grade 1", spawnInterval=50, maxCount=5,  color=Color3.fromRGB(200,50,50),   size=3.5, dmg=20, attackRate=3.5, aggroRange=50, speed=17},
+}
+local DUMMY_HP = {["Grade 4"]=50, ["Grade 3"]=100, ["Grade 2"]=200, ["Grade 1"]=350}
+local SPAWN_RADIUS = 40
+
+-- ============================================================
+-- STATE
+-- ============================================================
+local spawnedDummies = {}
+local gradeTimers    = {}
+for _, g in ipairs(GRADES) do gradeTimers[g.name] = 0 end
+
+local currentSorcerer = "Gojo"
+
+-- All cooldowns for all sorcerers keyed by unique string
+local allCooldowns = {
+	-- Gojo
+	Red=0, Blue=0, Purple=0, UnlimitedVoid=0,
+	-- Sukuna
+	Fuga=0, Cleave=0, Dismantle=0, MalevolentShrine=0,
+	-- Nobara
+	Nail=0, Doll=0, Torture=0, ExplosiveNails=0,
+}
+
+local blueOrb      = nil
+local domainActive = false
+local isChanneling = false
+
+-- Burn status: {entry -> timer}
+local burnTimers   = {}
+
+-- ============================================================
+-- SORCERER ABILITY DEFINITIONS
+-- ============================================================
+local SORCERER_ABILITIES = {
+	Gojo = {
+		{key="Red",           label="Red",      color=Color3.fromRGB(210,40,40),  cd=10},
+		{key="Blue",          label="Blue",     color=Color3.fromRGB(40,90,210),  cd=13},
+		{key="Purple",        label="Purple",   color=Color3.fromRGB(150,40,210), cd=30},
+		{key="UnlimitedVoid", label="∞ Void",   color=Color3.fromRGB(15,0,35),    cd=120},
+	},
+	Sukuna = {
+		{key="Fuga",            label="Fuga",       color=Color3.fromRGB(210,80,20),  cd=15},
+		{key="Cleave",          label="Cleave",     color=Color3.fromRGB(180,20,20),  cd=13},
+		{key="Dismantle",       label="Dismantle",  color=Color3.fromRGB(140,30,30),  cd=12},
+		{key="MalevolentShrine",label="M.Shrine",   color=Color3.fromRGB(40,0,0),     cd=120},
+	},
+	Nobara = {
+		{key="Nail",          label="Nail",        color=Color3.fromRGB(160,120,60),  cd=12},
+		{key="Doll",          label="Doll",        color=Color3.fromRGB(90,60,160),   cd=20},
+		{key="Torture",       label="Torture",     color=Color3.fromRGB(160,30,30),   cd=13},
+		{key="ExplosiveNails",label="Exp. Nails",  color=Color3.fromRGB(200,80,20),   cd=15},
+	},
+}
+
+-- ============================================================
+-- UTILITY
+-- ============================================================
+local function getMouseWorldPos()
+	local ray = camera:ScreenPointToRay(
+		UserInputService:GetMouseLocation().X,
+		UserInputService:GetMouseLocation().Y)
+	local result = workspace:Raycast(ray.Origin, ray.Direction * 600)
+	if result then return result.Position end
+	return ray.Origin + ray.Direction * 60
+end
+
+-- Flat horizontal aim: takes the look direction but zeroes Y, returns Unit on XZ plane
+local function getFlatAimDir()
+	local raw = getMouseWorldPos() - hrp.Position
+	local flat = Vector3.new(raw.X, 0, raw.Z)
+	if flat.Magnitude < 0.1 then
+		flat = hrp.CFrame.LookVector
+		flat = Vector3.new(flat.X, 0, flat.Z)
+	end
+	return flat.Unit
+end
+
+local function countGrade(n)
+	local c = 0
+	for _, e in ipairs(spawnedDummies) do
+		if e.grade == n and e.humanoid.Health > 0 then c = c + 1 end
+	end
+	return c
+end
+
+local function cleanDeadDummies()
+	local alive = {}
+	for _, e in ipairs(spawnedDummies) do
+		if e.humanoid.Health > 0 then
+			table.insert(alive, e)
+		else
+			pcall(function() e.model:Destroy() end)
+		end
+	end
+	spawnedDummies = alive
+end
+
+local function makePart(props)
+	local p = Instance.new("Part")
+	for k,v in pairs(props) do p[k] = v end
+	return p
+end
+
+local function addCorner(parent, radius)
+	local c = Instance.new("UICorner")
+	c.CornerRadius = UDim.new(0, radius or 6)
+	c.Parent = parent
+	return c
+end
+
+local function hpColor(pct)
+	if pct > 0.6 then return Color3.fromRGB(80,220,80)
+	elseif pct > 0.3 then return Color3.fromRGB(230,180,0)
+	else return Color3.fromRGB(220,50,50) end
+end
+
+local function flashScreen(sgui, color, fadeIn, hold, fadeOut)
+	local flash = Instance.new("Frame")
+	flash.Size = UDim2.new(1,0,1,0)
+	flash.BackgroundColor3 = color
+	flash.BackgroundTransparency = 1
+	flash.BorderSizePixel = 0
+	flash.ZIndex = 50
+	flash.Parent = sgui
+	TweenService:Create(flash, TweenInfo.new(fadeIn), {BackgroundTransparency=0}):Play()
+	task.delay(fadeIn + hold, function()
+		TweenService:Create(flash, TweenInfo.new(fadeOut), {BackgroundTransparency=1}):Play()
+		Debris:AddItem(flash, fadeOut + 0.1)
+	end)
+end
+
+-- Apply burn to a dummy entry (5 dmg/s for 10s)
+local function applyBurn(entry)
+	if not entry or entry.humanoid.Health <= 0 then return end
+	burnTimers[entry] = 10  -- reset or start 10s burn
+end
+
+-- ============================================================
+-- SCREEN GUI
+-- ============================================================
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "JJKGui"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = player.PlayerGui
+
+-- ============================================================
+-- PLAYER HEALTH BAR
+-- ============================================================
+local playerHpFrame = Instance.new("Frame")
+playerHpFrame.Size = UDim2.new(0, 220, 0, 34)
+playerHpFrame.Position = UDim2.new(0, 12, 1, -50)
+playerHpFrame.BackgroundColor3 = Color3.fromRGB(15,15,30)
+playerHpFrame.BackgroundTransparency = 0.25
+playerHpFrame.BorderSizePixel = 0
+playerHpFrame.Parent = screenGui
+addCorner(playerHpFrame, 8)
+
+local playerHpLabel = Instance.new("TextLabel")
+playerHpLabel.Size = UDim2.new(1,0,0,14)
+playerHpLabel.Position = UDim2.new(0,0,0,2)
+playerHpLabel.BackgroundTransparency = 1
+playerHpLabel.Text = "YOU  100/100"
+playerHpLabel.TextColor3 = Color3.fromRGB(220,180,255)
+playerHpLabel.Font = Enum.Font.GothamBold
+playerHpLabel.TextSize = 11
+playerHpLabel.Parent = playerHpFrame
+
+local playerHpBg = Instance.new("Frame")
+playerHpBg.Size = UDim2.new(1,-10,0,10)
+playerHpBg.Position = UDim2.new(0,5,0,19)
+playerHpBg.BackgroundColor3 = Color3.fromRGB(40,40,40)
+playerHpBg.BorderSizePixel = 0
+playerHpBg.Parent = playerHpFrame
+addCorner(playerHpBg, 4)
+
+local playerHpFill = Instance.new("Frame")
+playerHpFill.Size = UDim2.new(1,0,1,0)
+playerHpFill.BackgroundColor3 = Color3.fromRGB(80,220,80)
+playerHpFill.BorderSizePixel = 0
+playerHpFill.Parent = playerHpBg
+addCorner(playerHpFill, 4)
+
+-- ============================================================
+-- TOP BAR
+-- ============================================================
+local titleLabel = Instance.new("TextLabel")
+titleLabel.Size = UDim2.new(0, 260, 0, 36)
+titleLabel.Position = UDim2.new(0.5, -130, 0, 10)
+titleLabel.BackgroundColor3 = Color3.fromRGB(15,15,30)
+titleLabel.BackgroundTransparency = 0.3
+titleLabel.BorderSizePixel = 0
+titleLabel.Text = "⚔ JUJUTSU KAISEN"
+titleLabel.TextColor3 = Color3.fromRGB(220,180,255)
+titleLabel.Font = Enum.Font.GothamBold
+titleLabel.TextSize = 18
+titleLabel.Parent = screenGui
+addCorner(titleLabel, 8)
+
+local sorcererBtn = Instance.new("TextButton")
+sorcererBtn.Size = UDim2.new(0, 170, 0, 34)
+sorcererBtn.Position = UDim2.new(0.5, -85, 0, 54)
+sorcererBtn.BackgroundColor3 = Color3.fromRGB(80,30,140)
+sorcererBtn.BorderSizePixel = 0
+sorcererBtn.Text = "👤 Sorcerer: Gojo"
+sorcererBtn.TextColor3 = Color3.fromRGB(255,255,255)
+sorcererBtn.Font = Enum.Font.GothamSemibold
+sorcererBtn.TextSize = 13
+sorcererBtn.Parent = screenGui
+addCorner(sorcererBtn, 8)
+
+local sorcererPanel = Instance.new("Frame")
+sorcererPanel.Size = UDim2.new(0, 210, 0, 130)
+sorcererPanel.Position = UDim2.new(0.5, -105, 0, 94)
+sorcererPanel.BackgroundColor3 = Color3.fromRGB(20,10,40)
+sorcererPanel.BackgroundTransparency = 0.1
+sorcererPanel.BorderSizePixel = 0
+sorcererPanel.Visible = false
+sorcererPanel.ZIndex = 10
+sorcererPanel.Parent = screenGui
+addCorner(sorcererPanel, 8)
+
+do
+	local l = Instance.new("UIListLayout")
+	l.Padding = UDim.new(0,4)
+	l.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	l.Parent = sorcererPanel
+	local pad = Instance.new("UIPadding")
+	pad.PaddingTop = UDim.new(0,6)
+	pad.Parent = sorcererPanel
+end
+
+-- ============================================================
+-- ABILITY BAR  (dynamic, rebuilt on sorcerer change)
+-- ============================================================
+local abilityFrame = Instance.new("Frame")
+abilityFrame.Size = UDim2.new(0, 450, 0, 80)
+abilityFrame.Position = UDim2.new(0.5, -225, 1, -100)
+abilityFrame.BackgroundTransparency = 1
+abilityFrame.Parent = screenGui
+
+local abilityButtons   = {}  -- rebuilt per sorcerer
+local currentAbilDefs  = {}  -- the active list
+
+local function rebuildAbilityBar(sorcererName)
+	-- Clear existing buttons
+	for _, info in pairs(abilityButtons) do
+		if info.btn and info.btn.Parent then
+			info.btn:Destroy()
+		end
+	end
+	abilityButtons = {}
+
+	-- Remove old layout if any
+	for _, ch in ipairs(abilityFrame:GetChildren()) do
+		if ch:IsA("UIListLayout") then ch:Destroy() end
+	end
+
+	local l = Instance.new("UIListLayout")
+	l.FillDirection = Enum.FillDirection.Horizontal
+	l.Padding = UDim.new(0,8)
+	l.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	l.VerticalAlignment = Enum.VerticalAlignment.Center
+	l.Parent = abilityFrame
+
+	currentAbilDefs = SORCERER_ABILITIES[sorcererName] or SORCERER_ABILITIES["Gojo"]
+
+	for _, ad in ipairs(currentAbilDefs) do
+		local btn = Instance.new("TextButton")
+		btn.Size = UDim2.new(0, 96, 0, 72)
+		btn.BackgroundColor3 = ad.color
+		btn.BorderSizePixel = 0
+		btn.Text = ad.label.."\n["..ad.cd.."s]"
+		btn.TextColor3 = Color3.fromRGB(255,255,255)
+		btn.Font = Enum.Font.GothamBold
+		btn.TextSize = 13
+		btn.Parent = abilityFrame
+		addCorner(btn, 10)
+
+		local overlay = Instance.new("Frame")
+		overlay.Size = UDim2.new(1,0,1,0)
+		overlay.BackgroundColor3 = Color3.fromRGB(0,0,0)
+		overlay.BackgroundTransparency = 1
+		overlay.BorderSizePixel = 0
+		overlay.ZIndex = 5
+		overlay.Parent = btn
+		addCorner(overlay, 10)
+
+		-- Special border for domain abilities
+		if ad.key == "UnlimitedVoid" then
+			local s = Instance.new("UIStroke") s.Color=Color3.fromRGB(130,60,220) s.Thickness=2 s.Parent=btn
+		elseif ad.key == "MalevolentShrine" then
+			local s = Instance.new("UIStroke") s.Color=Color3.fromRGB(220,60,0) s.Thickness=2 s.Parent=btn
+		elseif ad.key == "ExplosiveNails" then
+			local s = Instance.new("UIStroke") s.Color=Color3.fromRGB(255,180,30) s.Thickness=2 s.Parent=btn
+		end
+
+		abilityButtons[ad.key] = {btn=btn, overlay=overlay, baseColor=ad.color, cd=ad.cd, label=ad.label}
+
+		-- Wire click/touch
+		local function onFire()
+			if currentSorcerer == "Gojo" then
+				if     ad.key=="Red"           then fireGojo_Red()
+				elseif ad.key=="Blue"          then fireGojo_Blue()
+				elseif ad.key=="Purple"        then fireGojo_Purple()
+				elseif ad.key=="UnlimitedVoid" then fireGojo_UnlimitedVoid()
+				end
+			elseif currentSorcerer == "Sukuna" then
+				if     ad.key=="Fuga"             then fireSukuna_Fuga()
+				elseif ad.key=="Cleave"           then fireSukuna_Cleave()
+				elseif ad.key=="Dismantle"        then fireSukuna_Dismantle()
+				elseif ad.key=="MalevolentShrine" then fireSukuna_MalevolentShrine()
+				end
+			elseif currentSorcerer == "Nobara" then
+				if     ad.key=="Nail"          then fireNobara_Nail()
+				elseif ad.key=="Doll"          then fireNobara_Doll()
+				elseif ad.key=="Torture"       then fireNobara_Torture()
+				elseif ad.key=="ExplosiveNails" then fireNobara_ExplosiveNails()
+				end
+			end
+		end
+		btn.MouseButton1Click:Connect(onFire)
+		btn.TouchTap:Connect(onFire)
+	end
+end
+
+-- ============================================================
+-- COUNTER PANEL
+-- ============================================================
+local counterFrame = Instance.new("Frame")
+counterFrame.Size = UDim2.new(0, 165, 0, 110)
+counterFrame.Position = UDim2.new(0, 10, 0.5, -55)
+counterFrame.BackgroundColor3 = Color3.fromRGB(10,10,25)
+counterFrame.BackgroundTransparency = 0.3
+counterFrame.BorderSizePixel = 0
+counterFrame.Parent = screenGui
+addCorner(counterFrame, 8)
+
+do
+	local ct = Instance.new("TextLabel")
+	ct.Size = UDim2.new(1,0,0,22)
+	ct.BackgroundTransparency = 1
+	ct.Text = "Curses Active"
+	ct.TextColor3 = Color3.fromRGB(200,150,255)
+	ct.Font = Enum.Font.GothamBold
+	ct.TextSize = 13
+	ct.Parent = counterFrame
+end
+
+local gradeColors = {
+	["Grade 4"]=Color3.fromRGB(180,180,180),
+	["Grade 3"]=Color3.fromRGB(100,200,100),
+	["Grade 2"]=Color3.fromRGB(200,150,50),
+	["Grade 1"]=Color3.fromRGB(220,50,50),
+}
+local counterLabels = {}
+for i, g in ipairs(GRADES) do
+	local lbl = Instance.new("TextLabel")
+	lbl.Size = UDim2.new(1,-10,0,18)
+	lbl.Position = UDim2.new(0,5,0,20+(i-1)*21)
+	lbl.BackgroundTransparency = 1
+	lbl.Text = g.name..": 0/"..g.maxCount
+	lbl.TextColor3 = gradeColors[g.name]
+	lbl.Font = Enum.Font.Gotham
+	lbl.TextSize = 12
+	lbl.TextXAlignment = Enum.TextXAlignment.Left
+	lbl.Parent = counterFrame
+	counterLabels[g.name] = lbl
+end
+
+-- Resonance status badge (bottom-right, only visible for Nobara)
+local resonanceBadge = Instance.new("TextLabel")
+resonanceBadge.Size = UDim2.new(0, 190, 0, 32)
+resonanceBadge.Position = UDim2.new(1, -202, 1, -50)
+resonanceBadge.BackgroundColor3 = Color3.fromRGB(20,20,30)
+resonanceBadge.BackgroundTransparency = 0.25
+resonanceBadge.BorderSizePixel = 0
+resonanceBadge.Text = "○ No Resonance"
+resonanceBadge.TextColor3 = Color3.fromRGB(120,120,140)
+resonanceBadge.Font = Enum.Font.GothamBold
+resonanceBadge.TextSize = 13
+resonanceBadge.Visible = false
+resonanceBadge.Parent = screenGui
+addCorner(resonanceBadge, 8)
+
+-- ============================================================
+-- DOMAIN / CAMERA HELPERS
+-- ============================================================
+local domainRing    = nil
+local domainOverlay = nil
+local shakeConn     = nil
+local DEFAULT_FOV   = 70
+
+local function buildDomainVisuals(ringColor)
+	domainOverlay = Instance.new("Frame")
+	domainOverlay.Size = UDim2.new(1,0,1,0)
+	domainOverlay.BackgroundColor3 = ringColor or Color3.fromRGB(5,0,20)
+	domainOverlay.BackgroundTransparency = 0.65
+	domainOverlay.BorderSizePixel = 0
+	domainOverlay.ZIndex = 20
+	domainOverlay.Parent = screenGui
+
+	domainRing = makePart({
+		Shape=Enum.PartType.Ball, Size=Vector3.new(1,1,1),
+		Position=hrp.Position, Anchored=true, CanCollide=false,
+		CastShadow=false, Material=Enum.Material.Neon,
+		Color=ringColor or Color3.fromRGB(40,0,80), Transparency=0.55, Parent=workspace
+	})
+	TweenService:Create(domainRing, TweenInfo.new(3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+		{Size=Vector3.new(90,90,90), Transparency=0.78}):Play()
+end
+
+local function destroyDomainVisuals()
+	if domainRing then
+		TweenService:Create(domainRing, TweenInfo.new(1.5), {Size=Vector3.new(1,1,1), Transparency=1}):Play()
+		Debris:AddItem(domainRing, 1.6) domainRing = nil
+	end
+	if domainOverlay then
+		TweenService:Create(domainOverlay, TweenInfo.new(1), {BackgroundTransparency=1}):Play()
+		Debris:AddItem(domainOverlay, 1.1) domainOverlay = nil
+	end
+end
+
+local function startShake(intensity)
+	if shakeConn then shakeConn:Disconnect() end
+	shakeConn = RunService.RenderStepped:Connect(function()
+		camera.CFrame = camera.CFrame * CFrame.Angles(
+			math.rad((math.random()-0.5)*intensity*0.2),
+			math.rad((math.random()-0.5)*intensity*0.2), 0)
+	end)
+end
+local function stopShake()
+	if shakeConn then shakeConn:Disconnect() shakeConn = nil end
+end
+local function expandFOV(target, t)
+	TweenService:Create(camera, TweenInfo.new(t), {FieldOfView=target}):Play()
+end
+
+-- ============================================================
+-- DUMMY SPAWNING
+-- ============================================================
+local function spawnDummy(gradeData)
+	local angle    = math.random() * math.pi * 2
+	local dist     = math.random(10, SPAWN_RADIUS)
+	local spawnPos = hrp.Position + Vector3.new(math.cos(angle)*dist, 0, math.sin(angle)*dist)
+
+	local model = Instance.new("Model")
+	model.Name  = gradeData.name.." Dummy"
+
+	local torso = makePart({
+		Name="HumanoidRootPart",
+		Size=Vector3.new(gradeData.size, gradeData.size*1.2, gradeData.size),
+		Position=spawnPos + Vector3.new(0, gradeData.size*1.5, 0),
+		Color=gradeData.color, Material=Enum.Material.SmoothPlastic,
+		Anchored=false, CanCollide=true, Parent=model
+	})
+	local head = makePart({
+		Name="Head",
+		Size=Vector3.new(gradeData.size*.8, gradeData.size*.8, gradeData.size*.8),
+		Position=torso.Position + Vector3.new(0, gradeData.size, 0),
+		Color=gradeData.color, Material=Enum.Material.SmoothPlastic,
+		CanCollide=true, Parent=model
+	})
+	local hw = Instance.new("WeldConstraint") hw.Part0=torso hw.Part1=head hw.Parent=torso
+
+	-- Billboard: name + HP bar
+	local bb = Instance.new("BillboardGui")
+	bb.Size = UDim2.new(0, 115, 0, 46)
+	bb.StudsOffset = Vector3.new(0, gradeData.size + 2, 0)
+	bb.AlwaysOnTop = true
+	bb.Parent = torso
+
+	local nameLabel = Instance.new("TextLabel")
+	nameLabel.Size = UDim2.new(1,0,0,20)
+	nameLabel.BackgroundTransparency = 1
+	nameLabel.Text = gradeData.name
+	nameLabel.TextColor3 = Color3.fromRGB(255,255,255)
+	nameLabel.TextStrokeTransparency = 0
+	nameLabel.Font = Enum.Font.GothamBold
+	nameLabel.TextScaled = true
+	nameLabel.Parent = bb
+
+	local hpBg = Instance.new("Frame")
+	hpBg.Size = UDim2.new(1,-8,0,11)
+	hpBg.Position = UDim2.new(0,4,0,22)
+	hpBg.BackgroundColor3 = Color3.fromRGB(35,35,35)
+	hpBg.BorderSizePixel = 0
+	hpBg.Parent = bb
+	addCorner(hpBg, 4)
+
+	local hpFill = Instance.new("Frame")
+	hpFill.Size = UDim2.new(1,0,1,0)
+	hpFill.BackgroundColor3 = Color3.fromRGB(80,220,80)
+	hpFill.BorderSizePixel = 0
+	hpFill.Parent = hpBg
+	addCorner(hpFill, 4)
+
+	local hpNum = Instance.new("TextLabel")
+	hpNum.Size = UDim2.new(1,0,1,0)
+	hpNum.BackgroundTransparency = 1
+	hpNum.Text = DUMMY_HP[gradeData.name].."/"..DUMMY_HP[gradeData.name]
+	hpNum.TextColor3 = Color3.fromRGB(255,255,255)
+	hpNum.TextStrokeTransparency = 0.4
+	hpNum.Font = Enum.Font.Gotham
+	hpNum.TextSize = 8
+	hpNum.ZIndex = 2
+	hpNum.Parent = hpBg
+
+	local hum = Instance.new("Humanoid")
+	hum.MaxHealth = DUMMY_HP[gradeData.name]
+	hum.Health    = DUMMY_HP[gradeData.name]
+	hum.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+	hum.Parent = model
+
+	model.PrimaryPart = torso
+	model.Parent = workspace
+
+	table.insert(spawnedDummies, {
+		grade=gradeData.name, model=model, humanoid=hum, torso=torso,
+		hpFill=hpFill, hpNum=hpNum, attackTimer=0, frozen=false, gradeData=gradeData,
+	})
+end
+
+-- ============================================================
+-- SHARED COOLDOWN HELPERS
+-- ============================================================
+local function isCooldown(k) return allCooldowns[k] and allCooldowns[k] > 0 end
+local function startCD(k,d)  allCooldowns[k] = d end
+
+-- ============================================================
+-- ========= GOJO ABILITIES ===================================
+-- ============================================================
+
+-- ---- RED ----
+function fireGojo_Red()
+	if isCooldown("Red") or isChanneling then return end
+	startCD("Red", 10)
+
+	local origin = hrp.Position + Vector3.new(0, 0.5, 0)
+	local target = getMouseWorldPos()
+	local dir    = (target - origin).Unit
+	local len    = (target - origin).Magnitude
+
+	local beam = makePart({
+		Size=Vector3.new(0.45,0.45,len),
+		CFrame=CFrame.new(origin, target)*CFrame.new(0,0,-len/2),
+		Anchored=true, CanCollide=false,
+		Color=Color3.fromRGB(220,30,30), Material=Enum.Material.Neon, Parent=workspace
+	})
+	local bl=Instance.new("PointLight") bl.Brightness=4 bl.Range=12 bl.Color=Color3.fromRGB(220,30,30) bl.Parent=beam
+	Debris:AddItem(beam, 0.2)
+
+	local ring = makePart({Shape=Enum.PartType.Ball, Size=Vector3.new(1,1,1),
+		Position=target, Anchored=true, CanCollide=false,
+		Color=Color3.fromRGB(220,30,30), Material=Enum.Material.Neon, Transparency=0.4, Parent=workspace})
+	TweenService:Create(ring, TweenInfo.new(0.3), {Size=Vector3.new(9,9,9), Transparency=1}):Play()
+	Debris:AddItem(ring, 0.31)
+
+	for _, e in ipairs(spawnedDummies) do
+		if e.humanoid.Health > 0 then
+			local toE  = e.torso.Position - origin
+			local proj = toE:Dot(dir)
+			local perp = (toE - dir*proj).Magnitude
+			if proj > 0 and perp < 3.5 then
+				e.humanoid:TakeDamage(15)
+				local bv=Instance.new("BodyVelocity") bv.Velocity=dir*45+Vector3.new(0,12,0) bv.MaxForce=Vector3.new(1e5,1e5,1e5) bv.P=1e4 bv.Parent=e.torso
+				Debris:AddItem(bv, 0.22)
+			end
+		end
+	end
+end
+
+-- ---- BLUE ----
+function fireGojo_Blue()
+	if isCooldown("Blue") or isChanneling then return end
+	if blueOrb then blueOrb:Destroy() blueOrb=nil end
+	startCD("Blue", 13)
+
+	local orb = makePart({Shape=Enum.PartType.Ball, Size=Vector3.new(2.2,2.2,2.2),
+		Position=getMouseWorldPos(), Anchored=true, CanCollide=false,
+		Color=Color3.fromRGB(30,80,255), Material=Enum.Material.Neon, Parent=workspace})
+	local bl=Instance.new("PointLight") bl.Brightness=6 bl.Range=22 bl.Color=Color3.fromRGB(30,80,255) bl.Parent=orb
+	blueOrb = orb
+
+	local moveConn = RunService.Heartbeat:Connect(function()
+		if not orb.Parent then return end
+		orb.Position = getMouseWorldPos()
+	end)
+	local magnetized = {}
+	local magConn = RunService.Heartbeat:Connect(function()
+		if not orb.Parent then return end
+		for _, e in ipairs(spawnedDummies) do
+			if e.humanoid.Health>0 and not magnetized[e] then
+				if (e.torso.Position-orb.Position).Magnitude<=15 then magnetized[e]=true end
+			end
+		end
+		for e in pairs(magnetized) do
+			if e.humanoid.Health>0 then
+				local d=(orb.Position-e.torso.Position).Unit
+				local bv=Instance.new("BodyVelocity") bv.Velocity=d*28 bv.MaxForce=Vector3.new(1e5,1e5,1e5) bv.P=5000 bv.Parent=e.torso
+				Debris:AddItem(bv, 0.06)
+			end
+		end
+	end)
+
+	task.delay(5, function()
+		moveConn:Disconnect() magConn:Disconnect()
+		if not orb.Parent then return end
+		local exPos=orb.Position
+		local exp=makePart({Shape=Enum.PartType.Ball, Size=Vector3.new(2,2,2),
+			Position=exPos, Anchored=true, CanCollide=false,
+			Color=Color3.fromRGB(30,80,255), Material=Enum.Material.Neon, Parent=workspace})
+		TweenService:Create(exp, TweenInfo.new(0.45), {Size=Vector3.new(24,24,24), Transparency=1}):Play()
+		Debris:AddItem(exp, 0.46)
+		for e in pairs(magnetized) do
+			if e.humanoid.Health>0 then
+				e.humanoid:TakeDamage(15)
+				local fDir=(e.torso.Position-exPos).Unit
+				local bv=Instance.new("BodyVelocity") bv.Velocity=fDir*65+Vector3.new(0,32,0) bv.MaxForce=Vector3.new(1e5,1e5,1e5) bv.P=1e5 bv.Parent=e.torso
+				Debris:AddItem(bv, 0.3)
+			end
+		end
+		orb:Destroy() blueOrb=nil
+	end)
+end
+
+-- ---- PURPLE (flat aim — no up/down) ----
+function fireGojo_Purple()
+	if isCooldown("Purple") or isChanneling then return end
+	startCD("Purple", 30)
+	isChanneling = true
+
+	local centerPos = hrp.Position + Vector3.new(0, 1.5, 0)
+	-- FLAT horizontal direction only
+	local dir = getFlatAimDir()
+
+	-- Red & Blue orbs spawn to the sides relative to flat direction
+	local right  = Vector3.new(-dir.Z, 0, dir.X)  -- perpendicular on XZ
+	local redOrb = makePart({Shape=Enum.PartType.Ball, Size=Vector3.new(1.5,1.5,1.5),
+		Position=centerPos - right*2.5, Anchored=true, CanCollide=false,
+		Color=Color3.fromRGB(220,30,30), Material=Enum.Material.Neon, Parent=workspace})
+	local rl=Instance.new("PointLight") rl.Color=Color3.fromRGB(220,30,30) rl.Brightness=5 rl.Range=14 rl.Parent=redOrb
+
+	local blueO = makePart({Shape=Enum.PartType.Ball, Size=Vector3.new(1.5,1.5,1.5),
+		Position=centerPos + right*2.5, Anchored=true, CanCollide=false,
+		Color=Color3.fromRGB(30,80,255), Material=Enum.Material.Neon, Parent=workspace})
+	local bll=Instance.new("PointLight") bll.Color=Color3.fromRGB(30,80,255) bll.Brightness=5 bll.Range=14 bll.Parent=blueO
+
+	TweenService:Create(redOrb, TweenInfo.new(1.2, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
+		{Position=centerPos, Size=Vector3.new(3.5,3.5,3.5)}):Play()
+	TweenService:Create(blueO, TweenInfo.new(1.2, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
+		{Position=centerPos, Size=Vector3.new(3.5,3.5,3.5)}):Play()
+
+	task.wait(1.3)
+	pcall(function() redOrb:Destroy() end)
+	pcall(function() blueO:Destroy() end)
+
+	local purpOrb = makePart({Shape=Enum.PartType.Ball, Size=Vector3.new(5,5,5),
+		Position=centerPos, Anchored=true, CanCollide=false,
+		Color=Color3.fromRGB(180,30,255), Material=Enum.Material.Neon, Parent=workspace})
+	local pl=Instance.new("PointLight") pl.Color=Color3.fromRGB(180,30,255) pl.Brightness=10 pl.Range=28 pl.Parent=purpOrb
+
+	task.wait(0.35)
+
+	local travelDist=350; local speed=130; local traveled=0
+	local lastPos=centerPos; local alreadyHit={}
+
+	local fireConn
+	fireConn = RunService.Heartbeat:Connect(function(dt)
+		if not purpOrb.Parent then fireConn:Disconnect() isChanneling=false return end
+		local move=speed*dt; traveled=traveled+move
+		-- Keep Y constant (flat travel at orb's Y)
+		local newPos = Vector3.new(lastPos.X+dir.X*move, lastPos.Y, lastPos.Z+dir.Z*move)
+		purpOrb.Position = newPos; lastPos=newPos
+
+		-- Debris trail
+		if math.random()<0.4 then
+			local s=makePart({Shape=Enum.PartType.Ball,
+				Size=Vector3.new(math.random()*1+0.3, math.random()*1+0.3, math.random()*1+0.3),
+				Position=newPos+Vector3.new((math.random()-0.5)*2, (math.random()-0.5)*1, (math.random()-0.5)*2),
+				Anchored=true, CanCollide=false,
+				Color=Color3.fromRGB(180,30,255), Material=Enum.Material.Neon, Transparency=0.3, Parent=workspace})
+			TweenService:Create(s, TweenInfo.new(0.5), {Transparency=1, Size=Vector3.new(0.1,0.1,0.1)}):Play()
+			Debris:AddItem(s, 0.51)
+		end
+
+		-- Pierce hit (flat-level check)
+		for _, e in ipairs(spawnedDummies) do
+			if e.humanoid.Health>0 and not alreadyHit[e] then
+				if (e.torso.Position-newPos).Magnitude<4.5 then
+					alreadyHit[e]=true
+					e.humanoid:TakeDamage(50)
+					local bv=Instance.new("BodyVelocity") bv.Velocity=dir*30+Vector3.new(0,8,0) bv.MaxForce=Vector3.new(1e5,1e5,1e5) bv.P=1e4 bv.Parent=e.torso
+					Debris:AddItem(bv, 0.2)
+				end
+			end
+		end
+
+		if traveled>=travelDist then fireConn:Disconnect() purpOrb:Destroy() isChanneling=false end
+	end)
+end
+
+-- ---- UNLIMITED VOID ----
+function fireGojo_UnlimitedVoid()
+	if isCooldown("UnlimitedVoid") or isChanneling or domainActive then return end
+	startCD("UnlimitedVoid", 120)
+	isChanneling = true; domainActive = true
+
+	buildDomainVisuals(Color3.fromRGB(40,0,80))
+	task.delay(3, function() flashScreen(screenGui, Color3.fromRGB(255,255,255), 0.6, 0.15, 0.9) end)
+
+	task.delay(3.8, function()
+		startShake(2); expandFOV(95, 1.5); isChanneling=false
+		local domainCenter=hrp.Position; local frozenEntries={}
+		for _, e in ipairs(spawnedDummies) do
+			if e.humanoid.Health>0 and (e.torso.Position-domainCenter).Magnitude<=45 then
+				e.frozen=true; e.torso.Anchored=true
+				table.insert(frozenEntries, e)
+				local vt=makePart({Size=e.torso.Size*Vector3.new(1.08,1.08,1.08), CFrame=e.torso.CFrame,
+					Anchored=true, CanCollide=false, Color=Color3.fromRGB(60,0,120), Material=Enum.Material.Neon, Transparency=0.55, Parent=workspace})
+				local vtw=Instance.new("WeldConstraint") vtw.Part0=e.torso vtw.Part1=vt vtw.Parent=e.torso
+				e.voidTint=vt
+			end
+		end
+		local tick=0
+		local function doDmgTick()
+			tick=tick+1
+			for _, e in ipairs(frozenEntries) do if e.humanoid.Health>0 then e.humanoid:TakeDamage(10) end end
+			if tick<15 then task.delay(1, doDmgTick) end
+		end
+		task.delay(1, doDmgTick)
+
+		task.delay(15, function()
+			local sp=hrp.Position
+			for i=1,22 do
+				local sh=makePart({Size=Vector3.new(math.random(1,4),math.random(1,5),math.random(1,2)),
+					Position=sp+Vector3.new(math.random(-22,22),math.random(1,12),math.random(-22,22)),
+					Color=Color3.fromRGB(100,0,160), Material=Enum.Material.Neon, Transparency=0.25, Anchored=false, CanCollide=false, Parent=workspace})
+				TweenService:Create(sh, TweenInfo.new(1.4), {Transparency=1,
+					Position=sh.Position+Vector3.new(math.random(-18,18),math.random(8,22),math.random(-18,18))}):Play()
+				Debris:AddItem(sh, 1.5)
+			end
+			flashScreen(screenGui, Color3.fromRGB(0,0,0), 0.5, 0.25, 0.9)
+			task.delay(0.5, function()
+				for _, e in ipairs(frozenEntries) do
+					e.frozen=false; pcall(function() e.torso.Anchored=false end)
+					if e.voidTint then pcall(function() e.voidTint:Destroy() end) e.voidTint=nil end
+				end
+				stopShake(); expandFOV(DEFAULT_FOV, 1.5); destroyDomainVisuals(); domainActive=false
+			end)
+		end)
+	end)
+end
+
+-- ============================================================
+-- ========= SUKUNA ABILITIES =================================
+-- ============================================================
+
+-- ---- FUGA (Fire Bow & Arrow, flat aim) ----
+function fireSukuna_Fuga()
+	if isCooldown("Fuga") or isChanneling then return end
+	startCD("Fuga", 15)
+	isChanneling = true
+
+	local origin = hrp.Position + Vector3.new(0, 1.5, 0)
+	local dir    = getFlatAimDir()  -- flat horizontal only
+
+	-- BOW ANIMATION: build a fire bow shape (arc of fire parts)
+	local bowParts = {}
+	for i = 1, 8 do
+		local t   = (i / 8) * math.pi       -- 0..pi arc
+		local arc = Vector3.new(math.cos(t)*0, math.sin(t)*2.5, 0)  -- vertical bow curve
+		-- offset bow to left side of player
+		local right = Vector3.new(-dir.Z, 0, dir.X)
+		local bowPos = origin + right*(-1.2) + Vector3.new(0, arc.Y - 1.25, 0)
+		local bp = makePart({Shape=Enum.PartType.Ball, Size=Vector3.new(0.35,0.35,0.35),
+			Position=bowPos, Anchored=true, CanCollide=false,
+			Color=Color3.fromRGB(255,140,20), Material=Enum.Material.Neon, Transparency=0.1, Parent=workspace})
+		local fl=Instance.new("PointLight") fl.Brightness=2 fl.Range=5 fl.Color=Color3.fromRGB(255,140,20) fl.Parent=bp
+		table.insert(bowParts, bp)
+	end
+
+	-- Arrow nock part (held at center)
+	local arrowNock = makePart({
+		Size=Vector3.new(0.2,0.2,2.5),
+		CFrame=CFrame.new(origin, origin+dir)*CFrame.new(0,0,-1.25),
+		Anchored=true, CanCollide=false,
+		Color=Color3.fromRGB(255,200,80), Material=Enum.Material.Neon, Parent=workspace})
+
+	task.wait(3)  -- 3 second draw time
+
+	-- Destroy bow & arrow visuals
+	for _, bp in ipairs(bowParts) do pcall(function() bp:Destroy() end) end
+	pcall(function() arrowNock:Destroy() end)
+
+	-- Fire the arrow (flat aim direction captured at draw time — already flat)
+	local arrowPos  = origin
+	local arrowHead = makePart({Shape=Enum.PartType.Ball, Size=Vector3.new(0.4,0.4,1.5),
+		CFrame=CFrame.new(arrowPos, arrowPos+dir)*CFrame.new(0,0,-0.75),
+		Anchored=true, CanCollide=false,
+		Color=Color3.fromRGB(255,160,30), Material=Enum.Material.Neon, Parent=workspace})
+	local afl=Instance.new("PointLight") afl.Brightness=5 afl.Range=10 afl.Color=Color3.fromRGB(255,120,0) afl.Parent=arrowHead
+
+	local arrowTravel=0; local arrowMax=200; local arrowSpeed=100
+	local arrowLast=arrowPos; local arrowHit=false
+
+	local arrowConn
+	arrowConn = RunService.Heartbeat:Connect(function(dt)
+		if not arrowHead.Parent or arrowHit then arrowConn:Disconnect() isChanneling=false return end
+		local move = arrowSpeed*dt
+		arrowTravel = arrowTravel+move
+		-- Flat travel only
+		local newPos = Vector3.new(arrowLast.X+dir.X*move, arrowLast.Y, arrowLast.Z+dir.Z*move)
+		arrowHead.CFrame = CFrame.new(newPos, newPos+dir)*CFrame.new(0,0,-0.75)
+		arrowLast=newPos
+
+		-- Fire trail
+		if math.random()<0.5 then
+			local trail=makePart({Shape=Enum.PartType.Ball, Size=Vector3.new(0.3,0.3,0.3),
+				Position=newPos, Anchored=true, CanCollide=false,
+				Color=Color3.fromRGB(255,100,0), Material=Enum.Material.Neon, Transparency=0.2, Parent=workspace})
+			TweenService:Create(trail, TweenInfo.new(0.4), {Transparency=1, Size=Vector3.new(0.05,0.05,0.05)}):Play()
+			Debris:AddItem(trail, 0.41)
+		end
+
+		-- Hit check
+		for _, e in ipairs(spawnedDummies) do
+			if e.humanoid.Health>0 and (e.torso.Position-newPos).Magnitude<3 then
+				arrowHit=true
+				arrowHead:Destroy()
+				arrowConn:Disconnect()
+				isChanneling=false
+
+				-- Spawn flaming AOE area
+				local aoeCenter = newPos
+				local aoe = makePart({Size=Vector3.new(12,0.5,12),
+					Position=aoeCenter+Vector3.new(0,-1,0), Anchored=true, CanCollide=false,
+					Color=Color3.fromRGB(255,80,0), Material=Enum.Material.Neon, Transparency=0.4, Parent=workspace})
+				addCorner(aoe, 0)  -- AOE floor
+				local aoeLight=Instance.new("PointLight") aoeLight.Brightness=6 aoeLight.Range=18 aoeLight.Color=Color3.fromRGB(255,80,0) aoeLight.Parent=aoe
+
+				-- Flicker effect
+				local flickerConn = RunService.Heartbeat:Connect(function()
+					if not aoe.Parent then return end
+					aoe.Transparency = 0.3 + math.sin(tick()*12)*0.15
+				end)
+
+				-- Spawn fire particle columns
+				local firePillars = {}
+				for fi=1,10 do
+					local angle2=math.random()*math.pi*2
+					local r=math.random()*5
+					local fp=makePart({Shape=Enum.PartType.Ball,
+						Size=Vector3.new(0.8,math.random(2,5),0.8),
+						Position=aoeCenter+Vector3.new(math.cos(angle2)*r, math.random(1,4), math.sin(angle2)*r),
+						Anchored=true, CanCollide=false,
+						Color=Color3.fromRGB(255,math.random(60,140),0), Material=Enum.Material.Neon, Transparency=0.3, Parent=workspace})
+					table.insert(firePillars, fp)
+				end
+
+				-- AOE damage every 0.5s for 5s
+				local aoeTick=0
+				local function doAoeTick()
+					if aoeTick>=10 then return end
+					aoeTick=aoeTick+1
+					for _, ae in ipairs(spawnedDummies) do
+						if ae.humanoid.Health>0 and (ae.torso.Position-aoeCenter).Magnitude<=7 then
+							ae.humanoid:TakeDamage(15)
+							applyBurn(ae)  -- burn effect
+						end
+					end
+					task.delay(0.5, doAoeTick)
+				end
+				task.delay(0.5, doAoeTick)
+
+				-- Clean up after 5s
+				task.delay(5, function()
+					flickerConn:Disconnect()
+					pcall(function() aoe:Destroy() end)
+					for _, fp in ipairs(firePillars) do pcall(function() fp:Destroy() end) end
+				end)
+				return
+			end
+		end
+
+		if arrowTravel>=arrowMax then
+			arrowConn:Disconnect()
+			pcall(function() arrowHead:Destroy() end)
+			isChanneling=false
+		end
+	end)
+end
+
+-- ---- CLEAVE ----
+function fireSukuna_Cleave()
+	if isCooldown("Cleave") or isChanneling then return end
+	startCD("Cleave", 13)
+
+	local center = hrp.Position
+	local RADIUS = 25
+
+	-- Cleave zone floor indicator
+	local zonePart = makePart({Size=Vector3.new(RADIUS*2, 0.4, RADIUS*2),
+		Position=center+Vector3.new(0,-2.5,0), Anchored=true, CanCollide=false,
+		Color=Color3.fromRGB(180,0,0), Material=Enum.Material.Neon, Transparency=0.55, Parent=workspace})
+
+	-- Slash particles (many thin diagonal cutting lines radiating from center)
+	local slashParts = {}
+	local function spawnSlashParticle()
+		if not zonePart.Parent then return end
+		local angle2 = math.random()*math.pi*2
+		local r      = math.random()*RADIUS*0.9
+		local slashDir = Vector3.new(math.cos(angle2), 0, math.sin(angle2))
+		local slashPos = center + slashDir*r + Vector3.new(0, math.random(0,4), 0)
+		local slashLen = math.random(2,6)
+		-- Slash: thin elongated neon part rotated along its travel angle
+		local perp = Vector3.new(-slashDir.Z, 0, slashDir.X)
+		local cf   = CFrame.fromMatrix(slashPos, perp, Vector3.new(0,1,0), -slashDir)
+		local sp = makePart({Size=Vector3.new(slashLen, 0.07, 0.07),
+			CFrame=cf, Anchored=true, CanCollide=false,
+			Color=Color3.fromRGB(255,230,220), Material=Enum.Material.Neon, Transparency=0.0, Parent=workspace})
+		TweenService:Create(sp, TweenInfo.new(0.12), {Transparency=1, Size=Vector3.new(slashLen*1.5, 0.04, 0.04)}):Play()
+		Debris:AddItem(sp, 0.13)
+	end
+
+	-- Continuously spawn slashes for 3 seconds
+	local slashTimer=0
+	local slashConn = RunService.Heartbeat:Connect(function(dt)
+		if not zonePart.Parent then return end
+		slashTimer=slashTimer+dt
+		-- Spawn ~15 slashes per second
+		if slashTimer>=0.067 then
+			slashTimer=0
+			spawnSlashParticle()
+			spawnSlashParticle()
+		end
+	end)
+
+	-- Damage every 0.2s for 3s = 15 damage ticks
+	local damageTimer=0
+	local damageConn = RunService.Heartbeat:Connect(function(dt)
+		if not zonePart.Parent then return end
+		damageTimer=damageTimer+dt
+		if damageTimer>=0.2 then
+			damageTimer=0
+			for _, e in ipairs(spawnedDummies) do
+				if e.humanoid.Health>0 and (e.torso.Position-center).Magnitude<=RADIUS then
+					e.humanoid:TakeDamage(5)
+				end
+			end
+		end
+	end)
+
+	task.delay(3, function()
+		slashConn:Disconnect()
+		damageConn:Disconnect()
+		TweenService:Create(zonePart, TweenInfo.new(0.3), {Transparency=1}):Play()
+		Debris:AddItem(zonePart, 0.31)
+	end)
+end
+
+-- ---- DISMANTLE (5 slash projectiles, flat aim) ----
+function fireSukuna_Dismantle()
+	if isCooldown("Dismantle") or isChanneling then return end
+	startCD("Dismantle", 12)
+
+	local baseDir = getFlatAimDir()
+	local right   = Vector3.new(-baseDir.Z, 0, baseDir.X)
+
+	-- Spread 5 slashes in a slight fan
+	local spreads = {-0.15, -0.07, 0, 0.07, 0.15}
+
+	for si, offset in ipairs(spreads) do
+		task.delay(si*0.06, function()
+			local spreadDir = (baseDir + right*offset).Unit
+			local origin    = hrp.Position + Vector3.new(0, 1.5, 0)
+
+			-- Slash projectile: thin elongated part
+			local slash = makePart({
+				Size=Vector3.new(3,0.1,0.12),
+				CFrame=CFrame.new(origin, origin+spreadDir)*CFrame.new(0,0,-1.5),
+				Anchored=true, CanCollide=false,
+				Color=Color3.fromRGB(255,230,200), Material=Enum.Material.Neon, Transparency=0.05, Parent=workspace})
+			local sl=Instance.new("PointLight") sl.Brightness=3 sl.Range=8 sl.Color=Color3.fromRGB(255,200,150) sl.Parent=slash
+
+			local trav=0; local maxDist=120; local spd=140
+			local lastP=origin; local hitSet={}
+
+			local conn
+			conn = RunService.Heartbeat:Connect(function(dt)
+				if not slash.Parent then conn:Disconnect() return end
+				local move=spd*dt; trav=trav+move
+				local newPos=Vector3.new(lastP.X+spreadDir.X*move, lastP.Y, lastP.Z+spreadDir.Z*move)
+				slash.CFrame=CFrame.new(newPos, newPos+spreadDir)*CFrame.new(0,0,-1.5)
+				lastP=newPos
+
+				-- Slash trail flicker
+				if math.random()<0.4 then
+					local tr=makePart({Size=Vector3.new(2,0.06,0.06),
+						CFrame=slash.CFrame, Anchored=true, CanCollide=false,
+						Color=Color3.fromRGB(255,240,220), Material=Enum.Material.Neon, Transparency=0.3, Parent=workspace})
+					TweenService:Create(tr, TweenInfo.new(0.1), {Transparency=1}):Play()
+					Debris:AddItem(tr, 0.11)
+				end
+
+				-- Hit
+				for _, e in ipairs(spawnedDummies) do
+					if e.humanoid.Health>0 and not hitSet[e] and (e.torso.Position-newPos).Magnitude<3 then
+						hitSet[e]=true
+						e.humanoid:TakeDamage(12)
+						-- Small slash impact flash
+						local imp=makePart({Shape=Enum.PartType.Ball, Size=Vector3.new(1,1,1),
+							Position=e.torso.Position, Anchored=true, CanCollide=false,
+							Color=Color3.fromRGB(255,230,200), Material=Enum.Material.Neon, Transparency=0.3, Parent=workspace})
+						TweenService:Create(imp, TweenInfo.new(0.2), {Size=Vector3.new(4,4,4), Transparency=1}):Play()
+						Debris:AddItem(imp, 0.21)
+					end
+				end
+
+				if trav>=maxDist then conn:Disconnect() pcall(function() slash:Destroy() end) end
+			end)
+		end)
+	end
+end
+
+-- ---- MALEVOLENT SHRINE (Coming Soon) ----
+function fireSukuna_MalevolentShrine()
+	if isCooldown("MalevolentShrine") or isChanneling or domainActive then return end
+	startCD("MalevolentShrine", 120)
+	isChanneling = true
+	domainActive = true
+
+	local domainCenter = hrp.Position
+
+	-- ── Phase 1: Domain sphere expands (same as Unlimited Void but blood-red) ──
+	buildDomainVisuals(Color3.fromRGB(80, 0, 0))
+
+	-- Red flash on activation after sphere builds
+	task.delay(3, function()
+		flashScreen(screenGui, Color3.fromRGB(200, 30, 0), 0.5, 0.15, 0.7)
+	end)
+
+	task.delay(3.6, function()
+		startShake(2)
+		expandFOV(92, 1.5)
+		isChanneling = false
+
+		-- ── Phase 2: Build the Shrine ──
+		-- Shrine is made of dark stone-like pillars and a torii gate shape
+		local shrineParts = {}
+
+		local function addShrinePart(props)
+			local p = makePart(props)
+			table.insert(shrineParts, p)
+			return p
+		end
+
+		-- Base platform (flat slab)
+		addShrinePart({
+			Size = Vector3.new(10, 0.6, 10),
+			Position = domainCenter + Vector3.new(0, -2, 0),
+			Anchored = true, CanCollide = false,
+			Color = Color3.fromRGB(25, 5, 5),
+			Material = Enum.Material.SmoothPlastic,
+			Parent = workspace,
+		})
+
+		-- 4 corner pillars rising up
+		local pillarOffsets = {
+			Vector3.new(-4, 0, -4), Vector3.new(4, 0, -4),
+			Vector3.new(-4, 0, 4),  Vector3.new(4, 0, 4),
+		}
+		for _, offset in ipairs(pillarOffsets) do
+			local pillarBase = domainCenter + offset + Vector3.new(0, -2, 0)
+			local pillar = addShrinePart({
+				Size = Vector3.new(1, 0.1, 1),
+				Position = pillarBase,
+				Anchored = true, CanCollide = false,
+				Color = Color3.fromRGB(30, 5, 5),
+				Material = Enum.Material.SmoothPlastic,
+				Parent = workspace,
+			})
+			-- Animate pillar growing upward
+			TweenService:Create(pillar, TweenInfo.new(1.2, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+				{Size = Vector3.new(1, 9, 1), Position = pillarBase + Vector3.new(0, 4.45, 0)}):Play()
+		end
+
+		task.wait(0.6)
+
+		-- Torii gate crossbeam (horizontal beam across top front)
+		local crossBeam = addShrinePart({
+			Size = Vector3.new(0.1, 1.2, 1.2),
+			Position = domainCenter + Vector3.new(0, 5.5, -4),
+			Anchored = true, CanCollide = false,
+			Color = Color3.fromRGB(120, 10, 10),
+			Material = Enum.Material.Neon,
+			Transparency = 0.2,
+			Parent = workspace,
+		})
+		TweenService:Create(crossBeam, TweenInfo.new(0.8, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+			{Size = Vector3.new(10, 1.2, 1.2)}):Play()
+
+		-- Crossbeam glow
+		local cbl = Instance.new("PointLight") cbl.Color=Color3.fromRGB(180,20,0) cbl.Brightness=4 cbl.Range=12 cbl.Parent=crossBeam
+
+		task.wait(0.4)
+
+		-- Second crossbeam slightly lower (torii style double beam)
+		local crossBeam2 = addShrinePart({
+			Size = Vector3.new(0.1, 0.7, 0.7),
+			Position = domainCenter + Vector3.new(0, 4.5, -4),
+			Anchored = true, CanCollide = false,
+			Color = Color3.fromRGB(100, 8, 8),
+			Material = Enum.Material.Neon,
+			Transparency = 0.3,
+			Parent = workspace,
+		})
+		TweenService:Create(crossBeam2, TweenInfo.new(0.6, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+			{Size = Vector3.new(9, 0.7, 0.7)}):Play()
+
+		task.wait(0.3)
+
+		-- Shrine lanterns (2 glowing orbs hanging from crossbeam)
+		for _, side in ipairs({-3, 3}) do
+			local lantern = addShrinePart({
+				Shape = Enum.PartType.Ball,
+				Size = Vector3.new(1, 1, 1),
+				Position = domainCenter + Vector3.new(side, 4.2, -4),
+				Anchored = true, CanCollide = false,
+				Color = Color3.fromRGB(220, 30, 0),
+				Material = Enum.Material.Neon,
+				Transparency = 0.1,
+				Parent = workspace,
+			})
+			local ll = Instance.new("PointLight") ll.Color=Color3.fromRGB(255,40,0) ll.Brightness=6 ll.Range=14 ll.Parent=lantern
+		end
+
+		-- Altar block in center
+		local altar = addShrinePart({
+			Size = Vector3.new(0.5, 0.5, 0.5),
+			Position = domainCenter + Vector3.new(0, -1.5, 0),
+			Anchored = true, CanCollide = false,
+			Color = Color3.fromRGB(15, 3, 3),
+			Material = Enum.Material.SmoothPlastic,
+			Parent = workspace,
+		})
+		TweenService:Create(altar, TweenInfo.new(0.7, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+			{Size = Vector3.new(3.5, 2.5, 3.5), Position = domainCenter + Vector3.new(0, -0.75, 0)}):Play()
+
+		task.wait(0.5)
+
+		-- Altar glowing runes (small neon parts around base)
+		for ri = 1, 8 do
+			local runeAngle = (ri / 8) * math.pi * 2
+			local runePos = domainCenter + Vector3.new(math.cos(runeAngle)*5, -1.8, math.sin(runeAngle)*5)
+			local rune = addShrinePart({
+				Size = Vector3.new(0.5, 0.1, 0.8),
+				CFrame = CFrame.new(runePos) * CFrame.Angles(0, runeAngle, 0),
+				Anchored = true, CanCollide = false,
+				Color = Color3.fromRGB(200, 20, 0),
+				Material = Enum.Material.Neon,
+				Transparency = 0.1,
+				Parent = workspace,
+			})
+			TweenService:Create(rune, TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+				{Size = Vector3.new(0.8, 0.1, 1.4)}):Play()
+		end
+
+		task.wait(0.8)
+
+		-- ── Phase 3: Slashes fill the domain + damage ──
+		-- Collect dummies in range at activation time
+		local targetedDummies = {}
+		for _, e in ipairs(spawnedDummies) do
+			if e.humanoid.Health > 0 and (e.torso.Position - domainCenter).Magnitude <= 45 then
+				table.insert(targetedDummies, e)
+				-- Red void tint on frozen targets
+				local vt = makePart({
+					Size = e.torso.Size * Vector3.new(1.08,1.08,1.08),
+					CFrame = e.torso.CFrame,
+					Anchored = true, CanCollide = false,
+					Color = Color3.fromRGB(120, 0, 0),
+					Material = Enum.Material.Neon,
+					Transparency = 0.5,
+					Parent = workspace,
+				})
+				local vtw = Instance.new("WeldConstraint") vtw.Part0=e.torso vtw.Part1=vt vtw.Parent=e.torso
+				e.shrineTint = vt
+			end
+		end
+
+		-- Slash particle system — runs for 15 seconds
+		local slashAccum   = 0
+		local damageAccum  = 0
+		local elapsedTime  = 0
+		local DOMAIN_DUR   = 15
+
+		local shrineConn = RunService.Heartbeat:Connect(function(dt)
+			if not domainActive then return end
+			elapsedTime  = elapsedTime + dt
+			slashAccum   = slashAccum + dt
+			damageAccum  = damageAccum + dt
+
+			-- Spawn slashes every ~0.05s (heavy slash storm)
+			if slashAccum >= 0.05 then
+				slashAccum = 0
+				-- Pick a random point inside the domain
+				local sAngle = math.random() * math.pi * 2
+				local sR     = math.random() * 40
+				local sH     = math.random(-2, 6)
+				local sPos   = domainCenter + Vector3.new(math.cos(sAngle)*sR, sH, math.sin(sAngle)*sR)
+				-- Random slash orientation
+				local slashRot = math.random() * math.pi * 2
+				local slashLen = math.random(3, 9)
+				local sDir     = Vector3.new(math.cos(slashRot), 0, math.sin(slashRot))
+				local sPerp    = Vector3.new(-sDir.Z, 0, sDir.X)
+				local sCF      = CFrame.fromMatrix(sPos, sPerp, Vector3.new(0,1,0), -sDir)
+				local slash    = makePart({
+					Size      = Vector3.new(slashLen, 0.08, 0.08),
+					CFrame    = sCF,
+					Anchored  = true, CanCollide = false,
+					Color     = Color3.fromRGB(255, math.random(200,240), math.random(180,220)),
+					Material  = Enum.Material.Neon,
+					Transparency = 0.0,
+					Parent    = workspace,
+				})
+				TweenService:Create(slash, TweenInfo.new(0.1),
+					{Transparency = 1, Size = Vector3.new(slashLen * 1.4, 0.04, 0.04)}):Play()
+				Debris:AddItem(slash, 0.11)
+			end
+
+			-- Damage every 0.1s
+			if damageAccum >= 0.1 then
+				damageAccum = 0
+				for _, e in ipairs(targetedDummies) do
+					if e.humanoid.Health > 0 then
+						e.humanoid:TakeDamage(5)
+					end
+				end
+			end
+
+			-- Also damage any new dummies that wandered in
+			if math.floor(elapsedTime * 10) % 5 == 0 then
+				for _, e in ipairs(spawnedDummies) do
+					if e.humanoid.Health > 0 and not e.shrineTint then
+						if (e.torso.Position - domainCenter).Magnitude <= 45 then
+							table.insert(targetedDummies, e)
+							local vt2 = makePart({
+								Size = e.torso.Size * Vector3.new(1.08,1.08,1.08),
+								CFrame = e.torso.CFrame,
+								Anchored = true, CanCollide = false,
+								Color = Color3.fromRGB(120,0,0),
+								Material = Enum.Material.Neon,
+								Transparency = 0.5,
+								Parent = workspace,
+							})
+							local vtw2 = Instance.new("WeldConstraint") vtw2.Part0=e.torso vtw2.Part1=vt2 vtw2.Parent=e.torso
+							e.shrineTint = vt2
+						end
+					end
+				end
+			end
+		end)
+
+		-- ── Phase 4: Shatter + shrine collapses after 15s ──
+		task.delay(DOMAIN_DUR, function()
+			shrineConn:Disconnect()
+
+			-- Shattering glass-like shards burst outward
+			for i = 1, 28 do
+				local shardPos = domainCenter + Vector3.new(
+					math.random(-30,30), math.random(0,15), math.random(-30,30))
+				local shard = makePart({
+					Size = Vector3.new(math.random(1,5), math.random(1,6), math.random(1,3)),
+					Position = shardPos,
+					Color = Color3.fromRGB(80+math.random(0,60), 0, 0),
+					Material = Enum.Material.Neon,
+					Transparency = 0.2,
+					Anchored = false, CanCollide = false,
+					Parent = workspace,
+				})
+				TweenService:Create(shard, TweenInfo.new(1.6), {
+					Transparency = 1,
+					Position = shardPos + Vector3.new(
+						math.random(-20,20), math.random(10,25), math.random(-20,20)),
+				}):Play()
+				Debris:AddItem(shard, 1.7)
+			end
+
+			-- Shrine pillars collapse (tween size to 0 and fall)
+			for _, sp in ipairs(shrineParts) do
+				if sp and sp.Parent then
+					TweenService:Create(sp, TweenInfo.new(1.0, Enum.EasingStyle.Back, Enum.EasingDirection.In),
+						{Size = Vector3.new(0.1, 0.1, 0.1), Transparency = 1}):Play()
+					Debris:AddItem(sp, 1.1)
+				end
+			end
+
+			-- Black flash out
+			flashScreen(screenGui, Color3.fromRGB(0, 0, 0), 0.4, 0.2, 0.8)
+
+			-- Remove tints + restore state
+			task.delay(0.4, function()
+				for _, e in ipairs(targetedDummies) do
+					if e.shrineTint then
+						pcall(function() e.shrineTint:Destroy() end)
+						e.shrineTint = nil
+					end
+				end
+				stopShake()
+				expandFOV(DEFAULT_FOV, 1.5)
+				destroyDomainVisuals()
+				domainActive = false
+			end)
+		end)
+	end)
+end
+
+-- ============================================================
+-- ========= NOBARA ABILITIES =================================
+-- ============================================================
+
+-- Nobara shared state
+local nobaraDolls      = {}  -- list of { entry=dummyEntry, state="attached"|"dropped", dollPart=Part, resonance=bool }
+local MAX_DOLLS        = 3
+local resonanceDoll    = nil  -- the dropped resonance doll part in the world (if any)
+local resonanceActive  = false  -- player is holding the resonance doll
+local resonanceDummies = {}  -- entries that have resonance doll linked to them
+
+-- Nearest alive dummy to player (optionally filtered by a predicate)
+local function getNearestDummy(pred)
+	local best, bestDist = nil, math.huge
+	for _, e in ipairs(spawnedDummies) do
+		if e.humanoid.Health > 0 then
+			if pred == nil or pred(e) then
+				local d = (e.torso.Position - hrp.Position).Magnitude
+				if d < bestDist then bestDist = d; best = e end
+			end
+		end
+	end
+	return best, bestDist
+end
+
+-- Check how many dolls are currently attached (not yet dropped / died)
+local function activeDollCount()
+	local c = 0
+	for _, d in ipairs(nobaraDolls) do
+		if d.state == "attached" and d.entry.humanoid.Health > 0 then
+			c = c + 1
+		end
+	end
+	return c
+end
+
+-- Clean up doll records for dead dummies
+local function cleanDolls()
+	local alive = {}
+	for _, d in ipairs(nobaraDolls) do
+		if d.entry.humanoid.Health > 0 then
+			table.insert(alive, d)
+		else
+			-- Dummy died — destroy its doll visuals and free resonance slot
+			pcall(function() d.dollPart:Destroy() end)
+			-- Remove from resonanceDummies
+			for i, re in ipairs(resonanceDummies) do
+				if re == d.entry then table.remove(resonanceDummies, i) break end
+			end
+		end
+	end
+	nobaraDolls = alive
+end
+
+-- ---- NAIL (homing) ----
+function fireNobara_Nail()
+	if isCooldown("Nail") or isChanneling then return end
+	startCD("Nail", 12)
+
+	local target, dist = getNearestDummy()
+	if not target then return end
+
+	-- Nail projectile visual
+	local nailPos = hrp.Position + Vector3.new(0, 1.2, 0)
+	local nail = makePart({
+		Size = Vector3.new(0.15, 0.15, 1.2),
+		CFrame = CFrame.new(nailPos, target.torso.Position),
+		Anchored = true, CanCollide = false,
+		Color = Color3.fromRGB(180, 150, 80),
+		Material = Enum.Material.SmoothPlastic,
+		Parent = workspace,
+	})
+	-- Nail head (slightly thicker tip)
+	local nailHead = makePart({
+		Shape = Enum.PartType.Ball,
+		Size = Vector3.new(0.28, 0.28, 0.28),
+		Position = nailPos,
+		Anchored = true, CanCollide = false,
+		Color = Color3.fromRGB(200, 170, 90),
+		Material = Enum.Material.SmoothPlastic,
+		Parent = workspace,
+	})
+	local nhw = Instance.new("WeldConstraint") nhw.Part0=nail nhw.Part1=nailHead nhw.Parent=nail
+
+	local traveled = 0
+	local speed    = 90
+	local lastPos  = nailPos
+	local hit      = false
+
+	local nailConn
+	nailConn = RunService.Heartbeat:Connect(function(dt)
+		if not nail.Parent or hit then nailConn:Disconnect() return end
+		if not target or target.humanoid.Health <= 0 then
+			-- Target died; continue straight
+			traveled = traveled + speed * dt
+			if traveled > 120 then nailConn:Disconnect() pcall(function() nail:Destroy() end) end
+			return
+		end
+
+		-- Home toward target
+		local toTarget = (target.torso.Position - lastPos)
+		local move     = math.min(speed * dt, toTarget.Magnitude)
+		local dir      = toTarget.Unit
+		local newPos   = lastPos + dir * move
+		nail.CFrame    = CFrame.new(newPos, target.torso.Position)
+		nailHead.Position = newPos + dir * 0.6
+		lastPos = newPos
+		traveled = traveled + move
+
+		-- Hit
+		if toTarget.Magnitude < 2 then
+			hit = true
+			nailConn:Disconnect()
+			target.humanoid:TakeDamage(10)
+
+			-- Impact spark
+			local spark = makePart({Shape=Enum.PartType.Ball, Size=Vector3.new(0.8,0.8,0.8),
+				Position=newPos, Anchored=true, CanCollide=false,
+				Color=Color3.fromRGB(255,220,80), Material=Enum.Material.Neon, Transparency=0.2, Parent=workspace})
+			TweenService:Create(spark, TweenInfo.new(0.2), {Size=Vector3.new(3,3,3), Transparency=1}):Play()
+			Debris:AddItem(spark, 0.21)
+
+			-- Nail sticks into dummy briefly
+			nail.Anchored = false
+			local nailWeld = Instance.new("WeldConstraint") nailWeld.Part0=target.torso nailWeld.Part1=nail nailWeld.Parent=target.torso
+			Debris:AddItem(nail, 1.5)
+		end
+
+		if traveled > 200 then
+			nailConn:Disconnect()
+			pcall(function() nail:Destroy() end)
+		end
+	end)
+end
+
+-- ---- DOLL ----
+function fireNobara_Doll()
+	if isCooldown("Doll") or isChanneling then return end
+
+	cleanDolls()
+
+	-- Find nearest dummy that doesn't already have a doll
+	local hasDollSet = {}
+	for _, d in ipairs(nobaraDolls) do hasDollSet[d.entry] = true end
+
+	local target = getNearestDummy(function(e) return not hasDollSet[e] end)
+	if not target then return end
+	if activeDollCount() >= MAX_DOLLS then return end
+
+	startCD("Doll", 20)
+
+	-- Doll visual: small humanoid-shaped figure thrown at target
+	local dollModel = Instance.new("Model") dollModel.Name="Doll" dollModel.Parent=workspace
+
+	local dollBody = makePart({
+		Size=Vector3.new(0.5,0.7,0.3),
+		Position=hrp.Position+Vector3.new(0,1.5,0),
+		Anchored=false, CanCollide=false,
+		Color=Color3.fromRGB(240,220,180), Material=Enum.Material.SmoothPlastic,
+		Parent=dollModel
+	})
+	local dollHead = makePart({
+		Shape=Enum.PartType.Ball, Size=Vector3.new(0.4,0.4,0.4),
+		Position=dollBody.Position+Vector3.new(0,0.55,0),
+		Anchored=false, CanCollide=false,
+		Color=Color3.fromRGB(240,220,180), Material=Enum.Material.SmoothPlastic,
+		Parent=dollModel
+	})
+	local dhw = Instance.new("WeldConstraint") dhw.Part0=dollBody dhw.Part1=dollHead dhw.Parent=dollBody
+	dollModel.PrimaryPart = dollBody
+
+	-- Blue highlight aura on dummy
+	local aura = makePart({
+		Size=target.torso.Size*Vector3.new(1.15,1.15,1.15),
+		CFrame=target.torso.CFrame,
+		Anchored=true, CanCollide=false,
+		Color=Color3.fromRGB(60,120,255), Material=Enum.Material.Neon,
+		Transparency=0.5, Parent=workspace
+	})
+	local auraw = Instance.new("WeldConstraint") auraw.Part0=target.torso auraw.Part1=aura auraw.Parent=target.torso
+
+	-- Fly doll toward target
+	local throwOrigin = hrp.Position + Vector3.new(0,1.5,0)
+	local throwTarget = target.torso.Position + Vector3.new(0,1,0)
+	local throwTime   = 0.6
+	local throwElap   = 0
+	local flyConn
+	flyConn = RunService.Heartbeat:Connect(function(dt)
+		throwElap = throwElap + dt
+		local t = math.min(throwElap / throwTime, 1)
+		-- Arc trajectory
+		local lerpPos = throwOrigin:Lerp(throwTarget, t)
+		lerpPos = lerpPos + Vector3.new(0, math.sin(t*math.pi)*3, 0)
+		dollBody.CFrame = CFrame.new(lerpPos)
+		if t >= 1 then
+			flyConn:Disconnect()
+			-- Attach doll to dummy via weld
+			dollBody.Anchored = false
+			local dw = Instance.new("WeldConstraint") dw.Part0=target.torso dw.Part1=dollBody dw.Parent=target.torso
+
+			local dollRecord = {entry=target, state="attached", dollPart=dollBody, aura=aura, resonance=false}
+			table.insert(nobaraDolls, dollRecord)
+
+			-- After 5 seconds doll drops (becomes resonance doll)
+			task.delay(5, function()
+				if target.humanoid.Health <= 0 then return end
+				dollRecord.state = "dropped"
+				-- Detach from dummy
+				for _, ch in ipairs(target.torso:GetChildren()) do
+					if ch:IsA("WeldConstraint") and (ch.Part0==dollBody or ch.Part1==dollBody) then ch:Destroy() end
+				end
+				-- Remove aura
+				pcall(function() aura:Destroy() end)
+
+				-- Drop doll to ground
+				dollBody.Anchored = false
+				dollBody.CanCollide = true
+				local bv = Instance.new("BodyVelocity") bv.Velocity=Vector3.new(0,-10,0) bv.MaxForce=Vector3.new(0,1e5,0) bv.P=5000 bv.Parent=dollBody
+				Debris:AddItem(bv, 0.5)
+
+				-- Resonance glow
+				local resGlow = Instance.new("PointLight") resGlow.Color=Color3.fromRGB(80,160,255) resGlow.Brightness=4 resGlow.Range=10 resGlow.Parent=dollBody
+				dollBody.Color = Color3.fromRGB(80,160,255)
+
+				-- Billboard "Pick up" prompt
+				local resGui = Instance.new("BillboardGui")
+				resGui.Size = UDim2.new(0,100,0,24)
+				resGui.StudsOffset = Vector3.new(0,2,0)
+				resGui.AlwaysOnTop = true
+				resGui.Parent = dollBody
+				local resLabel = Instance.new("TextLabel")
+				resLabel.Size = UDim2.new(1,0,1,0)
+				resLabel.BackgroundTransparency = 1
+				resLabel.Text = "🔵 Pick Up"
+				resLabel.TextColor3 = Color3.fromRGB(100,200,255)
+				resLabel.Font = Enum.Font.GothamBold
+				resLabel.TextScaled = true
+				resLabel.Parent = resGui
+
+				-- Store as world resonance doll
+				if resonanceDoll and resonanceDoll.Parent then resonanceDoll:Destroy() end
+				resonanceDoll = dollBody
+				resonanceActive = false
+				-- Link this dummy to resonance
+				dollRecord.resonance = true
+				if not table.find(resonanceDummies, target) then
+					table.insert(resonanceDummies, target)
+				end
+			end)
+		end
+	end)
+end
+
+-- ---- TORTURE ----
+function fireNobara_Torture()
+	if isCooldown("Torture") or isChanneling then return end
+
+	-- Need at least one doll attached somewhere
+	cleanDolls()
+	local hasDoll = false
+	for _, d in ipairs(nobaraDolls) do
+		if d.state == "attached" and d.entry.humanoid.Health > 0 then hasDoll = true break end
+	end
+	if not hasDoll and not resonanceActive then return end
+
+	startCD("Torture", 13)
+	isChanneling = true
+
+	-- Animation: hammer appears above player, slams down onto a tiny doll model
+	local hammerOrigin = hrp.Position + Vector3.new(0, 4, 0)
+	local hammerHandle = makePart({
+		Size=Vector3.new(0.2,1.8,0.2),
+		Position=hammerOrigin,
+		Anchored=true, CanCollide=false,
+		Color=Color3.fromRGB(80,50,20), Material=Enum.Material.SmoothPlastic, Parent=workspace
+	})
+	local hammerHead = makePart({
+		Size=Vector3.new(0.8,0.5,0.5),
+		Position=hammerOrigin+Vector3.new(0,1,0),
+		Anchored=true, CanCollide=false,
+		Color=Color3.fromRGB(60,60,60), Material=Enum.Material.SmoothPlastic, Parent=workspace
+	})
+	local hhw = Instance.new("WeldConstraint") hhw.Part0=hammerHandle hhw.Part1=hammerHead hhw.Parent=hammerHandle
+
+	-- Raise hammer
+	TweenService:Create(hammerHandle, TweenInfo.new(0.3), {Position=hammerOrigin+Vector3.new(0,2,0)}):Play()
+	task.wait(0.5)
+
+	-- Slam down
+	TweenService:Create(hammerHandle, TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
+		{Position=hrp.Position+Vector3.new(0,0.5,0)}):Play()
+	task.wait(0.15)
+
+	-- Impact shockwave
+	local impactRing = makePart({Shape=Enum.PartType.Ball, Size=Vector3.new(1,1,1),
+		Position=hrp.Position+Vector3.new(0,0.5,0),
+		Anchored=true, CanCollide=false,
+		Color=Color3.fromRGB(255,80,80), Material=Enum.Material.Neon, Transparency=0.3, Parent=workspace})
+	TweenService:Create(impactRing, TweenInfo.new(0.3), {Size=Vector3.new(8,8,8), Transparency=1}):Play()
+	Debris:AddItem(impactRing, 0.31)
+	startShake(1)
+	task.delay(0.4, stopShake)
+
+	-- Deal 15 damage to all dummies with attached dolls
+	for _, d in ipairs(nobaraDolls) do
+		if d.state == "attached" and d.entry.humanoid.Health > 0 then
+			d.entry.humanoid:TakeDamage(15)
+			-- Nail impact flash on the dummy
+			local flash = makePart({Shape=Enum.PartType.Ball, Size=Vector3.new(1,1,1),
+				Position=d.entry.torso.Position, Anchored=true, CanCollide=false,
+				Color=Color3.fromRGB(255,100,100), Material=Enum.Material.Neon, Transparency=0.2, Parent=workspace})
+			TweenService:Create(flash, TweenInfo.new(0.25), {Size=Vector3.new(5,5,5), Transparency=1}):Play()
+			Debris:AddItem(flash, 0.26)
+		end
+	end
+
+	-- If resonance is active, also damage resonance-linked dummies
+	if resonanceActive then
+		for _, re in ipairs(resonanceDummies) do
+			if re.humanoid.Health > 0 then
+				re.humanoid:TakeDamage(15)
+				local flash2 = makePart({Shape=Enum.PartType.Ball, Size=Vector3.new(1,1,1),
+					Position=re.torso.Position, Anchored=true, CanCollide=false,
+					Color=Color3.fromRGB(100,180,255), Material=Enum.Material.Neon, Transparency=0.2, Parent=workspace})
+				TweenService:Create(flash2, TweenInfo.new(0.25), {Size=Vector3.new(5,5,5), Transparency=1}):Play()
+				Debris:AddItem(flash2, 0.26)
+			end
+		end
+	end
+
+	Debris:AddItem(hammerHandle, 0.5)
+	task.wait(0.3)
+	isChanneling = false
+end
+
+-- ---- EXPLOSIVE NAILS ----
+function fireNobara_ExplosiveNails()
+	if isCooldown("ExplosiveNails") or isChanneling then return end
+	startCD("ExplosiveNails", 15)
+
+	-- If player has resonance doll, put explosive nail INTO the doll and hammer → explode all resonance dummies
+	if resonanceActive then
+		isChanneling = true
+
+		-- Show nail going into held doll (above player)
+		local dollGlowPos = hrp.Position + Vector3.new(0, 2.5, 0)
+		local expNailVis = makePart({
+			Size=Vector3.new(0.18,0.18,1.4),
+			CFrame=CFrame.new(dollGlowPos+Vector3.new(0,2,0), dollGlowPos),
+			Anchored=true, CanCollide=false,
+			Color=Color3.fromRGB(220,180,60), Material=Enum.Material.Neon, Parent=workspace
+		})
+		TweenService:Create(expNailVis, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
+			{CFrame=CFrame.new(dollGlowPos+Vector3.new(0,0.1,0), dollGlowPos-Vector3.new(0,1,0))}):Play()
+		task.wait(0.3)
+		Debris:AddItem(expNailVis, 0.1)
+
+		-- Mini hammer slam (instant) 
+		startShake(1.5)
+		task.delay(0.3, stopShake)
+
+		-- EXPLOSION on every resonance dummy
+		for _, re in ipairs(resonanceDummies) do
+			if re.humanoid.Health > 0 then
+				re.humanoid:TakeDamage(35)
+
+				-- Big explosion visual on each
+				local expl = makePart({Shape=Enum.PartType.Ball, Size=Vector3.new(2,2,2),
+					Position=re.torso.Position, Anchored=true, CanCollide=false,
+					Color=Color3.fromRGB(255,160,30), Material=Enum.Material.Neon, Transparency=0.1, Parent=workspace})
+				local epl = Instance.new("PointLight") epl.Brightness=8 epl.Range=20 epl.Color=Color3.fromRGB(255,140,20) epl.Parent=expl
+				TweenService:Create(expl, TweenInfo.new(0.5), {Size=Vector3.new(14,14,14), Transparency=1}):Play()
+				Debris:AddItem(expl, 0.51)
+
+				-- Knockback
+				local blastDir = (re.torso.Position - hrp.Position).Unit
+				local bv = Instance.new("BodyVelocity") bv.Velocity=blastDir*55+Vector3.new(0,28,0) bv.MaxForce=Vector3.new(1e5,1e5,1e5) bv.P=1e5 bv.Parent=re.torso
+				Debris:AddItem(bv, 0.3)
+
+				-- Debris shards
+				for i=1,6 do
+					local shard=makePart({Shape=Enum.PartType.Ball, Size=Vector3.new(0.4,0.4,0.4),
+						Position=re.torso.Position+Vector3.new(math.random(-2,2),math.random(0,3),math.random(-2,2)),
+						Anchored=false, CanCollide=false,
+						Color=Color3.fromRGB(255,200,60), Material=Enum.Material.Neon, Transparency=0.3, Parent=workspace})
+					TweenService:Create(shard, TweenInfo.new(0.6), {Transparency=1, Position=shard.Position+Vector3.new(math.random(-5,5),math.random(3,8),math.random(-5,5))}):Play()
+					Debris:AddItem(shard, 0.61)
+				end
+			end
+		end
+
+		-- Consume resonance doll
+		resonanceActive = false
+		resonanceDummies = {}
+		-- Clean up doll records that were resonance
+		local newDolls = {}
+		for _, d in ipairs(nobaraDolls) do
+			if not d.resonance then table.insert(newDolls, d) end
+		end
+		nobaraDolls = newDolls
+
+		task.wait(0.2)
+		isChanneling = false
+
+	else
+		-- No resonance: fire a homing explosive nail at nearest dummy (20 dmg + knockback)
+		local target = getNearestDummy()
+		if not target then return end
+
+		local nailPos = hrp.Position + Vector3.new(0, 1.2, 0)
+		local nail = makePart({
+			Size=Vector3.new(0.2,0.2,1.4),
+			CFrame=CFrame.new(nailPos, target.torso.Position),
+			Anchored=true, CanCollide=false,
+			Color=Color3.fromRGB(255,200,50), Material=Enum.Material.Neon, Parent=workspace
+		})
+		local nl=Instance.new("PointLight") nl.Brightness=3 nl.Range=8 nl.Color=Color3.fromRGB(255,180,30) nl.Parent=nail
+
+		local traveled=0; local speed=95; local lastPos=nailPos; local hit=false
+
+		local nailConn
+		nailConn = RunService.Heartbeat:Connect(function(dt)
+			if not nail.Parent or hit then nailConn:Disconnect() return end
+			if not target or target.humanoid.Health<=0 then
+				traveled=traveled+speed*dt
+				if traveled>130 then nailConn:Disconnect() pcall(function() nail:Destroy() end) end
+				return
+			end
+			local toTarget=(target.torso.Position-lastPos)
+			local move=math.min(speed*dt, toTarget.Magnitude)
+			local dir=toTarget.Unit
+			local newPos=lastPos+dir*move
+			nail.CFrame=CFrame.new(newPos, target.torso.Position)
+			lastPos=newPos; traveled=traveled+move
+
+			if toTarget.Magnitude<2.5 then
+				hit=true; nailConn:Disconnect()
+				nail:Destroy()
+
+				target.humanoid:TakeDamage(20)
+
+				-- Explosion
+				local expl=makePart({Shape=Enum.PartType.Ball, Size=Vector3.new(1.5,1.5,1.5),
+					Position=target.torso.Position, Anchored=true, CanCollide=false,
+					Color=Color3.fromRGB(255,160,30), Material=Enum.Material.Neon, Transparency=0.1, Parent=workspace})
+				TweenService:Create(expl, TweenInfo.new(0.4), {Size=Vector3.new(10,10,10), Transparency=1}):Play()
+				Debris:AddItem(expl, 0.41)
+
+				-- Knockback
+				local blastDir=(target.torso.Position-hrp.Position).Unit
+				local bv=Instance.new("BodyVelocity") bv.Velocity=blastDir*50+Vector3.new(0,22,0) bv.MaxForce=Vector3.new(1e5,1e5,1e5) bv.P=1e5 bv.Parent=target.torso
+				Debris:AddItem(bv, 0.25)
+			end
+			if traveled>200 then nailConn:Disconnect() pcall(function() nail:Destroy() end) end
+		end)
+	end
+end
+
+-- ============================================================
+-- RESONANCE DOLL PICKUP DETECTION (runs in heartbeat)
+-- ============================================================
+local function checkDollPickup(dt)
+	if resonanceDoll and resonanceDoll.Parent and not resonanceActive then
+		local dist = (resonanceDoll.Position - hrp.Position).Magnitude
+		if dist < 4 then
+			-- Pick up
+			resonanceActive = true
+			resonanceDoll:Destroy()
+			resonanceDoll = nil
+
+			-- Show HUD indicator
+			local pickupNotice = Instance.new("TextLabel")
+			pickupNotice.Size = UDim2.new(0, 200, 0, 36)
+			pickupNotice.Position = UDim2.new(0.5, -100, 0.35, 0)
+			pickupNotice.BackgroundColor3 = Color3.fromRGB(20,60,140)
+			pickupNotice.BackgroundTransparency = 0.2
+			pickupNotice.BorderSizePixel = 0
+			pickupNotice.Text = "🔵 Resonance Active!"
+			pickupNotice.TextColor3 = Color3.fromRGB(150,210,255)
+			pickupNotice.Font = Enum.Font.GothamBold
+			pickupNotice.TextSize = 14
+			pickupNotice.Parent = screenGui
+			addCorner(pickupNotice, 8)
+			TweenService:Create(pickupNotice, TweenInfo.new(2.5), {TextTransparency=1, BackgroundTransparency=1}):Play()
+			Debris:AddItem(pickupNotice, 2.6)
+		end
+	end
+end
+
+-- ============================================================
+-- SORCERER PANEL + SWITCHING
+-- ============================================================
+local SORCERERS = {"Gojo","Sukuna","Nobara","Itadori (Soon)","Nanami (Soon)"}
+for _, sName in ipairs(SORCERERS) do
+	local isSoon = sName:find("Soon")
+	local b = Instance.new("TextButton")
+	b.Size = UDim2.new(0.9,0,0,26)
+	b.BackgroundColor3 = (not isSoon) and Color3.fromRGB(90,40,160) or Color3.fromRGB(50,50,50)
+	b.BorderSizePixel = 0
+	b.Text = sName
+	b.TextColor3 = Color3.fromRGB(255,255,255)
+	b.Font = Enum.Font.Gotham
+	b.TextSize = 12
+	b.ZIndex = 11
+	b.Parent = sorcererPanel
+	addCorner(b, 6)
+	b.MouseButton1Click:Connect(function()
+		if isSoon then return end
+		currentSorcerer = sName
+		sorcererBtn.Text = "👤 Sorcerer: "..sName
+		sorcererPanel.Visible = false
+		rebuildAbilityBar(sName)
+	end)
+end
+sorcererBtn.MouseButton1Click:Connect(function()
+	sorcererPanel.Visible = not sorcererPanel.Visible
+end)
+
+-- ============================================================
+-- AGGRO AI
+-- ============================================================
+local function runAggroAI(entry, dt)
+	if entry.frozen or entry.humanoid.Health<=0 then return end
+	local gd   = entry.gradeData
+	local dist = (entry.torso.Position-hrp.Position).Magnitude
+
+	if dist<=gd.aggroRange then
+		local moveDir=(hrp.Position-entry.torso.Position)
+		if moveDir.Magnitude>3.5 then
+			moveDir=moveDir.Unit
+			local bv=Instance.new("BodyVelocity")
+			bv.Velocity=moveDir*gd.speed
+			bv.MaxForce=Vector3.new(1e5,0,1e5) bv.P=2000 bv.Parent=entry.torso
+			Debris:AddItem(bv, dt+0.03)
+		end
+		entry.attackTimer=(entry.attackTimer or 0)+dt
+		if entry.attackTimer>=gd.attackRate and dist<=5.5 then
+			entry.attackTimer=0
+			playerHum:TakeDamage(gd.dmg)
+			playerHpFill.BackgroundColor3=Color3.fromRGB(255,70,70)
+			task.delay(0.25, function()
+				playerHpFill.BackgroundColor3=hpColor(playerHum.Health/playerHum.MaxHealth)
+			end)
+		elseif dist>5.5 then
+			entry.attackTimer=0
+		end
+	end
+end
+
+-- ============================================================
+-- BURN TICK (runs in main loop)
+-- ============================================================
+local burnTickAccum = 0
+local function processBurns(dt)
+	burnTickAccum = burnTickAccum + dt
+	if burnTickAccum >= 1 then
+		burnTickAccum = 0
+		local stillBurning = {}
+		for entry, remaining in pairs(burnTimers) do
+			if entry.humanoid and entry.humanoid.Health > 0 then
+				entry.humanoid:TakeDamage(5)
+				-- Orange tint flash to show burn
+				if entry.torso and entry.torso.Parent then
+					local oldColor = entry.torso.Color
+					entry.torso.Color = Color3.fromRGB(255,120,0)
+					task.delay(0.15, function()
+						if entry.torso and entry.torso.Parent then
+							entry.torso.Color = oldColor
+						end
+					end)
+				end
+				local newRemaining = remaining - 1
+				if newRemaining > 0 then
+					stillBurning[entry] = newRemaining
+				end
+			end
+		end
+		burnTimers = stillBurning
+	end
+end
+
+-- ============================================================
+-- MAIN LOOP
+-- ============================================================
+RunService.Heartbeat:Connect(function(dt)
+	cleanDeadDummies()
+
+	-- Spawn
+	for _, g in ipairs(GRADES) do
+		gradeTimers[g.name]=gradeTimers[g.name]+dt
+		if gradeTimers[g.name]>=g.spawnInterval then
+			gradeTimers[g.name]=0
+			if countGrade(g.name)<g.maxCount then spawnDummy(g) end
+		end
+	end
+
+	-- AI + HP bars
+	for _, e in ipairs(spawnedDummies) do
+		runAggroAI(e, dt)
+		local pct=e.humanoid.Health/e.humanoid.MaxHealth
+		e.hpFill.Size=UDim2.new(math.max(0,pct),0,1,0)
+		e.hpFill.BackgroundColor3=hpColor(pct)
+		e.hpNum.Text=math.floor(e.humanoid.Health).."/"..e.humanoid.MaxHealth
+	end
+
+	processBurns(dt)
+	checkDollPickup(dt)
+	cleanDolls()
+
+	-- Player HP
+	do
+		local pct=playerHum.Health/playerHum.MaxHealth
+		playerHpFill.Size=UDim2.new(math.max(0,pct),0,1,0)
+		playerHpFill.BackgroundColor3=hpColor(pct)
+		playerHpLabel.Text="YOU  "..math.floor(playerHum.Health).."/"..playerHum.MaxHealth
+	end
+
+	-- Cooldown UI
+	for _, ad in ipairs(currentAbilDefs) do
+		local k    = ad.key
+		local info = abilityButtons[k]
+		if not info then continue end
+		local cdVal = allCooldowns[k] or 0
+		if cdVal > 0 then
+			allCooldowns[k] = math.max(0, cdVal-dt)
+			local pct = allCooldowns[k] / ad.cd
+			info.overlay.BackgroundTransparency = 0.35+(1-pct)*0.55
+			info.btn.Text = info.label.."\n["..math.ceil(allCooldowns[k]).."s]"
+		else
+			info.overlay.BackgroundTransparency = 1
+			info.btn.Text = info.label.."\n["..ad.cd.."s]"
+		end
+	end
+
+	-- Counter
+	for _, g in ipairs(GRADES) do
+		counterLabels[g.name].Text=g.name..": "..countGrade(g.name).."/"..g.maxCount
+	end
+
+	-- Resonance status badge (only shown when Nobara is active)
+	if currentSorcerer == "Nobara" then
+		resonanceBadge.Visible = true
+		if resonanceActive then
+			resonanceBadge.Text = "🔵 Resonance READY"
+			resonanceBadge.TextColor3 = Color3.fromRGB(100,220,255)
+			resonanceBadge.BackgroundColor3 = Color3.fromRGB(10,40,120)
+		elseif resonanceDoll and resonanceDoll.Parent then
+			resonanceBadge.Text = "🔵 Pick Up Doll!"
+			resonanceBadge.TextColor3 = Color3.fromRGB(180,220,255)
+			resonanceBadge.BackgroundColor3 = Color3.fromRGB(10,30,80)
+		else
+			resonanceBadge.Text = "○ No Resonance"
+			resonanceBadge.TextColor3 = Color3.fromRGB(120,120,140)
+			resonanceBadge.BackgroundColor3 = Color3.fromRGB(20,20,30)
+		end
+	else
+		resonanceBadge.Visible = false
+	end
+end)
+
+-- Build initial ability bar for Gojo
+rebuildAbilityBar("Gojo")
+
+print("[JJK] Loaded | Sorcerer: Gojo")
