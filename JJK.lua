@@ -43,6 +43,8 @@ local allCooldowns = {
 	Fuga=0, Cleave=0, Dismantle=0, MalevolentShrine=0,
 	-- Nobara
 	Nail=0, Doll=0, Torture=0, ExplosiveNails=0,
+	-- Megumi
+	RabbitEscape=0, Toad=0, MaxElephant=0, Summon=0,
 }
 
 local blueOrb      = nil
@@ -70,9 +72,15 @@ local SORCERER_ABILITIES = {
 	},
 	Nobara = {
 		{key="Nail",          label="Nail",        color=Color3.fromRGB(160,120,60),  cd=12},
-		{key="Doll",          label="Doll",        color=Color3.fromRGB(90,60,160),   cd=20},
+		{key="Doll",          label="Doll",        color=Color3.fromRGB(90,60,160),   cd=3},
 		{key="Torture",       label="Torture",     color=Color3.fromRGB(160,30,30),   cd=13},
 		{key="ExplosiveNails",label="Exp. Nails",  color=Color3.fromRGB(200,80,20),   cd=15},
+	},
+	Megumi = {
+		{key="RabbitEscape", label="Rabbits",    color=Color3.fromRGB(240,240,240), cd=10},
+		{key="Toad",         label="Toad",       color=Color3.fromRGB(50,140,60),   cd=9},
+		{key="MaxElephant",  label="Elephant",   color=Color3.fromRGB(200,120,160), cd=15},
+		{key="Summon",       label="Summon...",  color=Color3.fromRGB(20,20,40),    cd=999},
 	},
 }
 
@@ -265,7 +273,20 @@ abilityFrame.Parent = screenGui
 local abilityButtons   = {}  -- rebuilt per sorcerer
 local currentAbilDefs  = {}  -- the active list
 
+-- Megumi elephant state (hoisted so rebuildAbilityBar can cancel it)
+local elephantActive   = false
+local elephantZone     = nil
+local elephantStillTimer = 0
+local elephantLastPos  = nil
+local elephantZoneConn = nil
+
 local function rebuildAbilityBar(sorcererName)
+	-- Cancel active elephant zone if switching away
+	if elephantActive then
+		elephantActive = false
+		if elephantZoneConn then elephantZoneConn:Disconnect() elephantZoneConn=nil end
+		if elephantZone and elephantZone.Parent then elephantZone:Destroy() elephantZone=nil end
+	end
 	-- Clear existing buttons
 	for _, info in pairs(abilityButtons) do
 		if info.btn and info.btn.Parent then
@@ -316,6 +337,8 @@ local function rebuildAbilityBar(sorcererName)
 			local s = Instance.new("UIStroke") s.Color=Color3.fromRGB(220,60,0) s.Thickness=2 s.Parent=btn
 		elseif ad.key == "ExplosiveNails" then
 			local s = Instance.new("UIStroke") s.Color=Color3.fromRGB(255,180,30) s.Thickness=2 s.Parent=btn
+		elseif ad.key == "Summon" then
+			local s = Instance.new("UIStroke") s.Color=Color3.fromRGB(100,100,200) s.Thickness=2 s.Parent=btn
 		end
 
 		abilityButtons[ad.key] = {btn=btn, overlay=overlay, baseColor=ad.color, cd=ad.cd, label=ad.label}
@@ -339,6 +362,12 @@ local function rebuildAbilityBar(sorcererName)
 				elseif ad.key=="Doll"          then fireNobara_Doll()
 				elseif ad.key=="Torture"       then fireNobara_Torture()
 				elseif ad.key=="ExplosiveNails" then fireNobara_ExplosiveNails()
+				end
+			elseif currentSorcerer == "Megumi" then
+				if     ad.key=="RabbitEscape" then fireMegumi_RabbitEscape()
+				elseif ad.key=="Toad"         then fireMegumi_Toad()
+				elseif ad.key=="MaxElephant"  then fireMegumi_MaxElephant()
+				elseif ad.key=="Summon"       then fireMegumi_Summon()
 				end
 			end
 		end
@@ -1488,7 +1517,7 @@ function fireNobara_Doll()
 	if not target then return end
 	if activeDollCount() >= MAX_DOLLS then return end
 
-	startCD("Doll", 20)
+	startCD("Doll", 3)
 
 	-- Doll visual: small humanoid-shaped figure thrown at target
 	local dollModel = Instance.new("Model") dollModel.Name="Doll" dollModel.Parent=workspace
@@ -1828,10 +1857,441 @@ local function checkDollPickup(dt)
 	end
 end
 
+
+-- ============================================================
+-- ========= MEGUMI ABILITIES =================================
+-- ============================================================
+
+-- ---- RABBIT ESCAPE ----
+function fireMegumi_RabbitEscape()
+	if isCooldown("RabbitEscape") or isChanneling then return end
+	startCD("RabbitEscape", 10)
+
+	local spawnCenter = hrp.Position
+
+	-- Spawn 50 small rabbits that rise upward from the ground around the player
+	local rabbitParts = {}
+	for i = 1, 50 do
+		local angle = (i / 50) * math.pi * 2 + math.random() * 0.4
+		local r     = math.random() * 5
+		local startPos = spawnCenter + Vector3.new(math.cos(angle)*r, -1, math.sin(angle)*r)
+		local rSize = math.random() * 0.4 + 0.5
+
+		-- Rabbit body
+		local rb = makePart({
+			Shape=Enum.PartType.Ball, Size=Vector3.new(rSize, rSize*1.2, rSize),
+			Position=startPos,
+			Anchored=false, CanCollide=false,
+			Color=Color3.fromRGB(240,240,235), Material=Enum.Material.SmoothPlastic,
+			Parent=workspace
+		})
+		-- Rabbit head
+		local rh = makePart({
+			Shape=Enum.PartType.Ball, Size=Vector3.new(rSize*0.7, rSize*0.7, rSize*0.7),
+			Position=startPos+Vector3.new(0, rSize*0.9, 0),
+			Anchored=false, CanCollide=false,
+			Color=Color3.fromRGB(240,240,235), Material=Enum.Material.SmoothPlastic,
+			Parent=workspace
+		})
+		-- Ear 1
+		local re1 = makePart({
+			Size=Vector3.new(rSize*0.15, rSize*0.6, rSize*0.1),
+			Position=rh.Position+Vector3.new(-rSize*0.2, rSize*0.55, 0),
+			Anchored=false, CanCollide=false,
+			Color=Color3.fromRGB(255,200,200), Material=Enum.Material.SmoothPlastic,
+			Parent=workspace
+		})
+		-- Ear 2
+		local re2 = makePart({
+			Size=Vector3.new(rSize*0.15, rSize*0.6, rSize*0.1),
+			Position=rh.Position+Vector3.new(rSize*0.2, rSize*0.55, 0),
+			Anchored=false, CanCollide=false,
+			Color=Color3.fromRGB(255,200,200), Material=Enum.Material.SmoothPlastic,
+			Parent=workspace
+		})
+		local rhw  = Instance.new("WeldConstraint") rhw.Part0=rb  rhw.Part1=rh  rhw.Parent=rb
+		local re1w = Instance.new("WeldConstraint") re1w.Part0=rh re1w.Part1=re1 re1w.Parent=rh
+		local re2w = Instance.new("WeldConstraint") re2w.Part0=rh re2w.Part1=re2 re2w.Parent=rh
+
+		-- Give each rabbit upward velocity
+		local bv = Instance.new("BodyVelocity")
+		bv.Velocity = Vector3.new(
+			(math.random()-0.5)*12,
+			math.random(20, 32),
+			(math.random()-0.5)*12
+		)
+		bv.MaxForce = Vector3.new(1e4, 1e5, 1e4)
+		bv.P = 5000
+		bv.Parent = rb
+		Debris:AddItem(bv, 0.5)
+
+		table.insert(rabbitParts, {rb, rh, re1, re2})
+	end
+
+	-- Lift player up slightly
+	local playerBv = Instance.new("BodyVelocity")
+	playerBv.Velocity = Vector3.new(0, 18, 0)
+	playerBv.MaxForce = Vector3.new(0, 1e5, 0)
+	playerBv.P = 8000
+	playerBv.Parent = hrp
+	Debris:AddItem(playerBv, 0.4)
+
+	-- Damage any dummies in the rising rabbit cloud (up to 8 studs radius)
+	for _, e in ipairs(spawnedDummies) do
+		if e.humanoid.Health > 0 and (e.torso.Position - spawnCenter).Magnitude <= 8 then
+			e.humanoid:TakeDamage(15)
+			-- Fling upward + outward
+			local fDir = (e.torso.Position - spawnCenter)
+			fDir = Vector3.new(fDir.X, 0, fDir.Z)
+			if fDir.Magnitude < 0.1 then fDir = Vector3.new(1,0,0) end
+			fDir = fDir.Unit
+			local bv2 = Instance.new("BodyVelocity")
+			bv2.Velocity = fDir*30 + Vector3.new(0,35,0)
+			bv2.MaxForce = Vector3.new(1e5,1e5,1e5)
+			bv2.P = 1e5
+			bv2.Parent = e.torso
+			Debris:AddItem(bv2, 0.35)
+		end
+	end
+
+	-- Rabbits collapse after 4 seconds
+	task.delay(4, function()
+		for _, group in ipairs(rabbitParts) do
+			for _, p in ipairs(group) do
+				if p and p.Parent then
+					TweenService:Create(p, TweenInfo.new(0.5), {Transparency=1, Size=Vector3.new(0.1,0.1,0.1)}):Play()
+					Debris:AddItem(p, 0.55)
+				end
+			end
+		end
+	end)
+end
+
+-- ---- TOAD ----
+function fireMegumi_Toad()
+	if isCooldown("Toad") or isChanneling then return end
+
+	local target = getNearestDummy()
+	if not target then return end
+	startCD("Toad", 9)
+
+	local toadSpawnPos = hrp.Position + Vector3.new(0, -1.5, 0)
+	local toadTarget   = target.torso.Position
+
+	-- Toad body (large green blob)
+	local toadBody = makePart({
+		Shape=Enum.PartType.Ball,
+		Size=Vector3.new(4, 3, 4),
+		Position=toadSpawnPos,
+		Anchored=true, CanCollide=false,
+		Color=Color3.fromRGB(50, 130, 50), Material=Enum.Material.SmoothPlastic,
+		Parent=workspace
+	})
+	-- Toad eyes (two bumps on top)
+	local eyeL = makePart({Shape=Enum.PartType.Ball, Size=Vector3.new(0.8,0.8,0.8),
+		Position=toadBody.Position+Vector3.new(-0.8,1.7,0.5), Anchored=true, CanCollide=false,
+		Color=Color3.fromRGB(255,200,50), Material=Enum.Material.SmoothPlastic, Parent=workspace})
+	local eyeR = makePart({Shape=Enum.PartType.Ball, Size=Vector3.new(0.8,0.8,0.8),
+		Position=toadBody.Position+Vector3.new(0.8,1.7,0.5), Anchored=true, CanCollide=false,
+		Color=Color3.fromRGB(255,200,50), Material=Enum.Material.SmoothPlastic, Parent=workspace})
+	local elw = Instance.new("WeldConstraint") elw.Part0=toadBody elw.Part1=eyeL elw.Parent=toadBody
+	local erw = Instance.new("WeldConstraint") erw.Part0=toadBody erw.Part1=eyeR erw.Parent=toadBody
+
+	-- Toad appears with a quick scale-in
+	toadBody.Size = Vector3.new(0.5,0.5,0.5)
+	TweenService:Create(toadBody, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+		{Size=Vector3.new(4,3,4)}):Play()
+
+	task.wait(0.4)
+
+	-- Fire tongue (thin green line extending to target)
+	local tongueDir = (toadTarget - toadSpawnPos)
+	local tongueLen = tongueDir.Magnitude
+	tongueDir = tongueDir.Unit
+
+	local tongue = makePart({
+		Size=Vector3.new(0.3, 0.3, 0.2),
+		CFrame=CFrame.new(toadSpawnPos, toadTarget) * CFrame.new(0,0,-0.1),
+		Anchored=true, CanCollide=false,
+		Color=Color3.fromRGB(220,60,60), Material=Enum.Material.Neon,
+		Parent=workspace
+	})
+
+	-- Tongue extends out
+	TweenService:Create(tongue, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+		{Size=Vector3.new(0.35, 0.35, tongueLen),
+		 CFrame=CFrame.new(toadSpawnPos+tongueDir*(tongueLen/2), toadTarget)}):Play()
+
+	task.wait(0.22)
+
+	-- Hit!
+	target.humanoid:TakeDamage(13)
+
+	-- Impact flash
+	local imp = makePart({Shape=Enum.PartType.Ball, Size=Vector3.new(1,1,1),
+		Position=toadTarget, Anchored=true, CanCollide=false,
+		Color=Color3.fromRGB(100,220,80), Material=Enum.Material.Neon, Transparency=0.3, Parent=workspace})
+	TweenService:Create(imp, TweenInfo.new(0.25), {Size=Vector3.new(5,5,5), Transparency=1}):Play()
+	Debris:AddItem(imp, 0.26)
+
+	-- Pull dummy slightly toward toad
+	local pullDir = (toadSpawnPos - toadTarget).Unit
+	local pbv = Instance.new("BodyVelocity")
+	pbv.Velocity = pullDir * 20 + Vector3.new(0,5,0)
+	pbv.MaxForce = Vector3.new(1e5,1e5,1e5) pbv.P=1e4 pbv.Parent=target.torso
+	Debris:AddItem(pbv, 0.3)
+
+	-- Tongue retracts
+	TweenService:Create(tongue, TweenInfo.new(0.15), {Size=Vector3.new(0.3,0.3,0.1)}):Play()
+	Debris:AddItem(tongue, 0.16)
+
+	-- Toad disappears after hit
+	task.delay(0.6, function()
+		TweenService:Create(toadBody, TweenInfo.new(0.3),
+			{Size=Vector3.new(0.1,0.1,0.1), Transparency=1}):Play()
+		Debris:AddItem(toadBody, 0.31)
+	end)
+end
+
+-- ---- MAX ELEPHANT ----
+function fireMegumi_MaxElephant()
+	if isCooldown("MaxElephant") or isChanneling then return end
+	-- Toggle: if already active cancel
+	if elephantActive then
+		elephantActive = false
+		if elephantZoneConn then elephantZoneConn:Disconnect() elephantZoneConn=nil end
+		if elephantZone and elephantZone.Parent then elephantZone:Destroy() elephantZone=nil end
+		return
+	end
+	startCD("MaxElephant", 15)
+	elephantActive    = true
+	elephantStillTimer = 0
+	elephantLastPos   = nil
+
+	-- Red targeting zone (flat cylinder on ground)
+	elephantZone = makePart({
+		Shape=Enum.PartType.Cylinder,
+		Size=Vector3.new(0.5, 40, 40),
+		Anchored=true, CanCollide=false,
+		Color=Color3.fromRGB(220,40,40),
+		Material=Enum.Material.Neon,
+		Transparency=0.55,
+		Parent=workspace,
+	})
+	elephantZone.CFrame = CFrame.new(getMouseWorldPos()) * CFrame.Angles(0,0,math.pi/2)
+
+	-- Zone follows cursor
+	local STILL_THRESHOLD = 2    -- studs of movement to reset timer
+	local CHARGE_TIME     = 3    -- seconds standing still to trigger
+
+	elephantZoneConn = RunService.Heartbeat:Connect(function(dt)
+		if not elephantActive or not elephantZone or not elephantZone.Parent then
+			if elephantZoneConn then elephantZoneConn:Disconnect() elephantZoneConn=nil end
+			return
+		end
+
+		local mousePos = getMouseWorldPos()
+		local flatMousePos = Vector3.new(mousePos.X, hrp.Position.Y - 2, mousePos.Z)
+		elephantZone.CFrame = CFrame.new(flatMousePos) * CFrame.Angles(0,0,math.pi/2)
+
+		-- Check if player is standing still within the zone
+		local playerFlat = Vector3.new(hrp.Position.X, flatMousePos.Y, hrp.Position.Z)
+		local distToZoneCenter = (playerFlat - flatMousePos).Magnitude
+
+		if distToZoneCenter <= 20 then
+			-- Player is inside the zone
+			if elephantLastPos == nil then
+				elephantLastPos = hrp.Position
+			end
+			local moved = (hrp.Position - elephantLastPos).Magnitude
+			if moved < STILL_THRESHOLD * dt * 5 then
+				elephantStillTimer = elephantStillTimer + dt
+				-- Flash zone faster as it charges
+				local pulse = 0.4 + math.sin(elephantStillTimer * 8) * 0.15
+				elephantZone.Transparency = pulse
+			else
+				elephantStillTimer = 0
+				elephantLastPos = hrp.Position
+				elephantZone.Transparency = 0.55
+			end
+			elephantLastPos = hrp.Position
+		else
+			elephantStillTimer = 0
+			elephantZone.Transparency = 0.55
+		end
+
+		-- Trigger elephant after 3 seconds still
+		if elephantStillTimer >= CHARGE_TIME then
+			elephantZoneConn:Disconnect() elephantZoneConn=nil
+			elephantActive = false
+
+			local dropPos = flatMousePos + Vector3.new(0, 2, 0)
+
+			-- ── Elephant drop animation ──
+			-- Pink elephant body (large) descends from high above
+			local eBody = makePart({
+				Shape=Enum.PartType.Ball,
+				Size=Vector3.new(6,5,8),
+				Position=dropPos + Vector3.new(0, 40, 0),  -- high above
+				Anchored=true, CanCollide=false,
+				Color=Color3.fromRGB(230,160,200), Material=Enum.Material.SmoothPlastic,
+				Parent=workspace
+			})
+			-- Head
+			local eHead = makePart({
+				Shape=Enum.PartType.Ball, Size=Vector3.new(4,4,4),
+				Position=eBody.Position+Vector3.new(0,0,5),
+				Anchored=true, CanCollide=false,
+				Color=Color3.fromRGB(230,160,200), Material=Enum.Material.SmoothPlastic, Parent=workspace})
+			-- Trunk
+			local eTrunk = makePart({
+				Size=Vector3.new(0.8,0.8,4),
+				Position=eHead.Position+Vector3.new(0,-1,3),
+				Anchored=true, CanCollide=false,
+				Color=Color3.fromRGB(220,150,190), Material=Enum.Material.SmoothPlastic, Parent=workspace})
+			-- 4 Legs
+			local legPositions = {Vector3.new(-2,-3,2), Vector3.new(2,-3,2), Vector3.new(-2,-3,-2), Vector3.new(2,-3,-2)}
+			local legs = {}
+			for _, lOff in ipairs(legPositions) do
+				local leg = makePart({Size=Vector3.new(1.2,3,1.2),
+					Position=eBody.Position+lOff,
+					Anchored=true, CanCollide=false,
+					Color=Color3.fromRGB(225,155,195), Material=Enum.Material.SmoothPlastic, Parent=workspace})
+				table.insert(legs, leg)
+			end
+			-- Ears
+			local earL = makePart({Size=Vector3.new(0.4,3,4),
+				Position=eHead.Position+Vector3.new(-2.5,0,0),
+				Anchored=true, CanCollide=false,
+				Color=Color3.fromRGB(240,170,210), Material=Enum.Material.SmoothPlastic, Parent=workspace})
+			local earR = makePart({Size=Vector3.new(0.4,3,4),
+				Position=eHead.Position+Vector3.new(2.5,0,0),
+				Anchored=true, CanCollide=false,
+				Color=Color3.fromRGB(240,170,210), Material=Enum.Material.SmoothPlastic, Parent=workspace})
+
+			local elephantParts = {eBody, eHead, eTrunk, earL, earR}
+			for _, l in ipairs(legs) do table.insert(elephantParts, l) end
+
+			-- Drop shadow zone
+			elephantZone.Color = Color3.fromRGB(180,100,140)
+			elephantZone.Parent = workspace  -- keep it for shadow
+
+			-- Descend tween (everything drops from 40 studs above to ground level)
+			local dropOffset = Vector3.new(0, -40, 0)
+			for _, p in ipairs(elephantParts) do
+				TweenService:Create(p, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
+					{Position=p.Position+dropOffset}):Play()
+			end
+
+			task.wait(0.52)
+
+			-- SMASH impact
+			startShake(3)
+			task.delay(0.5, stopShake)
+
+			-- Ground crack shockwave
+			local crack = makePart({
+				Shape=Enum.PartType.Cylinder,
+				Size=Vector3.new(0.5, 3, 3),
+				CFrame=CFrame.new(dropPos)*CFrame.Angles(0,0,math.pi/2),
+				Anchored=true, CanCollide=false,
+				Color=Color3.fromRGB(60,40,30), Material=Enum.Material.SmoothPlastic,
+				Parent=workspace
+			})
+			TweenService:Create(crack, TweenInfo.new(0.6), {Size=Vector3.new(0.5,50,50), Transparency=1}):Play()
+			Debris:AddItem(crack, 0.61)
+
+			-- Dust puff ring
+			for i=1,10 do
+				local dustAngle = (i/10)*math.pi*2
+				local dustPuff = makePart({Shape=Enum.PartType.Ball,
+					Size=Vector3.new(1,1,1),
+					Position=dropPos+Vector3.new(math.cos(dustAngle)*3, 0.5, math.sin(dustAngle)*3),
+					Anchored=true, CanCollide=false,
+					Color=Color3.fromRGB(180,160,140), Material=Enum.Material.SmoothPlastic, Transparency=0.2,
+					Parent=workspace})
+				TweenService:Create(dustPuff, TweenInfo.new(0.7), {
+					Size=Vector3.new(4,3,4),
+					Position=dustPuff.Position+Vector3.new(math.cos(dustAngle)*6, 2, math.sin(dustAngle)*6),
+					Transparency=1
+				}):Play()
+				Debris:AddItem(dustPuff, 0.71)
+			end
+
+			-- Land debris: broken rock/rubble chunks scattered around
+			for i=1,16 do
+				local debrisAngle = math.random()*math.pi*2
+				local debrisDist  = math.random(3,14)
+				local debrisPos   = dropPos+Vector3.new(math.cos(debrisAngle)*debrisDist, 0.5, math.sin(debrisAngle)*debrisDist)
+				local debris = makePart({
+					Size=Vector3.new(math.random(1,3), math.random(1,3), math.random(1,2)),
+					Position=debrisPos+Vector3.new(0,6,0),
+					Anchored=false, CanCollide=true,
+					Color=Color3.fromRGB(math.random(60,100), math.random(50,80), math.random(40,60)),
+					Material=Enum.Material.SmoothPlastic,
+					Parent=workspace
+				})
+				local dbv = Instance.new("BodyVelocity")
+				dbv.Velocity=Vector3.new(math.cos(debrisAngle)*12, math.random(10,20), math.sin(debrisAngle)*12)
+				dbv.MaxForce=Vector3.new(1e4,1e4,1e4) dbv.P=3000 dbv.Parent=debris
+				Debris:AddItem(dbv, 0.4)
+				Debris:AddItem(debris, 4)
+			end
+
+			-- Damage dummies in zone
+			for _, e in ipairs(spawnedDummies) do
+				if e.humanoid.Health > 0 then
+					local edist = (e.torso.Position - dropPos).Magnitude
+					if edist <= 22 then
+						e.humanoid:TakeDamage(20)
+						local blastDir = (e.torso.Position-dropPos)
+						blastDir = Vector3.new(blastDir.X,0,blastDir.Z)
+						if blastDir.Magnitude < 0.1 then blastDir=Vector3.new(1,0,0) end
+						blastDir = blastDir.Unit
+						local bv3 = Instance.new("BodyVelocity")
+						bv3.Velocity=blastDir*40+Vector3.new(0,25,0)
+						bv3.MaxForce=Vector3.new(1e5,1e5,1e5) bv3.P=1e5 bv3.Parent=e.torso
+						Debris:AddItem(bv3, 0.3)
+					end
+				end
+			end
+
+			-- Elephant fades out
+			for _, p in ipairs(elephantParts) do
+				TweenService:Create(p, TweenInfo.new(0.8),
+					{Transparency=1, Size=p.Size*Vector3.new(1.1,0.1,1.1)}):Play()
+				Debris:AddItem(p, 0.85)
+			end
+
+			TweenService:Create(elephantZone, TweenInfo.new(0.5), {Transparency=1}):Play()
+			Debris:AddItem(elephantZone, 0.6)
+			elephantZone = nil
+		end
+	end)
+end
+
+-- ---- WITH THIS TREASURE I SUMMON (Coming Soon) ----
+function fireMegumi_Summon()
+	local notice = Instance.new("TextLabel")
+	notice.Size = UDim2.new(0, 260, 0, 44)
+	notice.Position = UDim2.new(0.5, -130, 0.4, 0)
+	notice.BackgroundColor3 = Color3.fromRGB(10,10,40)
+	notice.BackgroundTransparency = 0.15
+	notice.BorderSizePixel = 0
+	notice.Text = "「With This Treasure I Summon...」\n— Coming Soon"
+	notice.TextColor3 = Color3.fromRGB(180,180,255)
+	notice.Font = Enum.Font.GothamBold
+	notice.TextSize = 12
+	notice.Parent = screenGui
+	addCorner(notice, 8)
+	TweenService:Create(notice, TweenInfo.new(2.4), {TextTransparency=1, BackgroundTransparency=1}):Play()
+	Debris:AddItem(notice, 2.5)
+end
+
 -- ============================================================
 -- SORCERER PANEL + SWITCHING
 -- ============================================================
-local SORCERERS = {"Gojo","Sukuna","Nobara","Itadori (Soon)","Nanami (Soon)"}
+local SORCERERS = {"Gojo","Sukuna","Nobara","Megumi","Itadori (Soon)","Nanami (Soon)"}
 for _, sName in ipairs(SORCERERS) do
 	local isSoon = sName:find("Soon")
 	local b = Instance.new("TextButton")
