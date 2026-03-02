@@ -2775,7 +2775,7 @@ function fireMegumi_Summon()
 	mahoFillHp.BackgroundColor3=Color3.fromRGB(80,220,80) mahoFillHp.BorderSizePixel=0 mahoFillHp.Parent=mahoBgHp
 	addCorner(mahoFillHp,4)
 
-	-- Register Mahoraga as a special AI entry (attacks dummies, not player)
+	-- Register Mahoraga entry (used by Adaptation heal etc.)
 	local mahoEntry = {
 		grade      = "Mahoraga",
 		model      = mahoModel,
@@ -2788,49 +2788,101 @@ function fireMegumi_Summon()
 		isMahoraga = true,
 		gradeData  = {dmg=40, attackRate=1.5, aggroRange=60, speed=22, name="Mahoraga"},
 	}
-	-- Mahoraga AI runs in a separate loop (attacks dummies, not player)
-	local mahoConn
-	mahoConn = RunService.Heartbeat:Connect(function(dt)
+
+	-- ── PLAYER TAKES CONTROL OF MAHORAGA ──
+	-- Store global reference so Mahoraga abilities can find the body
+	mahoragaRef = { torso = mahoTorso, humanoid = mahoHum }
+
+	-- Switch sorcerer to Mahoraga and rebuild ability bar
+	currentSorcerer = "Mahoraga"
+	sorcererBtn.Text = "👤 Sorcerer: Mahoraga"
+	rebuildAbilityBar("Mahoraga")
+
+	-- Show takeover notice
+	local takeoverNotice = Instance.new("TextLabel")
+	takeoverNotice.Size = UDim2.new(0,280,0,50)
+	takeoverNotice.Position = UDim2.new(0.5,-140,0.35,0)
+	takeoverNotice.BackgroundColor3 = Color3.fromRGB(10,30,10)
+	takeoverNotice.BackgroundTransparency = 0.15
+	takeoverNotice.BorderSizePixel = 0
+	takeoverNotice.Text = "⚙ YOU ARE NOW MAHORAGA\nAbilities unlocked."
+	takeoverNotice.TextColor3 = Color3.fromRGB(100,255,80)
+	takeoverNotice.Font = Enum.Font.GothamBold
+	takeoverNotice.TextSize = 14
+	takeoverNotice.Parent = screenGui
+	addCorner(takeoverNotice, 8)
+	TweenService:Create(takeoverNotice, TweenInfo.new(3), {TextTransparency=1, BackgroundTransparency=1}):Play()
+	Debris:AddItem(takeoverNotice, 3.1)
+
+	-- Mahoraga movement: override player input — move mahoTorso with WASD/thumbstick
+	-- We attach a BodyGyro + BodyPosition to mahoTorso and drive them from input
+	local mahoBodyPos = Instance.new("BodyPosition")
+	mahoBodyPos.MaxForce = Vector3.new(1e5,1e5,1e5)
+	mahoBodyPos.P = 5000
+	mahoBodyPos.D = 500
+	mahoBodyPos.Position = mahoTorso.Position
+	mahoBodyPos.Parent = mahoTorso
+
+	local mahoBodyGyro = Instance.new("BodyGyro")
+	mahoBodyGyro.MaxTorque = Vector3.new(1e5,1e5,1e5)
+	mahoBodyGyro.P = 8000
+	mahoBodyGyro.CFrame = mahoTorso.CFrame
+	mahoBodyGyro.Parent = mahoTorso
+
+	-- Camera follows Mahoraga
+	local mahoMoveConn = RunService.Heartbeat:Connect(function(dt)
 		if not mahoTorso.Parent or mahoHum.Health <= 0 then
-			mahoConn:Disconnect() return
+			mahoMoveConn:Disconnect() return
 		end
-		-- Find nearest enemy dummy
-		local nearestEnemy, nearestDist = nil, math.huge
-		for _, e in ipairs(spawnedDummies) do
-			if e.humanoid.Health > 0 then
-				local d = (mahoTorso.Position - e.torso.Position).Magnitude
-				if d < nearestDist then nearestDist=d nearestEnemy=e end
-			end
+
+		-- Move camera to follow mahoTorso
+		camera.CameraType = Enum.CameraType.Scriptable
+		local camOffset = Vector3.new(0, 12, 22)
+		camera.CFrame = CFrame.new(mahoTorso.Position + camOffset, mahoTorso.Position + Vector3.new(0,2,0))
+
+		-- Read movement input
+		local moveVec = Vector3.new(0,0,0)
+		if UserInputService:IsKeyDown(Enum.KeyCode.W) or UserInputService:IsKeyDown(Enum.KeyCode.Up)    then moveVec = moveVec + Vector3.new(0,0,-1) end
+		if UserInputService:IsKeyDown(Enum.KeyCode.S) or UserInputService:IsKeyDown(Enum.KeyCode.Down)  then moveVec = moveVec + Vector3.new(0,0, 1) end
+		if UserInputService:IsKeyDown(Enum.KeyCode.A) or UserInputService:IsKeyDown(Enum.KeyCode.Left)  then moveVec = moveVec + Vector3.new(-1,0,0) end
+		if UserInputService:IsKeyDown(Enum.KeyCode.D) or UserInputService:IsKeyDown(Enum.KeyCode.Right) then moveVec = moveVec + Vector3.new( 1,0,0) end
+
+		local MAHORAGA_SPEED = 22
+		if moveVec.Magnitude > 0 then
+			moveVec = moveVec.Unit
+			mahoBodyPos.Position = mahoTorso.Position + moveVec * MAHORAGA_SPEED * dt * 8
+			-- Face movement direction
+			mahoBodyGyro.CFrame = CFrame.new(mahoTorso.Position, mahoTorso.Position + moveVec)
+		else
+			mahoBodyPos.Position = mahoTorso.Position  -- hold in place
 		end
-		if nearestEnemy then
-			-- Move toward enemy
-			local moveDir = (nearestEnemy.torso.Position - mahoTorso.Position)
-			if moveDir.Magnitude > 4 then
-				moveDir = moveDir.Unit
-				local bv=Instance.new("BodyVelocity") bv.Velocity=moveDir*22 bv.MaxForce=Vector3.new(1e5,0,1e5) bv.P=3000 bv.Parent=mahoTorso
-				Debris:AddItem(bv, dt+0.03)
-			end
-			-- Attack
-			mahoEntry.attackTimer = mahoEntry.attackTimer + dt
-			if mahoEntry.attackTimer >= 1.5 and nearestDist <= 6 then
-				mahoEntry.attackTimer = 0
-				nearestEnemy.humanoid:TakeDamage(40)
-				-- Slam impact
-				local imp=makePart({Shape=Enum.PartType.Ball, Size=Vector3.new(1,1,1),
-					Position=nearestEnemy.torso.Position, Anchored=true, CanCollide=false,
-					Color=Color3.fromRGB(80,220,60), Material=Enum.Material.Neon, Transparency=0.2, Parent=workspace})
-				TweenService:Create(imp, TweenInfo.new(0.3), {Size=Vector3.new(7,7,7), Transparency=1}):Play()
-				Debris:AddItem(imp, 0.31)
-				-- Knockback
-				local kDir=(nearestEnemy.torso.Position-mahoTorso.Position).Unit
-				local bv2=Instance.new("BodyVelocity") bv2.Velocity=kDir*50+Vector3.new(0,20,0) bv2.MaxForce=Vector3.new(1e5,1e5,1e5) bv2.P=1e5 bv2.Parent=nearestEnemy.torso
-				Debris:AddItem(bv2, 0.25)
-			end
-		end
-		-- Update HP bar
-		local pct2 = mahoHum.Health / mahoHum.MaxHealth
-		mahoFillHp.Size = UDim2.new(math.max(0,pct2),0,1,0)
-		mahoFillHp.BackgroundColor3 = hpColor(pct2)
+
+		-- Update player HP bar to show Mahoraga's HP instead
+		local mPct = mahoHum.Health / mahoHum.MaxHealth
+		playerHpFill.Size = UDim2.new(math.max(0,mPct),0,1,0)
+		playerHpFill.BackgroundColor3 = hpColor(mPct)
+		playerHpLabel.Text = "MAHORAGA  "..math.floor(mahoHum.Health).."/"..mahoHum.MaxHealth
+		mahoFillHp.Size = UDim2.new(math.max(0,mPct),0,1,0)
+		mahoFillHp.BackgroundColor3 = hpColor(mPct)
+	end)
+
+	-- If Mahoraga dies, revert camera and show death message
+	mahoHum.Died:Connect(function()
+		mahoMoveConn:Disconnect()
+		camera.CameraType = Enum.CameraType.Custom
+		mahoragaRef = nil
+		local deathMsg = Instance.new("TextLabel")
+		deathMsg.Size=UDim2.new(0,240,0,44) deathMsg.Position=UDim2.new(0.5,-120,0.4,0)
+		deathMsg.BackgroundColor3=Color3.fromRGB(20,5,5) deathMsg.BackgroundTransparency=0.1
+		deathMsg.BorderSizePixel=0 deathMsg.Text="⚙ Mahoraga has fallen."
+		deathMsg.TextColor3=Color3.fromRGB(220,80,80) deathMsg.Font=Enum.Font.GothamBold deathMsg.TextSize=16
+		deathMsg.Parent=screenGui addCorner(deathMsg,8)
+		TweenService:Create(deathMsg, TweenInfo.new(3), {TextTransparency=1, BackgroundTransparency=1}):Play()
+		Debris:AddItem(deathMsg, 3.1)
+		-- Revert to Megumi
+		currentSorcerer = "Megumi"
+		sorcererBtn.Text = "👤 Sorcerer: Megumi"
+		rebuildAbilityBar("Megumi")
 	end)
 end
 
@@ -3086,13 +3138,14 @@ function fireMahoraga_Sword()
 	if isChanneling then return end
 	-- No cooldown for basic attack but no spam guard needed beyond animation
 	if allCooldowns["SwordOfExtermination"] > 0 then return end
-	allCooldowns["SwordOfExtermination"] = 0.6  -- short animation lock
+	if not mahoragaRef or not mahoragaRef.torso.Parent then return end
+	allCooldowns["SwordOfExtermination"] = 0.6
 
+	local mahoBody = mahoragaRef.torso
 	local target = getNearestDummy()
 	if not target then return end
 
-	-- Sword slash visual: a bright golden arc
-	local swingOrigin = hrp.Position + Vector3.new(0,1.5,0)
+	local swingOrigin = mahoBody.Position + Vector3.new(0,1.5,0)
 	local dir = (target.torso.Position - swingOrigin).Unit
 
 	-- Sword blade (long thin neon part)
@@ -3141,7 +3194,8 @@ end
 -- ---- ADAPTATION ----
 function fireMahoraga_Adaptation()
 	if isCooldown("Adaptation") then return end
-	if not adaptationReady then return end  -- need 100% bar
+	if not adaptationReady then return end
+	if not mahoragaRef or not mahoragaRef.torso.Parent then return end
 	startCD("Adaptation", 50)
 	adaptationReady = false
 	adaptationPct   = 0
@@ -3149,17 +3203,11 @@ function fireMahoraga_Adaptation()
 	adaptLabel.Text = "Adaptation: 0%"
 	adaptFill.Size = UDim2.new(0,0,1,0)
 
-	-- Heal Mahoraga (find mahoragaRef or find the model by name)
-	local mahoModel = workspace:FindFirstChild("Mahoraga")
-	if mahoModel then
-		local mHum = mahoModel:FindFirstChildOfClass("Humanoid")
-		if mHum then mHum.Health = mHum.MaxHealth end
-	end
-	-- Also heal the player character if in Mahoraga mode
-	playerHum.Health = playerHum.MaxHealth
+	-- Heal Mahoraga
+	mahoragaRef.humanoid.Health = mahoragaRef.humanoid.MaxHealth
 
-	-- Wheel spin visual around player
-	local wheelCenter2 = hrp.Position + Vector3.new(0,3,0)
+	-- Wheel spin visual around Mahoraga body
+	local wheelCenter2 = mahoragaRef.torso.Position + Vector3.new(0,3,0)
 	for si=1,8 do
 		local sAngle = (si/8)*math.pi*2
 		local sPos = wheelCenter2 + Vector3.new(math.cos(sAngle)*3, math.sin(sAngle)*3, 0)
@@ -3176,9 +3224,9 @@ function fireMahoraga_Adaptation()
 	-- Green heal flash
 	flashScreen(screenGui, Color3.fromRGB(60,255,100), 0.2, 0.1, 0.5)
 	local healGlow=makePart({Shape=Enum.PartType.Ball, Size=Vector3.new(1,1,1),
-		Position=hrp.Position, Anchored=false, CanCollide=false,
+		Position=mahoragaRef.torso.Position, Anchored=false, CanCollide=false,
 		Color=Color3.fromRGB(60,255,100), Material=Enum.Material.Neon, Transparency=0.2, Parent=workspace})
-	local hgw=Instance.new("WeldConstraint") hgw.Part0=hrp hgw.Part1=healGlow hgw.Parent=hrp
+	local hgw=Instance.new("WeldConstraint") hgw.Part0=mahoragaRef.torso hgw.Part1=healGlow hgw.Parent=mahoragaRef.torso
 	TweenService:Create(healGlow, TweenInfo.new(1), {Size=Vector3.new(8,8,8), Transparency=1}):Play()
 	Debris:AddItem(healGlow, 1.1)
 end
@@ -3186,18 +3234,20 @@ end
 -- ---- DIVINE CRASH ----
 function fireMahoraga_DivineCrash()
 	if isCooldown("DivineCrash") or isChanneling then return end
+	if not mahoragaRef or not mahoragaRef.torso.Parent then return end
 	startCD("DivineCrash", 15)
 	isChanneling = true
 
+	local mahoBody = mahoragaRef.torso
 	local crashPos = getMouseWorldPos()
-	crashPos = Vector3.new(crashPos.X, hrp.Position.Y - 1.5, crashPos.Z)
+	crashPos = Vector3.new(crashPos.X, mahoBody.Position.Y - 1.5, crashPos.Z)
 
-	-- Yellow shining palm glow on hand (on player)
+	-- Yellow shining palm glow on Mahoraga's hand side
 	local palmGlow = makePart({Shape=Enum.PartType.Ball, Size=Vector3.new(1.5,1.5,1.5),
-		Position=hrp.Position+Vector3.new(1.5,0,0),
+		Position=mahoBody.Position+Vector3.new(2,0,0),
 		Anchored=false, CanCollide=false,
 		Color=Color3.fromRGB(255,230,50), Material=Enum.Material.Neon, Transparency=0.1, Parent=workspace})
-	local palmWeld=Instance.new("BodyPosition") palmWeld.Position=hrp.Position+Vector3.new(1.5,0,0) palmWeld.MaxForce=Vector3.new(0,0,0) palmWeld.Parent=palmGlow
+	local palmWeld=Instance.new("BodyPosition") palmWeld.Position=mahoBody.Position+Vector3.new(2,0,0) palmWeld.MaxForce=Vector3.new(0,0,0) palmWeld.Parent=palmGlow
 	local palmLight=Instance.new("PointLight") palmLight.Color=Color3.fromRGB(255,220,30) palmLight.Brightness=8 palmLight.Range=18 palmLight.Parent=palmGlow
 
 	-- Charge particles swirl around palm
@@ -3292,7 +3342,7 @@ end
 -- ============================================================
 -- SORCERER PANEL + SWITCHING
 -- ============================================================
-local SORCERERS = {"Gojo","Sukuna","Nobara","Megumi","Mahoraga","Itadori (Soon)","Nanami (Soon)"}
+local SORCERERS = {"Gojo","Sukuna","Nobara","Megumi","Itadori (Soon)","Nanami (Soon)"}
 for _, sName in ipairs(SORCERERS) do
 	local isSoon = sName:find("Soon")
 	local b = Instance.new("TextButton")
@@ -3465,16 +3515,20 @@ end)
 
 -- ============================================================
 -- MAHORAGA DAMAGE TRACKING
--- Hook into player damage events for Adaptation bar.
--- Since we can't intercept enemy hits directly in LocalScript,
--- we watch the player's Health each frame and attribute drops.
+-- When the player is controlling Mahoraga (mahoragaRef is set),
+-- track HP drops on the Mahoraga humanoid to fill the Adaptation bar.
+-- We poll in the main heartbeat since we can't hook a HealthChanged
+-- on a dynamically created Humanoid at script load time.
 -- ============================================================
-local lastPlayerHealth = playerHum.Health
-playerHum.HealthChanged:Connect(function(newHealth)
-	if currentSorcerer == "Mahoraga" and newHealth < lastPlayerHealth then
+local lastMahoHealth = 9999
+RunService.Heartbeat:Connect(function()
+	if currentSorcerer ~= "Mahoraga" then return end
+	if not mahoragaRef or not mahoragaRef.torso.Parent then return end
+	local curHp = mahoragaRef.humanoid.Health
+	if curHp < lastMahoHealth then
 		onMahoragaDamaged()
 	end
-	lastPlayerHealth = newHealth
+	lastMahoHealth = curHp
 end)
 
 -- Build initial ability bar for Gojo
