@@ -44,7 +44,9 @@ local allCooldowns = {
 	-- Nobara
 	Nail=0, Doll=0, Torture=0, ExplosiveNails=0,
 	-- Megumi
-	RabbitEscape=0, Toad=0, MaxElephant=0, Summon=0,
+	RabbitEscape=0, Toad=0, MaxElephant=0, Summon=0, ChimeraShadowGarden=0,
+	-- Mahoraga
+	SwordOfExtermination=0, Adaptation=0, DivineCrash=0, CrushingGrab=0,
 }
 
 local blueOrb      = nil
@@ -77,10 +79,17 @@ local SORCERER_ABILITIES = {
 		{key="ExplosiveNails",label="Exp. Nails",  color=Color3.fromRGB(200,80,20),   cd=15},
 	},
 	Megumi = {
-		{key="RabbitEscape", label="Rabbits",    color=Color3.fromRGB(240,240,240), cd=10},
-		{key="Toad",         label="Toad",       color=Color3.fromRGB(50,140,60),   cd=9},
-		{key="MaxElephant",  label="Elephant",   color=Color3.fromRGB(200,120,160), cd=15},
-		{key="Summon",       label="Summon...",  color=Color3.fromRGB(20,20,40),    cd=180},
+		{key="RabbitEscape",          label="Rabbits",     color=Color3.fromRGB(240,240,240), cd=10},
+		{key="Toad",                  label="Toad",        color=Color3.fromRGB(50,140,60),   cd=9},
+		{key="MaxElephant",           label="Elephant",    color=Color3.fromRGB(200,120,160), cd=15},
+		{key="Summon",                label="Summon...",   color=Color3.fromRGB(20,20,40),    cd=180},
+		{key="ChimeraShadowGarden",   label="CSGarden",    color=Color3.fromRGB(5,5,15),      cd=120},
+	},
+	Mahoraga = {
+		{key="SwordOfExtermination",  label="⚔ Sword",     color=Color3.fromRGB(200,200,100), cd=0.6},
+		{key="Adaptation",            label="Adaptation",  color=Color3.fromRGB(80,160,80),   cd=50},
+		{key="DivineCrash",           label="D.Crash",     color=Color3.fromRGB(220,180,30),  cd=15},
+		{key="CrushingGrab",          label="C.Grab",      color=Color3.fromRGB(80,40,20),    cd=999},
 	},
 }
 
@@ -280,6 +289,47 @@ local elephantStillTimer = 0
 local elephantLastPos  = nil
 local elephantZoneConn = nil
 
+-- Mahoraga adaptation state (hoisted)
+local adaptationPct     = 0    -- 0..100
+local adaptationReady   = false
+local mahoragaRef       = nil  -- reference to active Mahoraga torso/hum for player-controlled mode
+
+-- Adaptation HUD bar (bottom-right, only shown for Mahoraga)
+local adaptFrame = Instance.new("Frame")
+adaptFrame.Size = UDim2.new(0, 200, 0, 42)
+adaptFrame.Position = UDim2.new(1, -212, 1, -100)
+adaptFrame.BackgroundColor3 = Color3.fromRGB(10,25,10)
+adaptFrame.BackgroundTransparency = 0.25
+adaptFrame.BorderSizePixel = 0
+adaptFrame.Visible = false
+adaptFrame.Parent = screenGui
+addCorner(adaptFrame, 8)
+
+local adaptLabel = Instance.new("TextLabel")
+adaptLabel.Size = UDim2.new(1,0,0,16)
+adaptLabel.Position = UDim2.new(0,0,0,2)
+adaptLabel.BackgroundTransparency = 1
+adaptLabel.Text = "Adaptation: 0%"
+adaptLabel.TextColor3 = Color3.fromRGB(100,240,80)
+adaptLabel.Font = Enum.Font.GothamBold
+adaptLabel.TextSize = 11
+adaptLabel.Parent = adaptFrame
+
+local adaptBg = Instance.new("Frame")
+adaptBg.Size = UDim2.new(1,-10,0,10)
+adaptBg.Position = UDim2.new(0,5,0,20)
+adaptBg.BackgroundColor3 = Color3.fromRGB(30,30,30)
+adaptBg.BorderSizePixel = 0
+adaptBg.Parent = adaptFrame
+addCorner(adaptBg, 4)
+
+local adaptFill = Instance.new("Frame")
+adaptFill.Size = UDim2.new(0,0,1,0)
+adaptFill.BackgroundColor3 = Color3.fromRGB(80,220,80)
+adaptFill.BorderSizePixel = 0
+adaptFill.Parent = adaptBg
+addCorner(adaptFill, 4)
+
 local function rebuildAbilityBar(sorcererName)
 	-- Cancel active elephant zone if switching away
 	if elephantActive then
@@ -339,6 +389,10 @@ local function rebuildAbilityBar(sorcererName)
 			local s = Instance.new("UIStroke") s.Color=Color3.fromRGB(255,180,30) s.Thickness=2 s.Parent=btn
 		elseif ad.key == "Summon" then
 			local s = Instance.new("UIStroke") s.Color=Color3.fromRGB(100,100,200) s.Thickness=2 s.Parent=btn
+		elseif ad.key == "ChimeraShadowGarden" then
+			local s = Instance.new("UIStroke") s.Color=Color3.fromRGB(60,180,80) s.Thickness=2 s.Parent=btn
+		elseif ad.key == "Adaptation" then
+			local s = Instance.new("UIStroke") s.Color=Color3.fromRGB(80,220,80) s.Thickness=2 s.Parent=btn
 		end
 
 		abilityButtons[ad.key] = {btn=btn, overlay=overlay, baseColor=ad.color, cd=ad.cd, label=ad.label}
@@ -364,10 +418,17 @@ local function rebuildAbilityBar(sorcererName)
 				elseif ad.key=="ExplosiveNails" then fireNobara_ExplosiveNails()
 				end
 			elseif currentSorcerer == "Megumi" then
-				if     ad.key=="RabbitEscape" then fireMegumi_RabbitEscape()
-				elseif ad.key=="Toad"         then fireMegumi_Toad()
-				elseif ad.key=="MaxElephant"  then fireMegumi_MaxElephant()
-				elseif ad.key=="Summon"       then fireMegumi_Summon()
+				if     ad.key=="RabbitEscape"        then fireMegumi_RabbitEscape()
+				elseif ad.key=="Toad"                then fireMegumi_Toad()
+				elseif ad.key=="MaxElephant"         then fireMegumi_MaxElephant()
+				elseif ad.key=="Summon"              then fireMegumi_Summon()
+				elseif ad.key=="ChimeraShadowGarden" then fireMegumi_ChimeraShadowGarden()
+				end
+			elseif currentSorcerer == "Mahoraga" then
+				if     ad.key=="SwordOfExtermination" then fireMahoraga_Sword()
+				elseif ad.key=="Adaptation"           then fireMahoraga_Adaptation()
+				elseif ad.key=="DivineCrash"          then fireMahoraga_DivineCrash()
+				elseif ad.key=="CrushingGrab"         then fireMahoraga_CrushingGrab()
 				end
 			end
 		end
@@ -2774,9 +2835,464 @@ function fireMegumi_Summon()
 end
 
 -- ============================================================
+-- MEGUMI: CHIMERA SHADOW GARDEN
+-- ============================================================
+function fireMegumi_ChimeraShadowGarden()
+	if isCooldown("ChimeraShadowGarden") or isChanneling or domainActive then return end
+	startCD("ChimeraShadowGarden", 120)
+	isChanneling = true
+	domainActive = true
+
+	local domainCenter = hrp.Position
+
+	-- Same domain sphere build as other domains (dark green tint)
+	buildDomainVisuals(Color3.fromRGB(5,30,10))
+
+	task.delay(3, function()
+		flashScreen(screenGui, Color3.fromRGB(10,200,50), 0.5, 0.1, 0.7)
+	end)
+
+	task.delay(3.6, function()
+		startShake(1.5)
+		expandFOV(90, 1.5)
+		isChanneling = false
+
+		-- ── Black liquid flood: rising dark floor ──
+		local liquidFloor = makePart({
+			Size=Vector3.new(90,0.5,90),
+			Position=domainCenter+Vector3.new(0,-3,0),
+			Anchored=true, CanCollide=true,
+			Color=Color3.fromRGB(5,5,10), Material=Enum.Material.Neon,
+			Transparency=0.3, Parent=workspace
+		})
+		-- Rise from below
+		TweenService:Create(liquidFloor, TweenInfo.new(2), {Position=domainCenter+Vector3.new(0,-1.5,0)}):Play()
+
+		-- Liquid ripple shimmer
+		local shimmerConn = RunService.Heartbeat:Connect(function()
+			if not liquidFloor.Parent then return end
+			liquidFloor.Transparency = 0.25 + math.sin(tick()*3)*0.08
+		end)
+
+		-- Slow all dummies in domain
+		local frozenInDomain = {}
+		for _, e in ipairs(spawnedDummies) do
+			if e.humanoid.Health>0 and (e.torso.Position-domainCenter).Magnitude<=45 then
+				e.frozen = true
+				e.torso.Anchored = true
+				table.insert(frozenInDomain, e)
+			end
+		end
+
+		-- ── 300 black liquid bunnies ──
+		local bunnyParts = {}
+		for i=1,300 do
+			local bAngle = math.random()*math.pi*2
+			local bR     = math.random()*42
+			local bPos   = domainCenter+Vector3.new(math.cos(bAngle)*bR, -1.2, math.sin(bAngle)*bR)
+			local bSize  = math.random()*0.4+0.35
+
+			local bb = makePart({Shape=Enum.PartType.Ball,
+				Size=Vector3.new(bSize, bSize*1.1, bSize),
+				Position=bPos, Anchored=false, CanCollide=false,
+				Color=Color3.fromRGB(8,8,12), Material=Enum.Material.Neon,
+				Transparency=0.1, Parent=workspace})
+			local bh = makePart({Shape=Enum.PartType.Ball,
+				Size=Vector3.new(bSize*0.7, bSize*0.7, bSize*0.7),
+				Position=bPos+Vector3.new(0,bSize*0.9,0), Anchored=false, CanCollide=false,
+				Color=Color3.fromRGB(8,8,12), Material=Enum.Material.Neon,
+				Transparency=0.1, Parent=workspace})
+			local be1 = makePart({Size=Vector3.new(bSize*0.12,bSize*0.5,bSize*0.08),
+				Position=bh.Position+Vector3.new(-bSize*0.18,bSize*0.45,0),
+				Anchored=false, CanCollide=false,
+				Color=Color3.fromRGB(8,8,12), Material=Enum.Material.Neon,
+				Transparency=0.1, Parent=workspace})
+			local be2 = makePart({Size=Vector3.new(bSize*0.12,bSize*0.5,bSize*0.08),
+				Position=bh.Position+Vector3.new(bSize*0.18,bSize*0.45,0),
+				Anchored=false, CanCollide=false,
+				Color=Color3.fromRGB(8,8,12), Material=Enum.Material.Neon,
+				Transparency=0.1, Parent=workspace})
+			local bw1=Instance.new("WeldConstraint") bw1.Part0=bb bw1.Part1=bh bw1.Parent=bb
+			local bw2=Instance.new("WeldConstraint") bw2.Part0=bb bw2.Part1=be1 bw2.Parent=bb
+			local bw3=Instance.new("WeldConstraint") bw3.Part0=bb bw3.Part1=be2 bw3.Parent=bb
+
+			-- Give each bunny a random patrol velocity
+			local bvDir = Vector3.new((math.random()-0.5)*2, 0, (math.random()-0.5)*2).Unit
+			local bBV = Instance.new("BodyVelocity")
+			bBV.Velocity = bvDir * (math.random()*4+3)
+			bBV.MaxForce = Vector3.new(1e4,0,1e4) bBV.P=800 bBV.Parent=bb
+
+			table.insert(bunnyParts, bb)
+		end
+
+		-- Bunny damage loop — every 0.1s check proximity to dummies
+		local bunnyDmgAccum = 0
+		local toadSpawnAccum = 0
+		local elapsedDomain  = 0
+		local DOMAIN_DUR     = 15
+		local spawnedLiquidToads = {}
+
+		local csgConn = RunService.Heartbeat:Connect(function(dt)
+			if not domainActive then return end
+			elapsedDomain = elapsedDomain + dt
+			bunnyDmgAccum = bunnyDmgAccum + dt
+			toadSpawnAccum = toadSpawnAccum + dt
+
+			-- Bunny contact damage every 0.1s
+			if bunnyDmgAccum >= 0.1 then
+				bunnyDmgAccum = 0
+				for _, bn in ipairs(bunnyParts) do
+					if not bn.Parent then continue end
+					for _, e in ipairs(spawnedDummies) do
+						if e.humanoid.Health>0 and (bn.Position-e.torso.Position).Magnitude<2.5 then
+							e.humanoid:TakeDamage(5)
+							-- Push dummy away from bunny
+							local pushDir=(e.torso.Position-bn.Position)
+							pushDir=Vector3.new(pushDir.X,0,pushDir.Z)
+							if pushDir.Magnitude>0.01 then
+								local pbv=Instance.new("BodyVelocity") pbv.Velocity=pushDir.Unit*18 pbv.MaxForce=Vector3.new(1e4,0,1e4) pbv.P=3000 pbv.Parent=e.torso
+								Debris:AddItem(pbv, 0.1)
+							end
+						end
+					end
+				end
+
+				-- Also trap any new dummies that walked in
+				for _, e in ipairs(spawnedDummies) do
+					if e.humanoid.Health>0 and not e.frozen and (e.torso.Position-domainCenter).Magnitude<=45 then
+						e.frozen=true e.torso.Anchored=true
+						table.insert(frozenInDomain, e)
+					end
+				end
+			end
+
+			-- Spawn liquid toad every 0.5s
+			if toadSpawnAccum >= 0.5 then
+				toadSpawnAccum = 0
+				local tAngle = math.random()*math.pi*2
+				local tR     = math.random()*35
+				local tPos   = domainCenter+Vector3.new(math.cos(tAngle)*tR, -1, math.sin(tAngle)*tR)
+
+				local ltBody = makePart({Shape=Enum.PartType.Ball, Size=Vector3.new(0.1,0.1,0.1),
+					Position=tPos, Anchored=true, CanCollide=false,
+					Color=Color3.fromRGB(10,10,15), Material=Enum.Material.Neon, Transparency=0.1, Parent=workspace})
+				TweenService:Create(ltBody, TweenInfo.new(0.3,Enum.EasingStyle.Back,Enum.EasingDirection.Out),
+					{Size=Vector3.new(2,1.5,2)}):Play()
+				local ltLight=Instance.new("PointLight") ltLight.Color=Color3.fromRGB(30,200,60) ltLight.Brightness=2 ltLight.Range=8 ltLight.Parent=ltBody
+				table.insert(spawnedLiquidToads, ltBody)
+
+				-- Toad grabs nearest dummy with tongue
+				task.delay(0.4, function()
+					if not ltBody.Parent then return end
+					local nearestE, nearestD = nil, math.huge
+					for _, e in ipairs(spawnedDummies) do
+						if e.humanoid.Health>0 then
+							local d=(ltBody.Position-e.torso.Position).Magnitude
+							if d<nearestD then nearestD=d nearestE=e end
+						end
+					end
+					if nearestE and nearestD<20 then
+						nearestE.humanoid:TakeDamage(10)
+						local tDir=(ltBody.Position-nearestE.torso.Position).Unit
+						local tbv=Instance.new("BodyVelocity") tbv.Velocity=tDir*15 tbv.MaxForce=Vector3.new(1e5,0,1e5) tbv.P=5000 tbv.Parent=nearestE.torso
+						Debris:AddItem(tbv, 0.4)
+						-- Tongue visual
+						local tongLen=(nearestE.torso.Position-ltBody.Position).Magnitude
+						local tong=makePart({Size=Vector3.new(0.18,0.18,tongLen),
+							CFrame=CFrame.new(ltBody.Position, nearestE.torso.Position)*CFrame.new(0,0,-tongLen/2),
+							Anchored=true, CanCollide=false,
+							Color=Color3.fromRGB(30,180,30), Material=Enum.Material.Neon, Transparency=0.2, Parent=workspace})
+						TweenService:Create(tong, TweenInfo.new(0.3), {Transparency=1, Size=Vector3.new(0.05,0.05,tongLen)}):Play()
+						Debris:AddItem(tong, 0.31)
+					end
+					-- Toad vanishes after grabbing
+					TweenService:Create(ltBody, TweenInfo.new(0.4), {Transparency=1, Size=Vector3.new(0.1,0.1,0.1)}):Play()
+					Debris:AddItem(ltBody, 0.41)
+				end)
+			end
+		end)
+
+		-- ── After 15s: domain melts away ──
+		task.delay(DOMAIN_DUR, function()
+			csgConn:Disconnect()
+			shimmerConn:Disconnect()
+
+			-- Melt animation: liquid floor sinks back down
+			TweenService:Create(liquidFloor, TweenInfo.new(2, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
+				{Position=domainCenter+Vector3.new(0,-8,0), Transparency=1}):Play()
+			Debris:AddItem(liquidFloor, 2.1)
+
+			-- Bunnies dissolve into black wisps
+			for _, bn in ipairs(bunnyParts) do
+				if bn and bn.Parent then
+					TweenService:Create(bn, TweenInfo.new(math.random()*0.8+0.4), {Transparency=1, Size=Vector3.new(0.05,0.05,0.05)}):Play()
+					Debris:AddItem(bn, 1.3)
+				end
+			end
+
+			-- Clean up remaining liquid toads
+			for _, lt in ipairs(spawnedLiquidToads) do
+				pcall(function()
+					if lt.Parent then
+						TweenService:Create(lt, TweenInfo.new(0.3), {Transparency=1}):Play()
+						Debris:AddItem(lt, 0.4)
+					end
+				end)
+			end
+
+			-- Dark green mist drip-away particles
+			for i=1,18 do
+				local mPos=domainCenter+Vector3.new(math.random(-20,20),math.random(0,8),math.random(-20,20))
+				local mist=makePart({Shape=Enum.PartType.Ball, Size=Vector3.new(2,2,2),
+					Position=mPos, Anchored=true, CanCollide=false,
+					Color=Color3.fromRGB(10,40,15), Material=Enum.Material.Neon, Transparency=0.4, Parent=workspace})
+				TweenService:Create(mist, TweenInfo.new(1.5),
+					{Position=mPos+Vector3.new(0,-6,0), Transparency=1, Size=Vector3.new(0.2,0.2,0.2)}):Play()
+				Debris:AddItem(mist, 1.6)
+			end
+
+			flashScreen(screenGui, Color3.fromRGB(0,0,0), 0.3, 0.15, 0.7)
+
+			task.delay(0.5, function()
+				for _, e in ipairs(frozenInDomain) do
+					e.frozen=false; pcall(function() e.torso.Anchored=false end)
+				end
+				stopShake()
+				expandFOV(DEFAULT_FOV, 1.5)
+				destroyDomainVisuals()
+				domainActive=false
+			end)
+		end)
+	end)
+end
+
+-- ============================================================
+-- MAHORAGA ABILITIES
+-- ============================================================
+
+-- Track adaptation damage taken
+local function onMahoragaDamaged()
+	adaptationPct = math.min(100, adaptationPct + 5)
+	if adaptationPct >= 100 then
+		adaptationReady = true
+		adaptFill.BackgroundColor3 = Color3.fromRGB(50,255,80)
+	end
+	adaptLabel.Text = "Adaptation: "..math.floor(adaptationPct).."%"..(adaptationReady and " ✓ READY" or "")
+	adaptFill.Size = UDim2.new(adaptationPct/100, 0, 1, 0)
+end
+
+-- ---- SWORD OF EXTERMINATION (M1) ----
+function fireMahoraga_Sword()
+	if isChanneling then return end
+	-- No cooldown for basic attack but no spam guard needed beyond animation
+	if allCooldowns["SwordOfExtermination"] > 0 then return end
+	allCooldowns["SwordOfExtermination"] = 0.6  -- short animation lock
+
+	local target = getNearestDummy()
+	if not target then return end
+
+	-- Sword slash visual: a bright golden arc
+	local swingOrigin = hrp.Position + Vector3.new(0,1.5,0)
+	local dir = (target.torso.Position - swingOrigin).Unit
+
+	-- Sword blade (long thin neon part)
+	local blade = makePart({
+		Size=Vector3.new(0.15, 0.15, 5),
+		CFrame=CFrame.new(swingOrigin, swingOrigin+dir)*CFrame.new(0,0,-2.5),
+		Anchored=true, CanCollide=false,
+		Color=Color3.fromRGB(255,240,120), Material=Enum.Material.Neon,
+		Transparency=0.0, Parent=workspace
+	})
+	local sbl=Instance.new("PointLight") sbl.Color=Color3.fromRGB(255,230,80) sbl.Brightness=5 sbl.Range=12 sbl.Parent=blade
+
+	-- Slash arc particles
+	for ai=1,5 do
+		local arcAngle = (ai/5-0.5)*0.8
+		local arcDir = CFrame.Angles(0,arcAngle,0) * dir
+		local arc=makePart({Size=Vector3.new(0.08,0.08,4),
+			CFrame=CFrame.new(swingOrigin, swingOrigin+arcDir.Position)*CFrame.new(0,0,-2),
+			Anchored=true, CanCollide=false,
+			Color=Color3.fromRGB(255,255,180), Material=Enum.Material.Neon, Transparency=0.3, Parent=workspace})
+		TweenService:Create(arc, TweenInfo.new(0.15), {Transparency=1, Size=Vector3.new(0.04,0.04,5)}):Play()
+		Debris:AddItem(arc, 0.16)
+	end
+
+	-- Hit detection (within 7 studs along blade)
+	for _, e in ipairs(spawnedDummies) do
+		if e.humanoid.Health>0 then
+			local toE = e.torso.Position - swingOrigin
+			local proj = toE:Dot(dir)
+			local perp = (toE - dir*proj).Magnitude
+			if proj>0 and proj<6 and perp<2.5 then
+				e.humanoid:TakeDamage(15)
+				local imp=makePart({Shape=Enum.PartType.Ball, Size=Vector3.new(0.8,0.8,0.8),
+					Position=e.torso.Position, Anchored=true, CanCollide=false,
+					Color=Color3.fromRGB(255,240,80), Material=Enum.Material.Neon, Transparency=0.2, Parent=workspace})
+				TweenService:Create(imp, TweenInfo.new(0.2), {Size=Vector3.new(4,4,4), Transparency=1}):Play()
+				Debris:AddItem(imp, 0.21)
+			end
+		end
+	end
+
+	TweenService:Create(blade, TweenInfo.new(0.15), {Transparency=1}):Play()
+	Debris:AddItem(blade, 0.2)
+end
+
+-- ---- ADAPTATION ----
+function fireMahoraga_Adaptation()
+	if isCooldown("Adaptation") then return end
+	if not adaptationReady then return end  -- need 100% bar
+	startCD("Adaptation", 50)
+	adaptationReady = false
+	adaptationPct   = 0
+	adaptFill.BackgroundColor3 = Color3.fromRGB(80,220,80)
+	adaptLabel.Text = "Adaptation: 0%"
+	adaptFill.Size = UDim2.new(0,0,1,0)
+
+	-- Heal Mahoraga (find mahoragaRef or find the model by name)
+	local mahoModel = workspace:FindFirstChild("Mahoraga")
+	if mahoModel then
+		local mHum = mahoModel:FindFirstChildOfClass("Humanoid")
+		if mHum then mHum.Health = mHum.MaxHealth end
+	end
+	-- Also heal the player character if in Mahoraga mode
+	playerHum.Health = playerHum.MaxHealth
+
+	-- Wheel spin visual around player
+	local wheelCenter2 = hrp.Position + Vector3.new(0,3,0)
+	for si=1,8 do
+		local sAngle = (si/8)*math.pi*2
+		local sPos = wheelCenter2 + Vector3.new(math.cos(sAngle)*3, math.sin(sAngle)*3, 0)
+		local spoke2=makePart({Size=Vector3.new(0.3,2,0.2),
+			Position=sPos, Anchored=true, CanCollide=false,
+			Color=Color3.fromRGB(150,220,100), Material=Enum.Material.Neon, Transparency=0.2, Parent=workspace})
+		local tStart=sAngle
+		TweenService:Create(spoke2, TweenInfo.new(1.5,Enum.EasingStyle.Quad,Enum.EasingDirection.Out),
+			{Size=Vector3.new(0.1,0.1,0.1), Transparency=1,
+			 Position=wheelCenter2+Vector3.new(math.cos(tStart+math.pi)*5, math.sin(tStart+math.pi)*5, 0)}):Play()
+		Debris:AddItem(spoke2, 1.6)
+	end
+
+	-- Green heal flash
+	flashScreen(screenGui, Color3.fromRGB(60,255,100), 0.2, 0.1, 0.5)
+	local healGlow=makePart({Shape=Enum.PartType.Ball, Size=Vector3.new(1,1,1),
+		Position=hrp.Position, Anchored=false, CanCollide=false,
+		Color=Color3.fromRGB(60,255,100), Material=Enum.Material.Neon, Transparency=0.2, Parent=workspace})
+	local hgw=Instance.new("WeldConstraint") hgw.Part0=hrp hgw.Part1=healGlow hgw.Parent=hrp
+	TweenService:Create(healGlow, TweenInfo.new(1), {Size=Vector3.new(8,8,8), Transparency=1}):Play()
+	Debris:AddItem(healGlow, 1.1)
+end
+
+-- ---- DIVINE CRASH ----
+function fireMahoraga_DivineCrash()
+	if isCooldown("DivineCrash") or isChanneling then return end
+	startCD("DivineCrash", 15)
+	isChanneling = true
+
+	local crashPos = getMouseWorldPos()
+	crashPos = Vector3.new(crashPos.X, hrp.Position.Y - 1.5, crashPos.Z)
+
+	-- Yellow shining palm glow on hand (on player)
+	local palmGlow = makePart({Shape=Enum.PartType.Ball, Size=Vector3.new(1.5,1.5,1.5),
+		Position=hrp.Position+Vector3.new(1.5,0,0),
+		Anchored=false, CanCollide=false,
+		Color=Color3.fromRGB(255,230,50), Material=Enum.Material.Neon, Transparency=0.1, Parent=workspace})
+	local palmWeld=Instance.new("BodyPosition") palmWeld.Position=hrp.Position+Vector3.new(1.5,0,0) palmWeld.MaxForce=Vector3.new(0,0,0) palmWeld.Parent=palmGlow
+	local palmLight=Instance.new("PointLight") palmLight.Color=Color3.fromRGB(255,220,30) palmLight.Brightness=8 palmLight.Range=18 palmLight.Parent=palmGlow
+
+	-- Charge particles swirl around palm
+	task.spawn(function()
+		for pi=1,12 do
+			if not palmGlow.Parent then break end
+			local pAngle=(pi/12)*math.pi*2
+			local charge=makePart({Shape=Enum.PartType.Ball, Size=Vector3.new(0.3,0.3,0.3),
+				Position=palmGlow.Position+Vector3.new(math.cos(pAngle)*2, math.sin(pAngle)*2, 0),
+				Anchored=true, CanCollide=false,
+				Color=Color3.fromRGB(255,220,50), Material=Enum.Material.Neon, Transparency=0.2, Parent=workspace})
+			TweenService:Create(charge, TweenInfo.new(0.5), {Position=palmGlow.Position, Transparency=1, Size=Vector3.new(0.05,0.05,0.05)}):Play()
+			Debris:AddItem(charge, 0.55)
+			task.wait(0.04)
+		end
+	end)
+
+	task.wait(0.7)  -- charge time
+
+	-- Slam down: palm glow shoots to crashPos
+	TweenService:Create(palmGlow, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
+		{Position=crashPos+Vector3.new(0,1,0)}):Play()
+	task.wait(0.17)
+	palmGlow:Destroy()
+
+	-- IMPACT
+	startShake(3)
+	task.delay(0.6, stopShake)
+
+	-- Shockwave ring on ground
+	local shockRing=makePart({Shape=Enum.PartType.Cylinder,
+		Size=Vector3.new(0.6,2,2),
+		CFrame=CFrame.new(crashPos)*CFrame.Angles(0,0,math.pi/2),
+		Anchored=true, CanCollide=false,
+		Color=Color3.fromRGB(255,220,50), Material=Enum.Material.Neon, Transparency=0.2, Parent=workspace})
+	TweenService:Create(shockRing, TweenInfo.new(0.5), {Size=Vector3.new(0.6,30,30), Transparency=1}):Play()
+	Debris:AddItem(shockRing, 0.51)
+
+	-- Impact glow burst
+	local burst=makePart({Shape=Enum.PartType.Ball, Size=Vector3.new(2,2,2),
+		Position=crashPos, Anchored=true, CanCollide=false,
+		Color=Color3.fromRGB(255,230,60), Material=Enum.Material.Neon, Transparency=0.1, Parent=workspace})
+	TweenService:Create(burst, TweenInfo.new(0.4), {Size=Vector3.new(16,16,16), Transparency=1}):Play()
+	Debris:AddItem(burst, 0.41)
+
+	-- Debris: broken ground chunks fly out
+	for i=1,18 do
+		local dAngle=math.random()*math.pi*2
+		local dDist=math.random(2,12)
+		local debris=makePart({
+			Size=Vector3.new(math.random(1,3),math.random(1,3),math.random(1,2)),
+			Position=crashPos+Vector3.new(math.cos(dAngle)*dDist, 1, math.sin(dAngle)*dDist),
+			Anchored=false, CanCollide=true,
+			Color=Color3.fromRGB(math.random(60,100),math.random(50,80),math.random(40,60)),
+			Material=Enum.Material.SmoothPlastic, Parent=workspace
+		})
+		local dbv=Instance.new("BodyVelocity")
+		dbv.Velocity=Vector3.new(math.cos(dAngle)*16, math.random(12,22), math.sin(dAngle)*16)
+		dbv.MaxForce=Vector3.new(1e4,1e4,1e4) dbv.P=3000 dbv.Parent=debris
+		Debris:AddItem(dbv, 0.4)
+		Debris:AddItem(debris, 5)
+	end
+
+	-- AOE damage + fling (25 dmg, 20 stud radius)
+	for _, e in ipairs(spawnedDummies) do
+		if e.humanoid.Health>0 and (e.torso.Position-crashPos).Magnitude<=20 then
+			e.humanoid:TakeDamage(25)
+			local fDir=(e.torso.Position-crashPos)
+			fDir=Vector3.new(fDir.X,0,fDir.Z)
+			if fDir.Magnitude<0.1 then fDir=Vector3.new(1,0,0) end
+			fDir=fDir.Unit
+			local fBV=Instance.new("BodyVelocity") fBV.Velocity=fDir*55+Vector3.new(0,30,0) fBV.MaxForce=Vector3.new(1e5,1e5,1e5) fBV.P=1e5 fBV.Parent=e.torso
+			Debris:AddItem(fBV, 0.3)
+		end
+	end
+
+	isChanneling = false
+end
+
+-- ---- CRUSHING GRAB (Coming Soon) ----
+function fireMahoraga_CrushingGrab()
+	local notice=Instance.new("TextLabel")
+	notice.Size=UDim2.new(0,220,0,40) notice.Position=UDim2.new(0.5,-110,0.4,0)
+	notice.BackgroundColor3=Color3.fromRGB(30,20,10) notice.BackgroundTransparency=0.15
+	notice.BorderSizePixel=0 notice.Text="Crushing Grab — Coming Soon"
+	notice.TextColor3=Color3.fromRGB(220,180,100) notice.Font=Enum.Font.GothamBold notice.TextSize=13
+	notice.Parent=screenGui addCorner(notice,8)
+	TweenService:Create(notice, TweenInfo.new(2.2), {TextTransparency=1, BackgroundTransparency=1}):Play()
+	Debris:AddItem(notice, 2.3)
+end
+
+-- ============================================================
 -- SORCERER PANEL + SWITCHING
 -- ============================================================
-local SORCERERS = {"Gojo","Sukuna","Nobara","Megumi","Itadori (Soon)","Nanami (Soon)"}
+local SORCERERS = {"Gojo","Sukuna","Nobara","Megumi","Mahoraga","Itadori (Soon)","Nanami (Soon)"}
 for _, sName in ipairs(SORCERERS) do
 	local isSoon = sName:find("Soon")
 	local b = Instance.new("TextButton")
@@ -2942,6 +3458,23 @@ RunService.Heartbeat:Connect(function(dt)
 	else
 		resonanceBadge.Visible = false
 	end
+
+	-- Adaptation HUD (only shown when Mahoraga is active sorcerer)
+	adaptFrame.Visible = (currentSorcerer == "Mahoraga")
+end)
+
+-- ============================================================
+-- MAHORAGA DAMAGE TRACKING
+-- Hook into player damage events for Adaptation bar.
+-- Since we can't intercept enemy hits directly in LocalScript,
+-- we watch the player's Health each frame and attribute drops.
+-- ============================================================
+local lastPlayerHealth = playerHum.Health
+playerHum.HealthChanged:Connect(function(newHealth)
+	if currentSorcerer == "Mahoraga" and newHealth < lastPlayerHealth then
+		onMahoragaDamaged()
+	end
+	lastPlayerHealth = newHealth
 end)
 
 -- Build initial ability bar for Gojo
