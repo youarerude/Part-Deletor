@@ -80,7 +80,7 @@ local SORCERER_ABILITIES = {
 		{key="RabbitEscape", label="Rabbits",    color=Color3.fromRGB(240,240,240), cd=10},
 		{key="Toad",         label="Toad",       color=Color3.fromRGB(50,140,60),   cd=9},
 		{key="MaxElephant",  label="Elephant",   color=Color3.fromRGB(200,120,160), cd=15},
-		{key="Summon",       label="Summon...",  color=Color3.fromRGB(20,20,40),    cd=999},
+		{key="Summon",       label="Summon...",  color=Color3.fromRGB(20,20,40),    cd=180},
 	},
 }
 
@@ -2272,20 +2272,505 @@ end
 
 -- ---- WITH THIS TREASURE I SUMMON (Coming Soon) ----
 function fireMegumi_Summon()
-	local notice = Instance.new("TextLabel")
-	notice.Size = UDim2.new(0, 260, 0, 44)
-	notice.Position = UDim2.new(0.5, -130, 0.4, 0)
-	notice.BackgroundColor3 = Color3.fromRGB(10,10,40)
-	notice.BackgroundTransparency = 0.15
-	notice.BorderSizePixel = 0
-	notice.Text = "「With This Treasure I Summon...」\n— Coming Soon"
-	notice.TextColor3 = Color3.fromRGB(180,180,255)
-	notice.Font = Enum.Font.GothamBold
-	notice.TextSize = 12
-	notice.Parent = screenGui
-	addCorner(notice, 8)
-	TweenService:Create(notice, TweenInfo.new(2.4), {TextTransparency=1, BackgroundTransparency=1}):Play()
-	Debris:AddItem(notice, 2.5)
+	if isCooldown("Summon") or isChanneling or domainActive then return end
+	startCD("Summon", 180)
+	isChanneling = true
+	domainActive = true
+
+	-- ── Helper: show a dialogue bubble above the player ──
+	local function showDialogue(text, duration)
+		local db = Instance.new("BillboardGui")
+		db.Size = UDim2.new(0, 300, 0, 60)
+		db.StudsOffset = Vector3.new(0, 7, 0)
+		db.AlwaysOnTop = true
+		db.Parent = hrp
+		local dl = Instance.new("TextLabel")
+		dl.Size = UDim2.new(1,0,1,0)
+		dl.BackgroundColor3 = Color3.fromRGB(5,5,15)
+		dl.BackgroundTransparency = 0.25
+		dl.BorderSizePixel = 0
+		dl.Text = text
+		dl.TextColor3 = Color3.fromRGB(220,220,255)
+		dl.Font = Enum.Font.GothamBold
+		dl.TextSize = 14
+		dl.TextWrapped = true
+		dl.Parent = db
+		addCorner(dl, 8)
+		Debris:AddItem(db, duration + 0.1)
+		return db
+	end
+
+	-- ── Helper: a simple neon sphere with a PointLight ──
+	local function glowSphere(pos, color, size, bright, range)
+		local p = makePart({Shape=Enum.PartType.Ball, Size=Vector3.new(size,size,size),
+			Position=pos, Anchored=true, CanCollide=false,
+			Color=color, Material=Enum.Material.Neon, Transparency=0.1, Parent=workspace})
+		local l = Instance.new("PointLight") l.Color=color l.Brightness=bright l.Range=range l.Parent=p
+		return p
+	end
+
+	-- ========== PHASE 1: Freeze + dialogue "With this treasure I summon..." ==========
+	-- Freeze all dummies
+	local frozenForSummon = {}
+	for _, e in ipairs(spawnedDummies) do
+		if e.humanoid.Health > 0 then
+			e.frozen = true
+			e.torso.Anchored = true
+			table.insert(frozenForSummon, e)
+		end
+	end
+
+	-- Freeze player movement
+	local playerAnchor = Instance.new("BodyVelocity")
+	playerAnchor.Velocity = Vector3.new(0,0,0)
+	playerAnchor.MaxForce = Vector3.new(1e5,0,1e5)
+	playerAnchor.P = 1e5
+	playerAnchor.Parent = hrp
+
+	-- Dialogue 0
+	showDialogue("\"With this treasure I summon...\"", 3)
+	task.wait(2)
+
+	-- ========== PHASE 2: Night fog / darkness overlay ==========
+	local nightOverlay = Instance.new("Frame")
+	nightOverlay.Size = UDim2.new(1,0,1,0)
+	nightOverlay.BackgroundColor3 = Color3.fromRGB(0,0,0)
+	nightOverlay.BackgroundTransparency = 1
+	nightOverlay.BorderSizePixel = 0
+	nightOverlay.ZIndex = 18
+	nightOverlay.Parent = screenGui
+
+	TweenService:Create(nightOverlay, TweenInfo.new(2), {BackgroundTransparency=0.35}):Play()
+	task.wait(2)
+
+	-- ========== PHASE 3: Player glow ==========
+	local playerGlow = glowSphere(hrp.Position, Color3.fromRGB(200,220,255), 3, 6, 18)
+	local playerGlowWeld = Instance.new("WeldConstraint")
+	playerGlowWeld.Part0 = hrp
+	playerGlowWeld.Part1 = playerGlow
+	playerGlowWeld.Parent = hrp
+
+	-- Pulsing glow tween loop
+	local glowPulse = true
+	local function pulseGlow()
+		if not glowPulse or not playerGlow.Parent then return end
+		TweenService:Create(playerGlow, TweenInfo.new(0.6), {Size=Vector3.new(4.5,4.5,4.5), Transparency=0.3}):Play()
+		task.delay(0.62, function()
+			if not glowPulse or not playerGlow.Parent then return end
+			TweenService:Create(playerGlow, TweenInfo.new(0.6), {Size=Vector3.new(2.5,2.5,2.5), Transparency=0.05}):Play()
+			task.delay(0.62, pulseGlow)
+		end)
+	end
+	pulseGlow()
+	task.wait(1)
+
+	-- ========== PHASE 4: 5 White Toads surround player ==========
+	local toadParts = {}
+	for i = 1, 5 do
+		local angle = (i / 5) * math.pi * 2
+		local r     = 10
+		local tp    = hrp.Position + Vector3.new(math.cos(angle)*r, -1, math.sin(angle)*r)
+
+		-- Toad body (white)
+		local tb = makePart({Shape=Enum.PartType.Ball, Size=Vector3.new(0.1,0.1,0.1),
+			Position=tp, Anchored=true, CanCollide=false,
+			Color=Color3.fromRGB(240,240,240), Material=Enum.Material.SmoothPlastic, Parent=workspace})
+		local th = makePart({Shape=Enum.PartType.Ball, Size=Vector3.new(0.1,0.1,0.1),
+			Position=tp+Vector3.new(0,2,0), Anchored=true, CanCollide=false,
+			Color=Color3.fromRGB(240,240,240), Material=Enum.Material.SmoothPlastic, Parent=workspace})
+		local te1 = makePart({Shape=Enum.PartType.Ball, Size=Vector3.new(0.1,0.1,0.1),
+			Position=th.Position+Vector3.new(-0.7,1.3,0), Anchored=true, CanCollide=false,
+			Color=Color3.fromRGB(220,240,255), Material=Enum.Material.Neon, Parent=workspace})
+		local te2 = makePart({Shape=Enum.PartType.Ball, Size=Vector3.new(0.1,0.1,0.1),
+			Position=th.Position+Vector3.new(0.7,1.3,0), Anchored=true, CanCollide=false,
+			Color=Color3.fromRGB(220,240,255), Material=Enum.Material.Neon, Parent=workspace})
+		local tw1 = Instance.new("WeldConstraint") tw1.Part0=tb tw1.Part1=th tw1.Parent=tb
+		local tw2 = Instance.new("WeldConstraint") tw2.Part0=tb tw2.Part1=te1 tw2.Parent=tb
+		local tw3 = Instance.new("WeldConstraint") tw3.Part0=tb tw3.Part1=te2 tw3.Parent=tb
+
+		-- Toad light
+		local tl = Instance.new("PointLight") tl.Color=Color3.fromRGB(200,220,255) tl.Brightness=3 tl.Range=12 tl.Parent=tb
+
+		-- Scale-in appear animation
+		TweenService:Create(tb,  TweenInfo.new(0.5,Enum.EasingStyle.Back,Enum.EasingDirection.Out), {Size=Vector3.new(3,2.5,3)}):Play()
+		TweenService:Create(th,  TweenInfo.new(0.5,Enum.EasingStyle.Back,Enum.EasingDirection.Out), {Size=Vector3.new(2,2,2)}):Play()
+		TweenService:Create(te1, TweenInfo.new(0.5,Enum.EasingStyle.Back,Enum.EasingDirection.Out), {Size=Vector3.new(0.7,0.7,0.7)}):Play()
+		TweenService:Create(te2, TweenInfo.new(0.5,Enum.EasingStyle.Back,Enum.EasingDirection.Out), {Size=Vector3.new(0.7,0.7,0.7)}):Play()
+
+		table.insert(toadParts, {tb, th, te1, te2})
+		task.wait(0.18)
+	end
+
+	-- 5 wolves appear behind the toads (further out)
+	local wolfParts = {}
+	for i = 1, 5 do
+		local angle = (i / 5) * math.pi * 2
+		local r     = 16
+		local wp    = hrp.Position + Vector3.new(math.cos(angle)*r, -1, math.sin(angle)*r)
+
+		local wb = makePart({Size=Vector3.new(0.1,0.1,0.1), Position=wp,
+			Anchored=true, CanCollide=false,
+			Color=Color3.fromRGB(50,50,60), Material=Enum.Material.SmoothPlastic, Parent=workspace})
+		local wh = makePart({Shape=Enum.PartType.Ball, Size=Vector3.new(0.1,0.1,0.1),
+			Position=wp+Vector3.new(0,1.6,0.8), Anchored=true, CanCollide=false,
+			Color=Color3.fromRGB(50,50,60), Material=Enum.Material.SmoothPlastic, Parent=workspace})
+		-- Snout
+		local wsn = makePart({Size=Vector3.new(0.1,0.1,0.1),
+			Position=wh.Position+Vector3.new(0,-0.2,0.6), Anchored=true, CanCollide=false,
+			Color=Color3.fromRGB(60,55,65), Material=Enum.Material.SmoothPlastic, Parent=workspace})
+		-- Eyes glow
+		local we1 = makePart({Shape=Enum.PartType.Ball, Size=Vector3.new(0.1,0.1,0.1),
+			Position=wh.Position+Vector3.new(-0.35,0.2,0.5), Anchored=true, CanCollide=false,
+			Color=Color3.fromRGB(255,200,50), Material=Enum.Material.Neon, Parent=workspace})
+		local we2 = makePart({Shape=Enum.PartType.Ball, Size=Vector3.new(0.1,0.1,0.1),
+			Position=wh.Position+Vector3.new(0.35,0.2,0.5), Anchored=true, CanCollide=false,
+			Color=Color3.fromRGB(255,200,50), Material=Enum.Material.Neon, Parent=workspace})
+		local wwh = Instance.new("WeldConstraint") wwh.Part0=wb wwh.Part1=wh wwh.Parent=wb
+		local wwsn = Instance.new("WeldConstraint") wwsn.Part0=wb wwsn.Part1=wsn wwsn.Parent=wb
+		local wwe1 = Instance.new("WeldConstraint") wwe1.Part0=wb wwe1.Part1=we1 wwe1.Parent=wb
+		local wwe2 = Instance.new("WeldConstraint") wwe2.Part0=wb wwe2.Part1=we2 wwe2.Parent=wb
+
+		local wl = Instance.new("PointLight") wl.Color=Color3.fromRGB(255,200,50) wl.Brightness=2 wl.Range=10 wl.Parent=wb
+
+		TweenService:Create(wb,  TweenInfo.new(0.5,Enum.EasingStyle.Back,Enum.EasingDirection.Out), {Size=Vector3.new(2.5,1.8,3.5)}):Play()
+		TweenService:Create(wh,  TweenInfo.new(0.5,Enum.EasingStyle.Back,Enum.EasingDirection.Out), {Size=Vector3.new(1.5,1.5,1.8)}):Play()
+		TweenService:Create(wsn, TweenInfo.new(0.5,Enum.EasingStyle.Back,Enum.EasingDirection.Out), {Size=Vector3.new(0.8,0.6,1.2)}):Play()
+		TweenService:Create(we1, TweenInfo.new(0.5,Enum.EasingStyle.Back,Enum.EasingDirection.Out), {Size=Vector3.new(0.35,0.35,0.35)}):Play()
+		TweenService:Create(we2, TweenInfo.new(0.5,Enum.EasingStyle.Back,Enum.EasingDirection.Out), {Size=Vector3.new(0.35,0.35,0.35)}):Play()
+
+		table.insert(wolfParts, {wb, wh, wsn, we1, we2})
+		task.wait(0.15)
+	end
+
+	task.wait(0.5)
+
+	-- ========== PHASE 5: Mahoraga building animation (behind player) ==========
+	local mahoPos = hrp.Position + hrp.CFrame.LookVector * (-6)
+	local mahoParts = {}
+
+	local function addMahoPart(props)
+		local p = makePart(props)
+		table.insert(mahoParts, p)
+		return p
+	end
+
+	-- Wrapped mummified appearance: start with small parts and grow
+	-- Core body (wrapped in white silk — white material)
+	local mahoBody = addMahoPart({
+		Size=Vector3.new(0.1,0.1,0.1),
+		Position=mahoPos+Vector3.new(0,3,0),
+		Anchored=true, CanCollide=false,
+		Color=Color3.fromRGB(220,215,200), Material=Enum.Material.SmoothPlastic,
+		Parent=workspace
+	})
+	TweenService:Create(mahoBody, TweenInfo.new(0.8,Enum.EasingStyle.Back,Enum.EasingDirection.Out),
+		{Size=Vector3.new(2.5,4,2)}):Play()
+	task.wait(0.3)
+
+	local mahoHead = addMahoPart({
+		Shape=Enum.PartType.Ball, Size=Vector3.new(0.1,0.1,0.1),
+		Position=mahoPos+Vector3.new(0,6,0),
+		Anchored=true, CanCollide=false,
+		Color=Color3.fromRGB(215,210,195), Material=Enum.Material.SmoothPlastic,
+		Parent=workspace
+	})
+	TweenService:Create(mahoHead, TweenInfo.new(0.7,Enum.EasingStyle.Back,Enum.EasingDirection.Out),
+		{Size=Vector3.new(2.2,2.2,2.2)}):Play()
+	task.wait(0.25)
+
+	-- The eight-handled wheel on mahoraga's back (iconic wheel shape)
+	local wheelCenter = addMahoPart({
+		Shape=Enum.PartType.Ball, Size=Vector3.new(0.1,0.1,0.1),
+		Position=mahoPos+Vector3.new(0,4,-1.5),
+		Anchored=true, CanCollide=false,
+		Color=Color3.fromRGB(200,190,170), Material=Enum.Material.SmoothPlastic,
+		Parent=workspace
+	})
+	TweenService:Create(wheelCenter, TweenInfo.new(0.5,Enum.EasingStyle.Back,Enum.EasingDirection.Out),
+		{Size=Vector3.new(0.8,0.8,0.8)}):Play()
+
+	-- 8 spoke handles
+	local wheelSpokes = {}
+	for si=1,8 do
+		local spoke = addMahoPart({
+			Size=Vector3.new(0.2,0.2,0.1),
+			Position=mahoPos+Vector3.new(0,4,-1.5),
+			Anchored=true, CanCollide=false,
+			Color=Color3.fromRGB(180,170,150), Material=Enum.Material.SmoothPlastic,
+			Parent=workspace
+		})
+		local spokeTargetPos = mahoPos + Vector3.new(
+			math.cos((si/8)*math.pi*2)*2.5,
+			4 + math.sin((si/8)*math.pi*2)*2.5,
+			-1.5
+		)
+		TweenService:Create(spoke, TweenInfo.new(0.6,Enum.EasingStyle.Back,Enum.EasingDirection.Out),
+			{Size=Vector3.new(0.25,2.2,0.2), Position=spokeTargetPos}):Play()
+		table.insert(wheelSpokes, spoke)
+		task.wait(0.06)
+	end
+
+	-- Arms (wrapped)
+	local armL = addMahoPart({
+		Size=Vector3.new(0.1,0.1,0.1),
+		Position=mahoPos+Vector3.new(-2,3.5,0),
+		Anchored=true, CanCollide=false,
+		Color=Color3.fromRGB(220,215,200), Material=Enum.Material.SmoothPlastic,
+		Parent=workspace
+	})
+	TweenService:Create(armL, TweenInfo.new(0.6,Enum.EasingStyle.Back,Enum.EasingDirection.Out),
+		{Size=Vector3.new(0.9,3,0.9)}):Play()
+
+	local armR = addMahoPart({
+		Size=Vector3.new(0.1,0.1,0.1),
+		Position=mahoPos+Vector3.new(2,3.5,0),
+		Anchored=true, CanCollide=false,
+		Color=Color3.fromRGB(220,215,200), Material=Enum.Material.SmoothPlastic,
+		Parent=workspace
+	})
+	TweenService:Create(armR, TweenInfo.new(0.6,Enum.EasingStyle.Back,Enum.EasingDirection.Out),
+		{Size=Vector3.new(0.9,3,0.9)}):Play()
+
+	-- Glow on mahoraga
+	local mahoGlow = Instance.new("PointLight")
+	mahoGlow.Color = Color3.fromRGB(200,210,180)
+	mahoGlow.Brightness = 4
+	mahoGlow.Range = 20
+	mahoGlow.Parent = mahoBody
+
+	task.wait(1.2)
+
+	-- ========== PHASE 6: Dialogues ==========
+	-- "Hey Damn bastard"
+	showDialogue("\"Hey... damn bastard.\"", 5)
+	task.wait(4)
+
+	-- "I'll Be Dying First"
+	showDialogue("\"I'll be dying first.\"", 3.5)
+	task.wait(2)
+
+	-- ========== PHASE 7: Mahoraga breaks free from mummified wrapping ==========
+	-- White silk particle burst
+	for i=1,20 do
+		local silkAngle  = math.random()*math.pi*2
+		local silkRadius = math.random()*3
+		local silk = makePart({
+			Size=Vector3.new(math.random()*0.8+0.2, math.random()*0.8+0.2, math.random()*0.2+0.05),
+			Position=mahoPos+Vector3.new(
+				math.cos(silkAngle)*silkRadius, math.random(2,6), math.sin(silkAngle)*silkRadius),
+			Anchored=false, CanCollide=false,
+			Color=Color3.fromRGB(245,245,240), Material=Enum.Material.SmoothPlastic, Transparency=0.1,
+			Parent=workspace
+		})
+		TweenService:Create(silk, TweenInfo.new(1.2), {
+			Transparency=1,
+			Position=silk.Position+Vector3.new(
+				math.cos(silkAngle)*math.random(4,8), math.random(3,10), math.sin(silkAngle)*math.random(4,8))
+		}):Play()
+		Debris:AddItem(silk, 1.3)
+	end
+
+	-- Mahoraga changes color (darker, skin revealed)
+	TweenService:Create(mahoBody, TweenInfo.new(0.5), {Color=Color3.fromRGB(60,55,50)}):Play()
+	TweenService:Create(mahoHead, TweenInfo.new(0.5), {Color=Color3.fromRGB(55,50,45)}):Play()
+	TweenService:Create(armL,     TweenInfo.new(0.5), {Color=Color3.fromRGB(60,55,50)}):Play()
+	TweenService:Create(armR,     TweenInfo.new(0.5), {Color=Color3.fromRGB(60,55,50)}):Play()
+	mahoGlow.Color = Color3.fromRGB(100,180,80)  -- green aura after breaking free
+	mahoGlow.Brightness = 7
+	mahoGlow.Range = 25
+
+	-- Flash screen briefly
+	flashScreen(screenGui, Color3.fromRGB(255,255,255), 0.2, 0.05, 0.3)
+	startShake(1.5)
+	task.delay(0.5, stopShake)
+
+	-- "Let me see your best shot."
+	task.wait(0.3)
+	showDialogue("\"Let me see your best shot.\"", 5)
+	task.wait(1.5)
+
+	-- ========== PHASE 8: Mahoraga slaps/kills player ==========
+	-- Arm swings (armR moves to player position)
+	local slap = TweenService:Create(armR, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
+		{Position=hrp.Position+Vector3.new(0,2,0)})
+	slap:Play()
+	task.wait(0.22)
+
+	-- Impact flash + shake
+	flashScreen(screenGui, Color3.fromRGB(255,100,100), 0.05, 0.05, 0.2)
+	startShake(4)
+	task.delay(0.6, stopShake)
+
+	-- Kill player (set health to 0)
+	playerHum.Health = 0
+
+	-- Remove player movement lock
+	pcall(function() playerAnchor:Destroy() end)
+	glowPulse = false
+	pcall(function() playerGlow:Destroy() end)
+
+	task.wait(0.5)
+
+	-- ========== PHASE 9: Remove cinematic elements ==========
+	-- Fade out night overlay
+	TweenService:Create(nightOverlay, TweenInfo.new(2), {BackgroundTransparency=1}):Play()
+	Debris:AddItem(nightOverlay, 2.1)
+
+	-- Remove toads and wolves
+	for _, group in ipairs(toadParts) do
+		for _, p in ipairs(group) do
+			TweenService:Create(p, TweenInfo.new(0.5), {Transparency=1, Size=Vector3.new(0.1,0.1,0.1)}):Play()
+			Debris:AddItem(p, 0.6)
+		end
+	end
+	for _, group in ipairs(wolfParts) do
+		for _, p in ipairs(group) do
+			TweenService:Create(p, TweenInfo.new(0.5), {Transparency=1, Size=Vector3.new(0.1,0.1,0.1)}):Play()
+			Debris:AddItem(p, 0.6)
+		end
+	end
+
+	task.wait(1)
+
+	-- ========== PHASE 10: Unfreeze dummies, spawn Mahoraga dummy as AI =========
+	for _, e in ipairs(frozenForSummon) do
+		e.frozen = false
+		pcall(function() e.torso.Anchored = false end)
+	end
+	isChanneling = false
+	domainActive = false
+
+	-- Remove mahoraga cinematic parts
+	for _, mp in ipairs(mahoParts) do
+		TweenService:Create(mp, TweenInfo.new(0.8), {Transparency=1}):Play()
+		Debris:AddItem(mp, 0.9)
+	end
+
+	-- Spawn Mahoraga as an autonomous dummy that attacks other dummies
+	local mahoModel   = Instance.new("Model") mahoModel.Name="Mahoraga" mahoModel.Parent=workspace
+
+	local mahoTorso = makePart({
+		Name="HumanoidRootPart",
+		Size=Vector3.new(3.5,4.5,3),
+		Position=mahoPos+Vector3.new(0,3,0),
+		Anchored=false, CanCollide=true,
+		Color=Color3.fromRGB(50,45,40), Material=Enum.Material.SmoothPlastic,
+		Parent=mahoModel
+	})
+	local mahoHeadPart = makePart({
+		Name="Head",
+		Shape=Enum.PartType.Ball,
+		Size=Vector3.new(2.8,2.8,2.8),
+		Position=mahoPos+Vector3.new(0,7,0),
+		Anchored=false, CanCollide=false,
+		Color=Color3.fromRGB(45,40,35), Material=Enum.Material.SmoothPlastic,
+		Parent=mahoModel
+	})
+	local mhw = Instance.new("WeldConstraint") mhw.Part0=mahoTorso mhw.Part1=mahoHeadPart mhw.Parent=mahoTorso
+
+	-- Mahoraga's iconic wheel (decorative, on back)
+	local mwCenter = makePart({Shape=Enum.PartType.Ball, Size=Vector3.new(0.9,0.9,0.9),
+		Position=mahoPos+Vector3.new(0,4.5,-2),
+		Anchored=false, CanCollide=false,
+		Color=Color3.fromRGB(140,130,110), Material=Enum.Material.SmoothPlastic, Parent=mahoModel})
+	local mwcw = Instance.new("WeldConstraint") mwcw.Part0=mahoTorso mwcw.Part1=mwCenter mwcw.Parent=mahoTorso
+	for si=1,8 do
+		local spoke = makePart({
+			Size=Vector3.new(0.25,2.5,0.2),
+			CFrame=CFrame.new(mahoPos+Vector3.new(
+				math.cos((si/8)*math.pi*2)*2.8, 4.5+math.sin((si/8)*math.pi*2)*2.8, -2)),
+			Anchored=false, CanCollide=false,
+			Color=Color3.fromRGB(120,110,90), Material=Enum.Material.SmoothPlastic, Parent=mahoModel})
+		local sw = Instance.new("WeldConstraint") sw.Part0=mahoTorso sw.Part1=spoke sw.Parent=mahoTorso
+	end
+
+	-- Mahoraga glows green
+	local mahoGlow2 = Instance.new("PointLight") mahoGlow2.Color=Color3.fromRGB(80,200,60) mahoGlow2.Brightness=5 mahoGlow2.Range=22 mahoGlow2.Parent=mahoTorso
+
+	-- Billboard name
+	local mahoBB = Instance.new("BillboardGui")
+	mahoBB.Size = UDim2.new(0,120,0,32) mahoBB.StudsOffset=Vector3.new(0,6,0) mahoBB.AlwaysOnTop=true mahoBB.Parent=mahoTorso
+	local mahoLabel = Instance.new("TextLabel")
+	mahoLabel.Size=UDim2.new(1,0,1,0) mahoLabel.BackgroundTransparency=1
+	mahoLabel.Text="⚙ Mahoraga" mahoLabel.TextColor3=Color3.fromRGB(100,240,80)
+	mahoLabel.Font=Enum.Font.GothamBold mahoLabel.TextStrokeTransparency=0 mahoLabel.TextScaled=true mahoLabel.Parent=mahoBB
+
+	-- Humanoid (very high HP — it's Mahoraga)
+	local mahoHum = Instance.new("Humanoid")
+	mahoHum.MaxHealth = 9999
+	mahoHum.Health    = 9999
+	mahoHum.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+	mahoHum.Parent = mahoModel
+
+	mahoModel.PrimaryPart = mahoTorso
+
+	-- HP bar for Mahoraga
+	local mahoBgHp = Instance.new("Frame")
+	mahoBgHp.Size=UDim2.new(0,130,0,12) mahoBgHp.Position=UDim2.new(0,0,0,18)
+	mahoBgHp.BackgroundColor3=Color3.fromRGB(30,30,30) mahoBgHp.BorderSizePixel=0 mahoBgHp.Parent=mahoBB
+	addCorner(mahoBgHp,4)
+	local mahoFillHp = Instance.new("Frame")
+	mahoFillHp.Size=UDim2.new(1,0,1,0)
+	mahoFillHp.BackgroundColor3=Color3.fromRGB(80,220,80) mahoFillHp.BorderSizePixel=0 mahoFillHp.Parent=mahoBgHp
+	addCorner(mahoFillHp,4)
+
+	-- Register Mahoraga as a special AI entry (attacks dummies, not player)
+	local mahoEntry = {
+		grade      = "Mahoraga",
+		model      = mahoModel,
+		humanoid   = mahoHum,
+		torso      = mahoTorso,
+		hpFill     = mahoFillHp,
+		hpNum      = mahoLabel,
+		attackTimer= 0,
+		frozen     = false,
+		isMahoraga = true,
+		gradeData  = {dmg=40, attackRate=1.5, aggroRange=60, speed=22, name="Mahoraga"},
+	}
+	-- Mahoraga AI runs in a separate loop (attacks dummies, not player)
+	local mahoConn
+	mahoConn = RunService.Heartbeat:Connect(function(dt)
+		if not mahoTorso.Parent or mahoHum.Health <= 0 then
+			mahoConn:Disconnect() return
+		end
+		-- Find nearest enemy dummy
+		local nearestEnemy, nearestDist = nil, math.huge
+		for _, e in ipairs(spawnedDummies) do
+			if e.humanoid.Health > 0 then
+				local d = (mahoTorso.Position - e.torso.Position).Magnitude
+				if d < nearestDist then nearestDist=d nearestEnemy=e end
+			end
+		end
+		if nearestEnemy then
+			-- Move toward enemy
+			local moveDir = (nearestEnemy.torso.Position - mahoTorso.Position)
+			if moveDir.Magnitude > 4 then
+				moveDir = moveDir.Unit
+				local bv=Instance.new("BodyVelocity") bv.Velocity=moveDir*22 bv.MaxForce=Vector3.new(1e5,0,1e5) bv.P=3000 bv.Parent=mahoTorso
+				Debris:AddItem(bv, dt+0.03)
+			end
+			-- Attack
+			mahoEntry.attackTimer = mahoEntry.attackTimer + dt
+			if mahoEntry.attackTimer >= 1.5 and nearestDist <= 6 then
+				mahoEntry.attackTimer = 0
+				nearestEnemy.humanoid:TakeDamage(40)
+				-- Slam impact
+				local imp=makePart({Shape=Enum.PartType.Ball, Size=Vector3.new(1,1,1),
+					Position=nearestEnemy.torso.Position, Anchored=true, CanCollide=false,
+					Color=Color3.fromRGB(80,220,60), Material=Enum.Material.Neon, Transparency=0.2, Parent=workspace})
+				TweenService:Create(imp, TweenInfo.new(0.3), {Size=Vector3.new(7,7,7), Transparency=1}):Play()
+				Debris:AddItem(imp, 0.31)
+				-- Knockback
+				local kDir=(nearestEnemy.torso.Position-mahoTorso.Position).Unit
+				local bv2=Instance.new("BodyVelocity") bv2.Velocity=kDir*50+Vector3.new(0,20,0) bv2.MaxForce=Vector3.new(1e5,1e5,1e5) bv2.P=1e5 bv2.Parent=nearestEnemy.torso
+				Debris:AddItem(bv2, 0.25)
+			end
+		end
+		-- Update HP bar
+		local pct2 = mahoHum.Health / mahoHum.MaxHealth
+		mahoFillHp.Size = UDim2.new(math.max(0,pct2),0,1,0)
+		mahoFillHp.BackgroundColor3 = hpColor(pct2)
+	end)
 end
 
 -- ============================================================
