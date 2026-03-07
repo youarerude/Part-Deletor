@@ -48,7 +48,7 @@ local allCooldowns = {
 	-- Mahoraga
 	SwordOfExtermination=0, Adaptation=0, DivineCrash=0, CrushingGrab=0, SlashCircle=0,
 	-- Bullet
-	RapidShooter=0, Intervention=0, MagazineDump=0, BulletGrab=0,
+	RapidShooter=0, Intervention=0, MagazineDump=0, BulletGrab=0, GunMutilation=0,
 }
 
 local blueOrb      = nil
@@ -95,10 +95,11 @@ local SORCERER_ABILITIES = {
 		{key="SlashCircle",           label="360° Slash",  color=Color3.fromRGB(160,200,255), cd=10},
 	},
 	Bullet = {
-		{key="RapidShooter",  label="Rapid Fire",   color=Color3.fromRGB(220,220,80),  cd=15},
-		{key="Intervention",  label="Intervene",    color=Color3.fromRGB(80,180,220),  cd=0},
-		{key="MagazineDump",  label="Mag Dump",     color=Color3.fromRGB(220,120,40),  cd=17},
-		{key="BulletGrab",    label="B.Grab",       color=Color3.fromRGB(140,140,160), cd=999},
+		{key="RapidShooter",   label="Rapid Fire",   color=Color3.fromRGB(220,220,80),  cd=15},
+		{key="Intervention",   label="Intervene",    color=Color3.fromRGB(80,180,220),  cd=0},
+		{key="MagazineDump",   label="Mag Dump",     color=Color3.fromRGB(220,120,40),  cd=17},
+		{key="BulletGrab",     label="B.Grab",       color=Color3.fromRGB(200,180,255), cd=18},
+		{key="GunMutilation",  label="Gun Mutilate", color=Color3.fromRGB(10,5,20),     cd=120},
 	},
 }
 
@@ -440,6 +441,8 @@ local function rebuildAbilityBar(sorcererName)
 			local s = Instance.new("UIStroke") s.Color=Color3.fromRGB(60,180,80) s.Thickness=2 s.Parent=btn
 		elseif ad.key == "Adaptation" then
 			local s = Instance.new("UIStroke") s.Color=Color3.fromRGB(80,220,80) s.Thickness=2 s.Parent=btn
+		elseif ad.key == "GunMutilation" then
+			local s = Instance.new("UIStroke") s.Color=Color3.fromRGB(180,80,255) s.Thickness=2 s.Parent=btn
 		end
 
 		abilityButtons[ad.key] = {btn=btn, overlay=overlay, baseColor=ad.color, cd=ad.cd, label=ad.label}
@@ -483,6 +486,7 @@ local function rebuildAbilityBar(sorcererName)
 				elseif ad.key=="Intervention"  then fireBullet_Intervention()
 				elseif ad.key=="MagazineDump"  then fireBullet_MagazineDump()
 				elseif ad.key=="BulletGrab"    then fireBullet_BulletGrab()
+				elseif ad.key=="GunMutilation" then fireBullet_GunMutilation()
 				end
 			end
 		end
@@ -3830,8 +3834,8 @@ function fireBullet_MagazineDump()
 
 		if accumTime >= SPAWN_RATE then
 			accumTime = 0
-			-- Spawn 3 special bullets per tick, random positions in 30-stud radius
-			for s=1,3 do
+			-- Spawn 6 special bullets per tick, random positions in 30-stud radius
+			for s=1,6 do
 				local rAngle=math.random()*math.pi*2
 				local rDist=math.random()*28
 				local dropX=dumpCenter.X+math.cos(rAngle)*rDist
@@ -3911,16 +3915,406 @@ function fireBullet_MagazineDump()
 	end)
 end
 
--- ---- BULLET GRAB (Coming Soon) ----
+-- ---- BULLET GRAB ----
 function fireBullet_BulletGrab()
-	local notice=Instance.new("TextLabel")
-	notice.Size=UDim2.new(0,200,0,36) notice.Position=UDim2.new(0.5,-100,0.4,0)
-	notice.BackgroundColor3=Color3.fromRGB(15,15,30) notice.BackgroundTransparency=0.15
-	notice.BorderSizePixel=0 notice.Text="Bullet Grab — Coming Soon"
-	notice.TextColor3=Color3.fromRGB(160,200,255) notice.Font=Enum.Font.GothamBold notice.TextSize=13
-	notice.Parent=screenGui addCorner(notice,6)
-	TweenService:Create(notice,TweenInfo.new(2),{TextTransparency=1,BackgroundTransparency=1}):Play()
-	Debris:AddItem(notice,2.1)
+	if isCooldown("BulletGrab") or isChanneling then return end
+	local target = getNearestDummy()
+	if not target then return end
+	startCD("BulletGrab", 18)
+	isChanneling = true
+
+	local grabOrigin = hrp.Position + Vector3.new(0, 1, 0)
+	local targetPos  = target.torso.Position
+
+	-- ── Build the big bullet-hand (palm + 5 finger segments, all made of different special bullets) ──
+	local handParts = {}
+	local function addHandBullet(pos, bt, sz)
+		sz = sz or 0.7
+		local col = BULLET_COLORS[bt] or BULLET_COLORS.Normal
+		local p = makePart({Shape=Enum.PartType.Ball, Size=Vector3.new(sz,sz,sz),
+			Position=pos, Anchored=true, CanCollide=false,
+			Color=col, Material=Enum.Material.Neon, Transparency=0.1, Parent=workspace})
+		local l=Instance.new("PointLight") l.Color=col l.Brightness=2 l.Range=7 l.Parent=p
+		table.insert(handParts, {part=p, btype=bt})
+		return p
+	end
+
+	-- Palm (large cluster)
+	local palmCenter = makePart({Shape=Enum.PartType.Ball, Size=Vector3.new(3.5,3.5,3.5),
+		Position=grabOrigin+Vector3.new(0,0.5,0), Anchored=true, CanCollide=false,
+		Color=Color3.fromRGB(40,40,50), Material=Enum.Material.SmoothPlastic, Transparency=0.3, Parent=workspace})
+	table.insert(handParts, {part=palmCenter, btype=nil})
+
+	-- 50 different special bullets embedded in the hand
+	for i=1,50 do
+		local bt = BULLET_TYPES[math.random(1,#BULLET_TYPES)]
+		local phi   = math.random()*math.pi*2
+		local theta = math.random()*math.pi
+		local r     = math.random()*3 + 0.5
+		local offset= Vector3.new(
+			math.sin(theta)*math.cos(phi)*r,
+			math.sin(theta)*math.sin(phi)*r,
+			math.cos(theta)*r)
+		local sz = math.random()*0.5+0.35
+		addHandBullet(grabOrigin+Vector3.new(0,0.5,0)+offset, bt, sz)
+	end
+
+	-- Fingers (5 elongated bullet clusters pointing toward target)
+	local handDir = (targetPos-grabOrigin)
+	handDir = Vector3.new(handDir.X,0,handDir.Z).Unit
+	local right  = Vector3.new(-handDir.Z,0,handDir.X)
+	local fingerOffsets = {right*-2, right*-1, Vector3.new(0,0.5,0), right*1, right*2}
+	for fi, fo in ipairs(fingerOffsets) do
+		for seg=1,4 do
+			local bt=BULLET_TYPES[math.random(1,#BULLET_TYPES)]
+			local fPos = grabOrigin+Vector3.new(0,0.5,0)+fo + handDir*(seg*1.2) + Vector3.new(0,fi*0.1,0)
+			addHandBullet(fPos, bt, 0.55)
+		end
+	end
+
+	-- ── Animate hand flying toward target ──
+	local travelTime = 0.4
+	local travelElap = 0
+	local startPositions = {}
+	for _, hp in ipairs(handParts) do
+		table.insert(startPositions, hp.part.Position)
+	end
+	local offset = targetPos - grabOrigin
+
+	local flyConn
+	flyConn = RunService.Heartbeat:Connect(function(dt)
+		travelElap = travelElap + dt
+		local t = math.min(travelElap/travelTime, 1)
+		t = t*t*(3-2*t)  -- smoothstep
+		for idx, hp in ipairs(handParts) do
+			if hp.part.Parent then
+				hp.part.Position = startPositions[idx] + offset * t
+			end
+		end
+		if t >= 1 then flyConn:Disconnect() end
+	end)
+
+	task.wait(travelTime + 0.05)
+
+	-- ── Grab: freeze dummy ──
+	target.frozen = true
+	target.torso.Anchored = true
+
+	-- Squeeze animation: hand contracts around dummy
+	for _, hp in ipairs(handParts) do
+		if hp.part.Parent then
+			TweenService:Create(hp.part, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
+				{Position=targetPos}):Play()
+		end
+	end
+	task.wait(0.35)
+
+	-- ── Crush: damage over 1 second ──
+	startShake(2) task.delay(1.2, stopShake)
+	flashScreen(screenGui, Color3.fromRGB(180,80,255), 0.1, 0.1, 0.4)
+
+	for crush=1,5 do
+		task.delay(crush*0.2, function()
+			if target.humanoid.Health > 0 then
+				target.humanoid:TakeDamage(target.humanoid.MaxHealth / 5)  -- kill over 5 ticks
+				local crushFlash=makePart({Shape=Enum.PartType.Ball, Size=Vector3.new(1,1,1),
+					Position=targetPos, Anchored=true, CanCollide=false,
+					Color=Color3.fromRGB(200,100,255), Material=Enum.Material.Neon, Transparency=0.2, Parent=workspace})
+				TweenService:Create(crushFlash,TweenInfo.new(0.15),{Size=Vector3.new(5,5,5),Transparency=1}):Play()
+				Debris:AddItem(crushFlash,0.16)
+			end
+		end)
+	end
+	task.wait(1.1)
+
+	-- ── Explode into 50 random special bullets in random directions ──
+	for i=1,50 do
+		local bt=BULLET_TYPES[math.random(1,#BULLET_TYPES)]
+		local col=BULLET_COLORS[bt]
+		-- Random 3D direction
+		local phi=math.random()*math.pi*2
+		local theta=math.acos(2*math.random()-1)
+		local dir=Vector3.new(math.sin(theta)*math.cos(phi), math.sin(theta)*math.sin(phi), math.cos(theta))
+		local speed=math.random(30,70)
+
+		local eb=makePart({Shape=Enum.PartType.Ball, Size=Vector3.new(0.5,0.5,0.5),
+			Position=targetPos, Anchored=false, CanCollide=false,
+			Color=col, Material=Enum.Material.Neon, Transparency=0.1, Parent=workspace})
+		local el=Instance.new("PointLight") el.Color=col el.Brightness=2 el.Range=6 el.Parent=eb
+		local ebv=Instance.new("BodyVelocity") ebv.Velocity=dir*speed ebv.MaxForce=Vector3.new(1e5,1e5,1e5) ebv.P=1e5 ebv.Parent=eb
+		Debris:AddItem(ebv,0.3)
+
+		-- Each bullet hits nearby dummies as it travels
+		local trav=0; local lastP=targetPos
+		local eConn
+		eConn=RunService.Heartbeat:Connect(function(dt)
+			if not eb.Parent then eConn:Disconnect() return end
+			local newP=eb.Position
+			for _,e in ipairs(spawnedDummies) do
+				if e.humanoid.Health>0 and (newP-e.torso.Position).Magnitude<2 then
+					if bt=="Normal" then e.humanoid:TakeDamage(5)
+					elseif bt=="Homing" then e.humanoid:TakeDamage(18)
+					elseif bt=="Explosive" then
+						e.humanoid:TakeDamage(20)
+						for _,e2 in ipairs(spawnedDummies) do
+							if e2.humanoid.Health>0 and (newP-e2.torso.Position).Magnitude<=10 then
+								if e2~=e then e2.humanoid:TakeDamage(10) end
+								local fd=(e2.torso.Position-newP) fd=Vector3.new(fd.X,0,fd.Z) if fd.Magnitude<0.1 then fd=Vector3.new(1,0,0) end
+								local xbv=Instance.new("BodyVelocity") xbv.Velocity=fd.Unit*40+Vector3.new(0,18,0) xbv.MaxForce=Vector3.new(1e5,1e5,1e5) xbv.P=1e5 xbv.Parent=e2.torso Debris:AddItem(xbv,0.25)
+							end
+						end
+						local xp=makePart({Shape=Enum.PartType.Ball,Size=Vector3.new(1,1,1),Position=newP,Anchored=true,CanCollide=false,Color=BULLET_COLORS.Explosive,Material=Enum.Material.Neon,Transparency=0.1,Parent=workspace})
+						TweenService:Create(xp,TweenInfo.new(0.3),{Size=Vector3.new(9,9,9),Transparency=1}):Play() Debris:AddItem(xp,0.31)
+					elseif bt=="Ice" then
+						e.humanoid:TakeDamage(7); e.frozen=true; e.torso.Anchored=true
+						local ig=makePart({Shape=Enum.PartType.Ball,Size=Vector3.new(3,3,3),Position=e.torso.Position,Anchored=true,CanCollide=false,Color=Color3.fromRGB(120,220,255),Material=Enum.Material.Neon,Transparency=0.4,Parent=workspace})
+						local iw=Instance.new("WeldConstraint") iw.Part0=e.torso iw.Part1=ig iw.Parent=e.torso
+						task.delay(3,function() e.frozen=false pcall(function() e.torso.Anchored=false end) TweenService:Create(ig,TweenInfo.new(0.4),{Transparency=1,Size=Vector3.new(0.1,0.1,0.1)}):Play() Debris:AddItem(ig,0.45) end)
+					elseif bt=="Flame" then
+						e.humanoid:TakeDamage(8); burnTimers[e]=(burnTimers[e] or 0)+8
+					end
+					local hf=makePart({Shape=Enum.PartType.Ball,Size=Vector3.new(0.5,0.5,0.5),Position=newP,Anchored=true,CanCollide=false,Color=col,Material=Enum.Material.Neon,Transparency=0.2,Parent=workspace})
+					TweenService:Create(hf,TweenInfo.new(0.15),{Size=Vector3.new(2.5,2.5,2.5),Transparency=1}):Play() Debris:AddItem(hf,0.16)
+					eConn:Disconnect(); pcall(function() eb:Destroy() end)
+					return
+				end
+			end
+			trav=trav+(newP-lastP).Magnitude; lastP=newP
+			if trav>120 then eConn:Disconnect(); pcall(function() eb:Destroy() end) end
+		end)
+		Debris:AddItem(eb,3)
+	end
+
+	-- Big burst visual
+	local bigBurst=makePart({Shape=Enum.PartType.Ball,Size=Vector3.new(2,2,2),
+		Position=targetPos,Anchored=true,CanCollide=false,
+		Color=Color3.fromRGB(200,150,255),Material=Enum.Material.Neon,Transparency=0.1,Parent=workspace})
+	TweenService:Create(bigBurst,TweenInfo.new(0.5),{Size=Vector3.new(18,18,18),Transparency=1}):Play()
+	Debris:AddItem(bigBurst,0.51)
+	startShake(2.5); task.delay(0.5, stopShake)
+
+	-- Destroy hand parts
+	for _, hp in ipairs(handParts) do
+		if hp.part and hp.part.Parent then
+			TweenService:Create(hp.part,TweenInfo.new(0.1),{Transparency=1}):Play()
+			Debris:AddItem(hp.part,0.15)
+		end
+	end
+
+	-- Unfreeze target if alive
+	target.frozen=false; pcall(function() target.torso.Anchored=false end)
+	isChanneling=false
+end
+
+-- ---- GUN MUTILATION (Domain Expansion) ----
+function fireBullet_GunMutilation()
+	if isCooldown("GunMutilation") or isChanneling or domainActive then return end
+	startCD("GunMutilation", 120)
+	isChanneling = true
+	domainActive = true
+
+	local domCenter = hrp.Position
+
+	-- Standard domain sphere build (dark purple-black tint)
+	buildDomainVisuals(Color3.fromRGB(10,5,20))
+	task.delay(3, function()
+		flashScreen(screenGui, Color3.fromRGB(180,80,255), 0.4, 0.1, 0.6)
+	end)
+	task.delay(3.6, function()
+		startShake(1); expandFOV(92, 1.5)
+		isChanneling = false
+
+		-- ── 50 sentinel bullets orbiting the domain sphere in 3D ──
+		local sentinelBullets = {}
+		local SENTINEL_R = 46
+		for si=1,50 do
+			local bt=BULLET_TYPES[math.random(1,#BULLET_TYPES)]
+			local col=BULLET_COLORS[bt]
+			-- Distribute across sphere surface (up, down, sides)
+			local phi  = (si/50)*math.pi*2
+			local theta= math.acos(2*(si/50)-1)
+			local sp=makePart({Shape=Enum.PartType.Ball,Size=Vector3.new(1.2,1.2,1.2),
+				Position=domCenter+Vector3.new(
+					math.sin(theta)*math.cos(phi)*SENTINEL_R,
+					math.cos(theta)*SENTINEL_R,
+					math.sin(theta)*math.sin(phi)*SENTINEL_R),
+				Anchored=true,CanCollide=false,
+				Color=col,Material=Enum.Material.Neon,Transparency=0.1,Parent=workspace})
+			local sl=Instance.new("PointLight") sl.Color=col sl.Brightness=2 sl.Range=8 sl.Parent=sp
+			table.insert(sentinelBullets,{part=sp,btype=bt,phi=phi,theta=theta,orbitAngle=0})
+		end
+
+		-- ── Rain loop ──
+		local rainElap  = 0
+		local rainAccum = 0
+		local DOMAIN_DUR= 20
+		local sentinelAngle = 0
+
+		local domainConn
+		domainConn = RunService.Heartbeat:Connect(function(dt)
+			if not domainActive then domainConn:Disconnect() return end
+			rainElap  = rainElap  + dt
+			rainAccum = rainAccum + dt
+			sentinelAngle = sentinelAngle + dt * 0.4
+
+			-- Rotate sentinels slowly around domain
+			for si,sb in ipairs(sentinelBullets) do
+				if sb.part and sb.part.Parent then
+					local rotPhi = sb.phi + sentinelAngle
+					sb.part.Position = domCenter + Vector3.new(
+						math.sin(sb.theta)*math.cos(rotPhi)*SENTINEL_R,
+						math.cos(sb.theta)*SENTINEL_R,
+						math.sin(sb.theta)*math.sin(rotPhi)*SENTINEL_R)
+					-- Sentinel fires at any dummy that gets close to domain edge
+					for _,e in ipairs(spawnedDummies) do
+						if e.humanoid.Health>0 and (sb.part.Position-e.torso.Position).Magnitude<5 then
+							local bt=sb.btype
+							if bt=="Normal" then e.humanoid:TakeDamage(5)
+							elseif bt=="Homing" then e.humanoid:TakeDamage(18)
+							elseif bt=="Explosive" then
+								e.humanoid:TakeDamage(20)
+								local xp=makePart({Shape=Enum.PartType.Ball,Size=Vector3.new(1,1,1),Position=sb.part.Position,Anchored=true,CanCollide=false,Color=BULLET_COLORS.Explosive,Material=Enum.Material.Neon,Transparency=0.1,Parent=workspace})
+								TweenService:Create(xp,TweenInfo.new(0.3),{Size=Vector3.new(8,8,8),Transparency=1}):Play() Debris:AddItem(xp,0.31)
+							elseif bt=="Ice" then
+								e.humanoid:TakeDamage(7); e.frozen=true; e.torso.Anchored=true
+								task.delay(2.5,function() e.frozen=false pcall(function() e.torso.Anchored=false end) end)
+							elseif bt=="Flame" then
+								e.humanoid:TakeDamage(8); burnTimers[e]=(burnTimers[e] or 0)+8
+							end
+							-- Reassign to new type after firing
+							sb.btype=BULLET_TYPES[math.random(1,#BULLET_TYPES)]
+							sb.part.Color=BULLET_COLORS[sb.btype]
+						end
+					end
+				end
+			end
+
+			-- Rain 5 bullets every 0.05s
+			if rainAccum >= 0.05 then
+				rainAccum = 0
+				for ri=1,5 do
+					local rAngle=math.random()*math.pi*2
+					local rDist=math.random()*43
+					local rX=domCenter.X+math.cos(rAngle)*rDist
+					local rZ=domCenter.Z+math.sin(rAngle)*rDist
+					local bt=BULLET_TYPES[math.random(1,#BULLET_TYPES)]
+					local col=BULLET_COLORS[bt]
+
+					-- 0.05% chance of big bullet (3x damage)
+					local isBig = (math.random(1,2000) <= 1)
+					local bSize = isBig and 2.5 or 0.7
+					local dmgMul= isBig and 3 or 1
+
+					local rb=makePart({Shape=Enum.PartType.Ball,Size=Vector3.new(bSize,bSize,bSize),
+						Position=Vector3.new(rX,domCenter.Y+35,rZ),
+						Anchored=false,CanCollide=false,
+						Color=col,Material=Enum.Material.Neon,Transparency=(isBig and 0.0 or 0.1),Parent=workspace})
+					if isBig then
+						local bl=Instance.new("PointLight") bl.Color=col bl.Brightness=8 bl.Range=20 bl.Parent=rb
+					end
+					local rbv=Instance.new("BodyVelocity") rbv.Velocity=Vector3.new(0,-65,0) rbv.MaxForce=Vector3.new(0,1e5,0) rbv.P=5000 rbv.Parent=rb
+					Debris:AddItem(rbv,0.65)
+
+					task.delay(0.58, function()
+						if not rb.Parent then return end
+						local lp=rb.Position
+						for _,e in ipairs(spawnedDummies) do
+							if e.humanoid.Health>0 and (e.torso.Position-lp).Magnitude<(isBig and 6 or 3.5) then
+								local dmg = dmgMul
+								if bt=="Normal" then e.humanoid:TakeDamage(5*dmg)
+								elseif bt=="Homing" then e.humanoid:TakeDamage(18*dmg)
+								elseif bt=="Explosive" then
+									e.humanoid:TakeDamage(20*dmg)
+									local xp=makePart({Shape=Enum.PartType.Ball,Size=Vector3.new(1,1,1),Position=lp,Anchored=true,CanCollide=false,Color=BULLET_COLORS.Explosive,Material=Enum.Material.Neon,Transparency=0.1,Parent=workspace})
+									TweenService:Create(xp,TweenInfo.new(0.35),{Size=Vector3.new(isBig and 16 or 9,isBig and 16 or 9,isBig and 16 or 9),Transparency=1}):Play() Debris:AddItem(xp,0.36)
+									for _,e2 in ipairs(spawnedDummies) do
+										if e2.humanoid.Health>0 and (lp-e2.torso.Position).Magnitude<=(isBig and 14 or 10) then
+											if e2~=e then e2.humanoid:TakeDamage(10*dmg) end
+											local fd=(e2.torso.Position-lp) fd=Vector3.new(fd.X,0,fd.Z) if fd.Magnitude<0.1 then fd=Vector3.new(1,0,0) end
+											local xbv=Instance.new("BodyVelocity") xbv.Velocity=fd.Unit*(isBig and 70 or 40)+Vector3.new(0,25,0) xbv.MaxForce=Vector3.new(1e5,1e5,1e5) xbv.P=1e5 xbv.Parent=e2.torso Debris:AddItem(xbv,0.3)
+										end
+									end
+								elseif bt=="Ice" then
+									e.humanoid:TakeDamage(7*dmg); e.frozen=true; e.torso.Anchored=true
+									task.delay(isBig and 6 or 3,function() e.frozen=false pcall(function() e.torso.Anchored=false end) end)
+								elseif bt=="Flame" then
+									e.humanoid:TakeDamage(8*dmg); burnTimers[e]=(burnTimers[e] or 0)+(isBig and 20 or 8)
+								end
+							end
+						end
+						local sp=makePart({Shape=Enum.PartType.Ball,Size=Vector3.new(0.5,0.5,0.5),Position=lp,Anchored=true,CanCollide=false,Color=col,Material=Enum.Material.Neon,Transparency=0.2,Parent=workspace})
+						TweenService:Create(sp,TweenInfo.new(0.2),{Size=Vector3.new(isBig and 4 or 2,isBig and 4 or 2,isBig and 4 or 2),Transparency=1}):Play() Debris:AddItem(sp,0.21)
+						pcall(function() rb:Destroy() end)
+					end)
+				end
+			end
+
+			-- Domain ends after 20s
+			if rainElap >= DOMAIN_DUR then
+				domainConn:Disconnect()
+
+				-- Destroy sentinels
+				for _,sb in ipairs(sentinelBullets) do
+					if sb.part and sb.part.Parent then sb.part:Destroy() end
+				end
+
+				-- ── Post-domain: fire 100 bullets in random directions from domain center ──
+				flashScreen(screenGui, Color3.fromRGB(200,100,255), 0.5, 0.1, 0.8)
+				startShake(3); task.delay(0.7, stopShake)
+				for ei=1,100 do
+					task.delay(ei*0.01, function()
+						local bt=BULLET_TYPES[math.random(1,#BULLET_TYPES)]
+						local col=BULLET_COLORS[bt]
+						local phi2=math.random()*math.pi*2
+						local theta2=math.acos(2*math.random()-1)
+						local dir=Vector3.new(math.sin(theta2)*math.cos(phi2),math.sin(theta2)*math.sin(phi2),math.cos(theta2))
+						local spd=math.random(40,80)
+						local ep=makePart({Shape=Enum.PartType.Ball,Size=Vector3.new(0.6,0.6,0.6),
+							Position=domCenter+Vector3.new(0,2,0),Anchored=false,CanCollide=false,
+							Color=col,Material=Enum.Material.Neon,Transparency=0.05,Parent=workspace})
+						local ebv2=Instance.new("BodyVelocity") ebv2.Velocity=dir*spd ebv2.MaxForce=Vector3.new(1e5,1e5,1e5) ebv2.P=1e5 ebv2.Parent=ep
+						Debris:AddItem(ebv2,0.4)
+						-- Hit check
+						local trav2=0
+						local eConn2
+						eConn2=RunService.Heartbeat:Connect(function(dt2)
+							if not ep.Parent then eConn2:Disconnect() return end
+							for _,e in ipairs(spawnedDummies) do
+								if e.humanoid.Health>0 and (ep.Position-e.torso.Position).Magnitude<2 then
+									if bt=="Normal" then e.humanoid:TakeDamage(5)
+									elseif bt=="Homing" then e.humanoid:TakeDamage(18)
+									elseif bt=="Explosive" then
+										e.humanoid:TakeDamage(20)
+										local xp2=makePart({Shape=Enum.PartType.Ball,Size=Vector3.new(1,1,1),Position=ep.Position,Anchored=true,CanCollide=false,Color=BULLET_COLORS.Explosive,Material=Enum.Material.Neon,Transparency=0.1,Parent=workspace})
+										TweenService:Create(xp2,TweenInfo.new(0.3),{Size=Vector3.new(8,8,8),Transparency=1}):Play() Debris:AddItem(xp2,0.31)
+									elseif bt=="Ice" then
+										e.humanoid:TakeDamage(7); e.frozen=true; e.torso.Anchored=true
+										task.delay(2.5,function() e.frozen=false pcall(function() e.torso.Anchored=false end) end)
+									elseif bt=="Flame" then
+										e.humanoid:TakeDamage(8); burnTimers[e]=(burnTimers[e] or 0)+8
+									end
+									local hf=makePart({Shape=Enum.PartType.Ball,Size=Vector3.new(0.4,0.4,0.4),Position=ep.Position,Anchored=true,CanCollide=false,Color=col,Material=Enum.Material.Neon,Transparency=0.2,Parent=workspace})
+									TweenService:Create(hf,TweenInfo.new(0.15),{Size=Vector3.new(2,2,2),Transparency=1}):Play() Debris:AddItem(hf,0.16)
+									eConn2:Disconnect(); pcall(function() ep:Destroy() end)
+									return
+								end
+							end
+							trav2=trav2+spd*dt2
+							if trav2>130 then eConn2:Disconnect(); pcall(function() ep:Destroy() end) end
+						end)
+						Debris:AddItem(ep,3)
+					end)
+				end
+
+				task.delay(1, function()
+					stopShake()
+					expandFOV(DEFAULT_FOV, 1.5)
+					destroyDomainVisuals()
+					domainActive = false
+				end)
+			end
+		end)
+	end)
 end
 
 -- ============================================================
