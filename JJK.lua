@@ -46,7 +46,7 @@ local allCooldowns = {
 	-- Megumi
 	RabbitEscape=0, Toad=0, MaxElephant=0, Summon=0, ChimeraShadowGarden=0,
 	-- Mahoraga
-	SwordOfExtermination=0, Adaptation=0, DivineCrash=0, CrushingGrab=0,
+	SwordOfExtermination=0, Adaptation=0, DivineCrash=0, CrushingGrab=0, SlashCircle=0,
 }
 
 local blueOrb      = nil
@@ -89,7 +89,8 @@ local SORCERER_ABILITIES = {
 		{key="SwordOfExtermination",  label="⚔ Sword",     color=Color3.fromRGB(200,200,100), cd=0.6},
 		{key="Adaptation",            label="Adaptation",  color=Color3.fromRGB(80,160,80),   cd=50},
 		{key="DivineCrash",           label="D.Crash",     color=Color3.fromRGB(220,180,30),  cd=15},
-		{key="CrushingGrab",          label="C.Grab",      color=Color3.fromRGB(80,40,20),    cd=999},
+		{key="CrushingGrab",          label="C.Grab",      color=Color3.fromRGB(80,40,20),    cd=20},
+		{key="SlashCircle",           label="360° Slash",  color=Color3.fromRGB(160,200,255), cd=10},
 	},
 }
 
@@ -429,6 +430,7 @@ local function rebuildAbilityBar(sorcererName)
 				elseif ad.key=="Adaptation"           then fireMahoraga_Adaptation()
 				elseif ad.key=="DivineCrash"          then fireMahoraga_DivineCrash()
 				elseif ad.key=="CrushingGrab"         then fireMahoraga_CrushingGrab()
+				elseif ad.key=="SlashCircle"          then fireMahoraga_SlashCircle()
 				end
 			end
 		end
@@ -2790,8 +2792,14 @@ function fireMegumi_Summon()
 	}
 
 	-- ── PLAYER TAKES CONTROL OF MAHORAGA ──
-	-- Store global reference so Mahoraga abilities can find the body
 	mahoragaRef = { torso = mahoTorso, humanoid = mahoHum }
+
+	-- BodyGyro keeps Mahoraga upright and facing movement direction
+	local mahoBodyGyro = Instance.new("BodyGyro")
+	mahoBodyGyro.MaxTorque = Vector3.new(0, 1e5, 0)
+	mahoBodyGyro.P = 8000
+	mahoBodyGyro.CFrame = mahoTorso.CFrame
+	mahoBodyGyro.Parent = mahoTorso
 
 	-- Switch sorcerer to Mahoraga and rebuild ability bar
 	currentSorcerer = "Mahoraga"
@@ -2814,47 +2822,35 @@ function fireMegumi_Summon()
 	TweenService:Create(takeoverNotice, TweenInfo.new(3), {TextTransparency=1, BackgroundTransparency=1}):Play()
 	Debris:AddItem(takeoverNotice, 3.1)
 
-	-- Mahoraga movement: override player input — move mahoTorso with WASD/thumbstick
-	-- We attach a BodyGyro + BodyPosition to mahoTorso and drive them from input
-	local mahoBodyPos = Instance.new("BodyPosition")
-	mahoBodyPos.MaxForce = Vector3.new(1e5,1e5,1e5)
-	mahoBodyPos.P = 5000
-	mahoBodyPos.D = 500
-	mahoBodyPos.Position = mahoTorso.Position
-	mahoBodyPos.Parent = mahoTorso
-
-	local mahoBodyGyro = Instance.new("BodyGyro")
-	mahoBodyGyro.MaxTorque = Vector3.new(1e5,1e5,1e5)
-	mahoBodyGyro.P = 8000
-	mahoBodyGyro.CFrame = mahoTorso.CFrame
-	mahoBodyGyro.Parent = mahoTorso
-
-	-- Camera follows Mahoraga
+	-- Mahoraga movement: mirrors the player character's actual movement vector
+	-- We use a BodyVelocity each frame so Mahoraga slides exactly where the player walks
 	local mahoMoveConn = RunService.Heartbeat:Connect(function(dt)
 		if not mahoTorso.Parent or mahoHum.Health <= 0 then
 			mahoMoveConn:Disconnect() return
 		end
 
-		-- Move camera to follow mahoTorso
+		-- Camera follows Mahoraga from behind/above
 		camera.CameraType = Enum.CameraType.Scriptable
-		local camOffset = Vector3.new(0, 12, 22)
-		camera.CFrame = CFrame.new(mahoTorso.Position + camOffset, mahoTorso.Position + Vector3.new(0,2,0))
+		local camOffset = Vector3.new(0, 14, 24)
+		camera.CFrame = CFrame.new(mahoTorso.Position + camOffset, mahoTorso.Position + Vector3.new(0,3,0))
 
-		-- Read movement input
-		local moveVec = Vector3.new(0,0,0)
-		if UserInputService:IsKeyDown(Enum.KeyCode.W) or UserInputService:IsKeyDown(Enum.KeyCode.Up)    then moveVec = moveVec + Vector3.new(0,0,-1) end
-		if UserInputService:IsKeyDown(Enum.KeyCode.S) or UserInputService:IsKeyDown(Enum.KeyCode.Down)  then moveVec = moveVec + Vector3.new(0,0, 1) end
-		if UserInputService:IsKeyDown(Enum.KeyCode.A) or UserInputService:IsKeyDown(Enum.KeyCode.Left)  then moveVec = moveVec + Vector3.new(-1,0,0) end
-		if UserInputService:IsKeyDown(Enum.KeyCode.D) or UserInputService:IsKeyDown(Enum.KeyCode.Right) then moveVec = moveVec + Vector3.new( 1,0,0) end
+		-- Mirror the player character's MoveDirection (already in world space, flat XZ)
+		local playerChar = Players.LocalPlayer.Character
+		local playerHumObj = playerChar and playerChar:FindFirstChildOfClass("Humanoid")
+		local moveDir = (playerHumObj and playerHumObj.MoveDirection) or Vector3.zero
 
-		local MAHORAGA_SPEED = 22
-		if moveVec.Magnitude > 0 then
-			moveVec = moveVec.Unit
-			mahoBodyPos.Position = mahoTorso.Position + moveVec * MAHORAGA_SPEED * dt * 8
-			-- Face movement direction
-			mahoBodyGyro.CFrame = CFrame.new(mahoTorso.Position, mahoTorso.Position + moveVec)
-		else
-			mahoBodyPos.Position = mahoTorso.Position  -- hold in place
+		local MAHORAGA_SPEED = 24
+		local bv = Instance.new("BodyVelocity")
+		bv.Velocity    = moveDir * MAHORAGA_SPEED
+		bv.MaxForce    = Vector3.new(1e5, 0, 1e5)
+		bv.P           = 6000
+		bv.Parent      = mahoTorso
+		Debris:AddItem(bv, dt + 0.02)
+
+		-- Face movement direction when moving
+		if moveDir.Magnitude > 0.1 then
+			local targetCF = CFrame.new(mahoTorso.Position, mahoTorso.Position + moveDir)
+			mahoBodyGyro.CFrame = targetCF
 		end
 
 		-- Update player HP bar to show Mahoraga's HP instead
@@ -3329,14 +3325,317 @@ end
 
 -- ---- CRUSHING GRAB (Coming Soon) ----
 function fireMahoraga_CrushingGrab()
-	local notice=Instance.new("TextLabel")
-	notice.Size=UDim2.new(0,220,0,40) notice.Position=UDim2.new(0.5,-110,0.4,0)
-	notice.BackgroundColor3=Color3.fromRGB(30,20,10) notice.BackgroundTransparency=0.15
-	notice.BorderSizePixel=0 notice.Text="Crushing Grab — Coming Soon"
-	notice.TextColor3=Color3.fromRGB(220,180,100) notice.Font=Enum.Font.GothamBold notice.TextSize=13
-	notice.Parent=screenGui addCorner(notice,8)
-	TweenService:Create(notice, TweenInfo.new(2.2), {TextTransparency=1, BackgroundTransparency=1}):Play()
-	Debris:AddItem(notice, 2.3)
+	if isCooldown("CrushingGrab") or isChanneling then return end
+	if not mahoragaRef or not mahoragaRef.torso.Parent then return end
+	startCD("CrushingGrab", 20)
+	isChanneling = true
+
+	local mahoBody = mahoragaRef.torso
+	local grabCenter = mahoBody.Position + Vector3.new(0, 0.5, 0)
+
+	-- ── Phase 1: Scoop ground animation ──
+	-- Hand plunges down briefly
+	local handGlow = makePart({Shape=Enum.PartType.Ball, Size=Vector3.new(2,2,2),
+		Position=grabCenter+Vector3.new(0,2,0), Anchored=true, CanCollide=false,
+		Color=Color3.fromRGB(80,60,40), Material=Enum.Material.SmoothPlastic, Parent=workspace})
+	TweenService:Create(handGlow, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
+		{Position=grabCenter+Vector3.new(0,-1.5,0)}):Play()
+	task.wait(0.28)
+
+	startShake(1.5)
+	task.delay(0.3, stopShake)
+
+	-- ── Phase 2: Build the debris ball ──
+	-- Core ball (grows from nothing)
+	local ball = makePart({Shape=Enum.PartType.Ball, Size=Vector3.new(0.5,0.5,0.5),
+		Position=grabCenter+Vector3.new(0,2,0), Anchored=true, CanCollide=false,
+		Color=Color3.fromRGB(70,60,50), Material=Enum.Material.SmoothPlastic, Parent=workspace})
+	TweenService:Create(ball, TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+		{Size=Vector3.new(6,6,6)}):Play()
+	local ballLight=Instance.new("PointLight") ballLight.Color=Color3.fromRGB(120,90,60) ballLight.Brightness=3 ballLight.Range=14 ballLight.Parent=ball
+
+	-- Debris chunks orbit into the ball
+	local orbitParts = {}
+	for i=1,20 do
+		local ang  = (i/20)*math.pi*2
+		local dist = math.random(5,12)
+		local oPos = grabCenter + Vector3.new(math.cos(ang)*dist, math.random(-2,3), math.sin(ang)*dist)
+		local od   = makePart({
+			Size=Vector3.new(math.random(1,3),math.random(1,2),math.random(1,2)),
+			Position=oPos, Anchored=true, CanCollide=false,
+			Color=Color3.fromRGB(math.random(60,100),math.random(50,80),math.random(40,70)),
+			Material=Enum.Material.SmoothPlastic, Parent=workspace
+		})
+		TweenService:Create(od, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
+			{Position=grabCenter+Vector3.new(0,2,0), Size=Vector3.new(0.5,0.5,0.5)}):Play()
+		Debris:AddItem(od, 0.55)
+		table.insert(orbitParts, od)
+	end
+
+	-- Also check for dummies close enough to get sucked in
+	local trappedDummies = {}
+	for _, e in ipairs(spawnedDummies) do
+		if e.humanoid.Health > 0 and (e.torso.Position - grabCenter).Magnitude <= 10 then
+			table.insert(trappedDummies, e)
+			e.frozen = true
+			-- Tween them into the ball
+			TweenService:Create(e.torso, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
+				{Position=grabCenter+Vector3.new(0,2,0)}):Play()
+		end
+	end
+	handGlow:Destroy()
+	task.wait(0.55)
+
+	-- Weld trapped dummies to ball
+	for _, e in ipairs(trappedDummies) do
+		if e.torso and e.torso.Parent then
+			e.torso.Anchored = false
+			local dw = Instance.new("WeldConstraint") dw.Part0=ball dw.Part1=e.torso dw.Parent=ball
+		end
+	end
+
+	-- ── Phase 3: Ball floats near Mahoraga, waiting for throw click ──
+	ball.Anchored = false
+	local ballBP = Instance.new("BodyPosition")
+	ballBP.Position = mahoBody.Position + Vector3.new(0,3,4)
+	ballBP.MaxForce = Vector3.new(1e5,1e5,1e5) ballBP.P=3000 ballBP.D=200 ballBP.Parent=ball
+
+	local ballFloatConn = RunService.Heartbeat:Connect(function()
+		if not ball.Parent then return end
+		if not mahoBody.Parent then return end
+		ballBP.Position = mahoBody.Position + Vector3.new(0,3,4)
+	end)
+
+	-- Show throw prompt
+	local throwHint=Instance.new("TextLabel")
+	throwHint.Size=UDim2.new(0,200,0,32) throwHint.Position=UDim2.new(0.5,-100,0.25,0)
+	throwHint.BackgroundColor3=Color3.fromRGB(20,15,10) throwHint.BackgroundTransparency=0.2
+	throwHint.BorderSizePixel=0 throwHint.Text="🪨 Click to THROW"
+	throwHint.TextColor3=Color3.fromRGB(220,180,100) throwHint.Font=Enum.Font.GothamBold throwHint.TextSize=13
+	throwHint.Parent=screenGui addCorner(throwHint,8)
+
+	isChanneling = false  -- allow the throw click to happen
+
+	-- Wait for click/tap to throw
+	local throwConn
+	local function doThrow(throwTarget)
+		if not ball.Parent then return end
+		throwConn:Disconnect()
+		throwHint:Destroy()
+		ballFloatConn:Disconnect()
+
+		-- Throw direction: from ball to click point, flat
+		local throwDir = (throwTarget - ball.Position)
+		throwDir = Vector3.new(throwDir.X, 0, throwDir.Z)
+		if throwDir.Magnitude < 0.1 then throwDir = mahoBody.CFrame.LookVector end
+		throwDir = throwDir.Unit
+
+		ballBP:Destroy()
+		ball.Anchored = false
+		local throwBV = Instance.new("BodyVelocity")
+		throwBV.Velocity = throwDir * 80 + Vector3.new(0, 10, 0)
+		throwBV.MaxForce = Vector3.new(1e5,1e5,1e5) throwBV.P=1e5 throwBV.Parent=ball
+		Debris:AddItem(throwBV, 0.4)
+
+		local hasExploded = false
+		local function explodeBall(explPos)
+			if hasExploded then return end
+			hasExploded = true
+
+			-- BIG explosion
+			startShake(3) task.delay(0.6, stopShake)
+			local expl=makePart({Shape=Enum.PartType.Ball, Size=Vector3.new(2,2,2),
+				Position=explPos, Anchored=true, CanCollide=false,
+				Color=Color3.fromRGB(200,140,60), Material=Enum.Material.Neon, Transparency=0.1, Parent=workspace})
+			TweenService:Create(expl, TweenInfo.new(0.5), {Size=Vector3.new(18,18,18), Transparency=1}):Play()
+			Debris:AddItem(expl, 0.51)
+
+			-- Debris shards fly everywhere
+			for i=1,22 do
+				local sAng=math.random()*math.pi*2
+				local sd=makePart({
+					Size=Vector3.new(math.random(1,3),math.random(1,2),math.random(1,2)),
+					Position=explPos, Anchored=false, CanCollide=true,
+					Color=Color3.fromRGB(math.random(60,110),math.random(50,80),math.random(40,60)),
+					Material=Enum.Material.SmoothPlastic, Parent=workspace})
+				local sbv=Instance.new("BodyVelocity")
+				sbv.Velocity=Vector3.new(math.cos(sAng)*math.random(15,30), math.random(10,25), math.sin(sAng)*math.random(15,30))
+				sbv.MaxForce=Vector3.new(1e4,1e4,1e4) sbv.P=3000 sbv.Parent=sd
+				Debris:AddItem(sbv, 0.4) Debris:AddItem(sd, 4)
+			end
+
+			-- Damage nearby dummies (hit by ball on landing)
+			for _, e in ipairs(spawnedDummies) do
+				if e.humanoid.Health > 0 and (e.torso.Position - explPos).Magnitude <= 14 then
+					e.humanoid:TakeDamage(20)
+					local fDir=(e.torso.Position-explPos)
+					fDir=Vector3.new(fDir.X,0,fDir.Z)
+					if fDir.Magnitude<0.1 then fDir=Vector3.new(1,0,0) end
+					local fBV=Instance.new("BodyVelocity") fBV.Velocity=fDir.Unit*50+Vector3.new(0,28,0) fBV.MaxForce=Vector3.new(1e5,1e5,1e5) fBV.P=1e5 fBV.Parent=e.torso
+					Debris:AddItem(fBV, 0.3)
+				end
+			end
+
+			-- Trapped dummies also explode out
+			for _, e in ipairs(trappedDummies) do
+				if e.humanoid.Health > 0 then
+					e.frozen = false
+					pcall(function() e.torso.Anchored=false end)
+					e.humanoid:TakeDamage(30)  -- extra damage for being trapped
+					local fDir2=(e.torso.Position-explPos)
+					fDir2=Vector3.new(fDir2.X,0,fDir2.Z)
+					if fDir2.Magnitude<0.1 then fDir2=Vector3.new(1,0,0) end
+					local fBV2=Instance.new("BodyVelocity") fBV2.Velocity=fDir2.Unit*65+Vector3.new(0,38,0) fBV2.MaxForce=Vector3.new(1e5,1e5,1e5) fBV2.P=1e5 fBV2.Parent=e.torso
+					Debris:AddItem(fBV2, 0.35)
+				end
+			end
+
+			pcall(function() ball:Destroy() end)
+		end
+
+		-- Damage dummies the ball flies through in transit
+		local travelConn
+		travelConn = RunService.Heartbeat:Connect(function()
+			if not ball.Parent or hasExploded then travelConn:Disconnect() return end
+			for _, e in ipairs(spawnedDummies) do
+				if e.humanoid.Health > 0 and (ball.Position - e.torso.Position).Magnitude < 4.5 then
+					-- Dummy hit mid-flight → deal damage, check if trapped
+					local isTrap = false
+					for _, td in ipairs(trappedDummies) do if td==e then isTrap=true break end end
+					if isTrap then
+						-- Trapped dummy hit → explode
+						explodeBall(ball.Position)
+						travelConn:Disconnect()
+						return
+					else
+						e.humanoid:TakeDamage(15)
+						local fDir=(e.torso.Position-ball.Position)
+						fDir=Vector3.new(fDir.X,0,fDir.Z)
+						if fDir.Magnitude<0.1 then fDir=Vector3.new(1,0,0) end
+						local fBV=Instance.new("BodyVelocity") fBV.Velocity=fDir.Unit*40+Vector3.new(0,20,0) fBV.MaxForce=Vector3.new(1e5,1e5,1e5) fBV.P=1e5 fBV.Parent=e.torso
+						Debris:AddItem(fBV, 0.25)
+					end
+				end
+			end
+		end)
+
+		-- Explode on landing (touched ground or after 3s)
+		ball.Touched:Connect(function(hit)
+			if not hasExploded and hit.Parent ~= workspace:FindFirstChild("Mahoraga") and not hit:IsDescendantOf(character) then
+				-- Only trigger on actual floor/walls, not parts we own
+				if hit.Anchored or hit.Parent == workspace then
+					explodeBall(ball.Position)
+				end
+			end
+		end)
+		task.delay(3, function() explodeBall(ball.Position) end)
+	end
+
+	throwConn = UserInputService.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1
+		or input.UserInputType == Enum.UserInputType.Touch then
+			doThrow(getMouseWorldPos())
+		end
+	end)
+
+	-- Auto-throw after 5 seconds if player doesn't click
+	task.delay(5, function()
+		if ball.Parent and not ball:FindFirstChild("BodyVelocity") then
+			if throwConn then throwConn:Disconnect() end
+			if throwHint and throwHint.Parent then throwHint:Destroy() end
+			ballFloatConn:Disconnect()
+			local fwd = mahoBody.CFrame.LookVector
+			doThrow(mahoBody.Position + fwd * 30)
+		end
+	end)
+end
+
+-- ---- 360° SLASH ----
+function fireMahoraga_SlashCircle()
+	if isCooldown("SlashCircle") or isChanneling then return end
+	if not mahoragaRef or not mahoragaRef.torso.Parent then return end
+	startCD("SlashCircle", 10)
+
+	local mahoBody = mahoragaRef.torso
+	local origin = mahoBody.Position + Vector3.new(0, 1.5, 0)
+
+	-- Spin-up visual: ring flash around Mahoraga
+	local spinRing = makePart({Shape=Enum.PartType.Cylinder,
+		Size=Vector3.new(0.4, 2, 2),
+		CFrame=CFrame.new(origin)*CFrame.Angles(0,0,math.pi/2),
+		Anchored=true, CanCollide=false,
+		Color=Color3.fromRGB(160,220,255), Material=Enum.Material.Neon, Transparency=0.3, Parent=workspace})
+	TweenService:Create(spinRing, TweenInfo.new(0.3), {Size=Vector3.new(0.4,22,22), Transparency=1}):Play()
+	Debris:AddItem(spinRing, 0.35)
+	startShake(0.8) task.delay(0.25, stopShake)
+
+	-- Launch 10 slash projectiles in random directions 0-360°
+	for i=1,10 do
+		local angle = math.random() * math.pi * 2  -- fully random 0-2π
+		local dir   = Vector3.new(math.cos(angle), 0, math.sin(angle))
+
+		-- Stagger launches slightly
+		task.delay(i * 0.04, function()
+			if not mahoBody.Parent then return end
+
+			local slashLen  = 3.5
+			local slashPart = makePart({
+				Size=Vector3.new(0.12, 0.12, slashLen),
+				CFrame=CFrame.new(origin, origin+dir)*CFrame.new(0,0,-slashLen/2),
+				Anchored=true, CanCollide=false,
+				Color=Color3.fromRGB(200,230,255), Material=Enum.Material.Neon,
+				Transparency=0.05, Parent=workspace
+			})
+			local sl=Instance.new("PointLight") sl.Color=Color3.fromRGB(180,220,255) sl.Brightness=3 sl.Range=8 sl.Parent=slashPart
+
+			local traveled=0
+			local speed=95
+			local lastProjPos=origin
+			local slashHitConn
+			slashHitConn = RunService.Heartbeat:Connect(function(dt)
+				if not slashPart.Parent then slashHitConn:Disconnect() return end
+				local move = speed * dt
+				local newPos = lastProjPos + dir * move
+				slashPart.CFrame = CFrame.new(newPos, newPos+dir) * CFrame.new(0,0,-slashLen/2)
+				lastProjPos = newPos
+				traveled = traveled + move
+
+				-- Hit detection along the slash
+				for _, e in ipairs(spawnedDummies) do
+					if e.humanoid.Health>0 then
+						local toE=(e.torso.Position-newPos)
+						local proj=toE:Dot(dir)
+						local perp=(toE-dir*proj).Magnitude
+						if proj>-1 and proj<slashLen+1 and perp<2.2 then
+							e.humanoid:TakeDamage(18)
+							-- Slash impact
+							local imp=makePart({Shape=Enum.PartType.Ball, Size=Vector3.new(0.6,0.6,0.6),
+								Position=e.torso.Position, Anchored=true, CanCollide=false,
+								Color=Color3.fromRGB(180,230,255), Material=Enum.Material.Neon, Transparency=0.2, Parent=workspace})
+							TweenService:Create(imp, TweenInfo.new(0.2), {Size=Vector3.new(4,4,4), Transparency=1}):Play()
+							Debris:AddItem(imp, 0.21)
+							-- Knockback along slash dir
+							local kBV=Instance.new("BodyVelocity") kBV.Velocity=dir*35+Vector3.new(0,12,0) kBV.MaxForce=Vector3.new(1e5,1e5,1e5) kBV.P=1e5 kBV.Parent=e.torso
+							Debris:AddItem(kBV, 0.2)
+							slashHitConn:Disconnect()
+							TweenService:Create(slashPart, TweenInfo.new(0.1), {Transparency=1}):Play()
+							Debris:AddItem(slashPart, 0.11)
+							return
+						end
+					end
+				end
+
+				-- Fade trail
+				slashPart.Transparency = math.min(0.9, traveled/60)
+
+				if traveled > 60 then
+					slashHitConn:Disconnect()
+					TweenService:Create(slashPart, TweenInfo.new(0.15), {Transparency=1}):Play()
+					Debris:AddItem(slashPart, 0.16)
+				end
+			end)
+		end)
+	end
 end
 
 -- ============================================================
@@ -3373,28 +3672,44 @@ end)
 -- ============================================================
 local function runAggroAI(entry, dt)
 	if entry.frozen or entry.humanoid.Health<=0 then return end
-	local gd   = entry.gradeData
-	local dist = (entry.torso.Position-hrp.Position).Magnitude
+	local gd = entry.gradeData
 
-	if dist<=gd.aggroRange then
-		local moveDir=(hrp.Position-entry.torso.Position)
-		if moveDir.Magnitude>3.5 then
-			moveDir=moveDir.Unit
-			local bv=Instance.new("BodyVelocity")
-			bv.Velocity=moveDir*gd.speed
-			bv.MaxForce=Vector3.new(1e5,0,1e5) bv.P=2000 bv.Parent=entry.torso
+	-- Target Mahoraga when player controls it, otherwise target the player
+	local targetPos, targetHum, targetHpFill, targetMaxHp
+	if mahoragaRef and mahoragaRef.torso.Parent and mahoragaRef.humanoid.Health > 0 then
+		targetPos    = mahoragaRef.torso.Position
+		targetHum    = mahoragaRef.humanoid
+		targetHpFill = nil  -- Mahoraga HP bar handled separately
+		targetMaxHp  = mahoragaRef.humanoid.MaxHealth
+	else
+		targetPos    = hrp.Position
+		targetHum    = playerHum
+		targetHpFill = playerHpFill
+		targetMaxHp  = playerHum.MaxHealth
+	end
+
+	local dist = (entry.torso.Position - targetPos).Magnitude
+	if dist <= gd.aggroRange then
+		local moveDir = (targetPos - entry.torso.Position)
+		if moveDir.Magnitude > 3.5 then
+			moveDir = moveDir.Unit
+			local bv = Instance.new("BodyVelocity")
+			bv.Velocity   = moveDir * gd.speed
+			bv.MaxForce   = Vector3.new(1e5,0,1e5) bv.P=2000 bv.Parent=entry.torso
 			Debris:AddItem(bv, dt+0.03)
 		end
-		entry.attackTimer=(entry.attackTimer or 0)+dt
-		if entry.attackTimer>=gd.attackRate and dist<=5.5 then
-			entry.attackTimer=0
-			playerHum:TakeDamage(gd.dmg)
-			playerHpFill.BackgroundColor3=Color3.fromRGB(255,70,70)
-			task.delay(0.25, function()
-				playerHpFill.BackgroundColor3=hpColor(playerHum.Health/playerHum.MaxHealth)
-			end)
-		elseif dist>5.5 then
-			entry.attackTimer=0
+		entry.attackTimer = (entry.attackTimer or 0) + dt
+		if entry.attackTimer >= gd.attackRate and dist <= 5.5 then
+			entry.attackTimer = 0
+			targetHum:TakeDamage(gd.dmg)
+			if targetHpFill then
+				targetHpFill.BackgroundColor3 = Color3.fromRGB(255,70,70)
+				task.delay(0.25, function()
+					targetHpFill.BackgroundColor3 = hpColor(targetHum.Health/targetMaxHp)
+				end)
+			end
+		elseif dist > 5.5 then
+			entry.attackTimer = 0
 		end
 	end
 end
