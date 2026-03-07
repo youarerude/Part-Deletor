@@ -47,6 +47,8 @@ local allCooldowns = {
 	RabbitEscape=0, Toad=0, MaxElephant=0, Summon=0, ChimeraShadowGarden=0,
 	-- Mahoraga
 	SwordOfExtermination=0, Adaptation=0, DivineCrash=0, CrushingGrab=0, SlashCircle=0,
+	-- Bullet
+	RapidShooter=0, Intervention=0, MagazineDump=0, BulletGrab=0,
 }
 
 local blueOrb      = nil
@@ -91,6 +93,12 @@ local SORCERER_ABILITIES = {
 		{key="DivineCrash",           label="D.Crash",     color=Color3.fromRGB(220,180,30),  cd=15},
 		{key="CrushingGrab",          label="C.Grab",      color=Color3.fromRGB(80,40,20),    cd=20},
 		{key="SlashCircle",           label="360° Slash",  color=Color3.fromRGB(160,200,255), cd=10},
+	},
+	Bullet = {
+		{key="RapidShooter",  label="Rapid Fire",   color=Color3.fromRGB(220,220,80),  cd=15},
+		{key="Intervention",  label="Intervene",    color=Color3.fromRGB(80,180,220),  cd=0},
+		{key="MagazineDump",  label="Mag Dump",     color=Color3.fromRGB(220,120,40),  cd=17},
+		{key="BulletGrab",    label="B.Grab",       color=Color3.fromRGB(140,140,160), cd=999},
 	},
 }
 
@@ -331,6 +339,44 @@ adaptFill.BorderSizePixel = 0
 adaptFill.Parent = adaptBg
 addCorner(adaptFill, 4)
 
+-- ── Bullet character state (hoisted) ──
+local bulletKills       = 0          -- kill count for Intervention
+local orbitBullets      = {}         -- list of { part, type, angle, light? }
+local ORBIT_RADIUS      = 8
+local ORBIT_SPEED       = 2.2        -- radians/sec
+local BULLET_TYPES      = {"Normal","Homing","Explosive","Ice","Flame"}
+local BULLET_COLORS     = {
+	Normal    = Color3.fromRGB(255,255,200),
+	Homing    = Color3.fromRGB(200,80,255),
+	Explosive = Color3.fromRGB(255,120,30),
+	Ice       = Color3.fromRGB(80,200,255),
+	Flame     = Color3.fromRGB(255,80,30),
+}
+
+-- Kill counter HUD for Bullet
+local killFrame = Instance.new("Frame")
+killFrame.Size = UDim2.new(0,160,0,36)
+killFrame.Position = UDim2.new(1,-172,0,10)
+killFrame.BackgroundColor3 = Color3.fromRGB(10,10,30)
+killFrame.BackgroundTransparency = 0.25
+killFrame.BorderSizePixel = 0
+killFrame.Visible = false
+killFrame.Parent = screenGui
+addCorner(killFrame, 8)
+
+local killLabel = Instance.new("TextLabel")
+killLabel.Size = UDim2.new(1,0,1,0)
+killLabel.BackgroundTransparency = 1
+killLabel.Text = "🎯 Kills: 0  |  Bullets: 0"
+killLabel.TextColor3 = Color3.fromRGB(220,220,100)
+killLabel.Font = Enum.Font.GothamBold
+killLabel.TextSize = 12
+killLabel.Parent = killFrame
+
+local function refreshKillHUD()
+	killLabel.Text = "🎯 Kills: "..bulletKills.."  |  Bullets: "..#orbitBullets
+end
+
 local function rebuildAbilityBar(sorcererName)
 	-- Cancel active elephant zone if switching away
 	if elephantActive then
@@ -431,6 +477,12 @@ local function rebuildAbilityBar(sorcererName)
 				elseif ad.key=="DivineCrash"          then fireMahoraga_DivineCrash()
 				elseif ad.key=="CrushingGrab"         then fireMahoraga_CrushingGrab()
 				elseif ad.key=="SlashCircle"          then fireMahoraga_SlashCircle()
+				end
+			elseif currentSorcerer == "Bullet" then
+				if     ad.key=="RapidShooter"  then fireBullet_RapidShooter()
+				elseif ad.key=="Intervention"  then fireBullet_Intervention()
+				elseif ad.key=="MagazineDump"  then fireBullet_MagazineDump()
+				elseif ad.key=="BulletGrab"    then fireBullet_BulletGrab()
 				end
 			end
 		end
@@ -3639,9 +3691,242 @@ function fireMahoraga_SlashCircle()
 end
 
 -- ============================================================
+-- ========= BULLET ABILITIES =================================
+-- ============================================================
+
+-- Helper: spawn a single orbit bullet of given type
+local function spawnOrbitBullet(btype)
+	local col  = BULLET_COLORS[btype] or BULLET_COLORS.Normal
+	local size = (btype=="Explosive") and 0.9 or (btype=="Ice" and 0.75) or 0.6
+	local bp = makePart({
+		Shape=Enum.PartType.Ball,
+		Size=Vector3.new(size,size,size),
+		Position=hrp.Position+Vector3.new(0,1.2,0),
+		Anchored=true, CanCollide=false,
+		Color=col, Material=Enum.Material.Neon,
+		Transparency=0.1, Parent=workspace
+	})
+	local bl=Instance.new("PointLight") bl.Color=col bl.Brightness=3 bl.Range=8 bl.Parent=bp
+	table.insert(orbitBullets, {part=bp, btype=btype, angle=math.random()*math.pi*2, homing=nil})
+	refreshKillHUD()
+end
+
+-- ---- RAPID SHOOTER ----
+function fireBullet_RapidShooter()
+	if isCooldown("RapidShooter") or isChanneling then return end
+	startCD("RapidShooter", 15)
+
+	-- Fire 15 homing bullets with a slight stagger
+	for i=1,15 do
+		task.delay((i-1)*0.06, function()
+			local target = getNearestDummy()
+			if not target then return end
+
+			local startPos = hrp.Position + Vector3.new((math.random()-0.5)*2, 1.2, (math.random()-0.5)*2)
+			local bp = makePart({
+				Shape=Enum.PartType.Ball, Size=Vector3.new(0.4,0.4,0.4),
+				Position=startPos, Anchored=true, CanCollide=false,
+				Color=Color3.fromRGB(255,255,150), Material=Enum.Material.Neon,
+				Transparency=0.1, Parent=workspace
+			})
+			local bl=Instance.new("PointLight") bl.Color=Color3.fromRGB(255,240,80) bl.Brightness=2 bl.Range=6 bl.Parent=bp
+
+			local traveled=0; local speed=85; local lastPos=startPos; local hit=false
+			local bConn
+			bConn = RunService.Heartbeat:Connect(function(dt)
+				if not bp.Parent or hit then bConn:Disconnect() return end
+				-- Re-acquire if dead
+				if not target or target.humanoid.Health<=0 then
+					target = getNearestDummy()
+					if not target then
+						bConn:Disconnect() pcall(function() bp:Destroy() end) return
+					end
+				end
+				local toTarget=(target.torso.Position-lastPos)
+				local move=math.min(speed*dt, toTarget.Magnitude)
+				local dir=toTarget.Unit
+				local newPos=lastPos+dir*move
+				bp.Position=newPos; lastPos=newPos; traveled=traveled+move
+				if toTarget.Magnitude<1.8 then
+					hit=true; bConn:Disconnect()
+					target.humanoid:TakeDamage(5)
+					local imp=makePart({Shape=Enum.PartType.Ball,Size=Vector3.new(0.5,0.5,0.5),
+						Position=newPos,Anchored=true,CanCollide=false,
+						Color=Color3.fromRGB(255,255,100),Material=Enum.Material.Neon,Transparency=0.2,Parent=workspace})
+					TweenService:Create(imp,TweenInfo.new(0.15),{Size=Vector3.new(2.5,2.5,2.5),Transparency=1}):Play()
+					Debris:AddItem(imp,0.16)
+					bp:Destroy()
+				end
+				if traveled>200 then bConn:Disconnect() pcall(function() bp:Destroy() end) end
+			end)
+		end)
+	end
+end
+
+-- ---- INTERVENTION ----
+function fireBullet_Intervention()
+	if bulletKills <= 0 then
+		-- Flash red hint
+		local hint=Instance.new("TextLabel")
+		hint.Size=UDim2.new(0,180,0,28) hint.Position=UDim2.new(0.5,-90,0.3,0)
+		hint.BackgroundColor3=Color3.fromRGB(80,10,10) hint.BackgroundTransparency=0.2
+		hint.BorderSizePixel=0 hint.Text="No kills available!"
+		hint.TextColor3=Color3.fromRGB(255,80,80) hint.Font=Enum.Font.GothamBold hint.TextSize=12
+		hint.Parent=screenGui addCorner(hint,6)
+		TweenService:Create(hint,TweenInfo.new(1.5),{TextTransparency=1,BackgroundTransparency=1}):Play()
+		Debris:AddItem(hint,1.6)
+		return
+	end
+
+	-- Consume 1 kill, summon a random orbit bullet
+	bulletKills = bulletKills - 1
+	local chosen = BULLET_TYPES[math.random(1,#BULLET_TYPES)]
+	spawnOrbitBullet(chosen)
+	refreshKillHUD()
+
+	-- Small spawn flash on the player
+	local spawnFlash=makePart({Shape=Enum.PartType.Ball,Size=Vector3.new(0.5,0.5,0.5),
+		Position=hrp.Position+Vector3.new(0,1.5,0),Anchored=false,CanCollide=false,
+		Color=BULLET_COLORS[chosen],Material=Enum.Material.Neon,Transparency=0.1,Parent=workspace})
+	TweenService:Create(spawnFlash,TweenInfo.new(0.4),{Size=Vector3.new(5,5,5),Transparency=1}):Play()
+	Debris:AddItem(spawnFlash,0.41)
+
+	-- Label what was summoned
+	local sumLabel=Instance.new("BillboardGui")
+	sumLabel.Size=UDim2.new(0,120,0,20) sumLabel.StudsOffset=Vector3.new(0,4,0) sumLabel.AlwaysOnTop=true sumLabel.Parent=hrp
+	local sumTxt=Instance.new("TextLabel")
+	sumTxt.Size=UDim2.new(1,0,1,0) sumTxt.BackgroundTransparency=1
+	sumTxt.Text="+"..chosen.." Bullet" sumTxt.TextColor3=BULLET_COLORS[chosen]
+	sumTxt.Font=Enum.Font.GothamBold sumTxt.TextSize=13 sumTxt.Parent=sumLabel
+	Debris:AddItem(sumLabel,1.8)
+end
+
+-- ---- MAGAZINE DUMP ----
+function fireBullet_MagazineDump()
+	if isCooldown("MagazineDump") or isChanneling then return end
+	startCD("MagazineDump", 17)
+
+	local dumpCenter  = hrp.Position
+	local elapsed     = 0
+	local DUMP_DUR    = 5
+	local SPAWN_RATE  = 0.1  -- every 0.1s
+	local accumTime   = 0
+	local dumpTypes   = {"Normal","Homing","Explosive","Ice","Flame"}
+
+	-- Rain indicator: pulsing ring on ground
+	local rainRing=makePart({Shape=Enum.PartType.Cylinder,
+		Size=Vector3.new(0.5,60,60),
+		CFrame=CFrame.new(dumpCenter)*CFrame.Angles(0,0,math.pi/2),
+		Anchored=true,CanCollide=false,
+		Color=Color3.fromRGB(220,200,80),Material=Enum.Material.Neon,Transparency=0.6,Parent=workspace})
+
+	local dumpConn
+	dumpConn = RunService.Heartbeat:Connect(function(dt)
+		elapsed     = elapsed + dt
+		accumTime   = accumTime + dt
+
+		-- Pulse ring
+		rainRing.Transparency = 0.5+math.sin(elapsed*8)*0.15
+
+		if accumTime >= SPAWN_RATE then
+			accumTime = 0
+			-- Spawn 3 special bullets per tick, random positions in 30-stud radius
+			for s=1,3 do
+				local rAngle=math.random()*math.pi*2
+				local rDist=math.random()*28
+				local dropX=dumpCenter.X+math.cos(rAngle)*rDist
+				local dropZ=dumpCenter.Z+math.sin(rAngle)*rDist
+				local startY=dumpCenter.Y+30
+				local bt=dumpTypes[math.random(1,#dumpTypes)]
+				local col=BULLET_COLORS[bt]
+
+				local rb=makePart({Shape=Enum.PartType.Ball,
+					Size=Vector3.new(0.7,0.7,0.7),
+					Position=Vector3.new(dropX,startY,dropZ),
+					Anchored=false,CanCollide=false,
+					Color=col,Material=Enum.Material.Neon,Transparency=0.1,Parent=workspace})
+				local rbl=Instance.new("PointLight") rbl.Color=col rbl.Brightness=2 rbl.Range=6 rbl.Parent=rb
+
+				-- Fall down with BodyVelocity
+				local rbv=Instance.new("BodyVelocity") rbv.Velocity=Vector3.new(0,-55,0) rbv.MaxForce=Vector3.new(0,1e5,0) rbv.P=5000 rbv.Parent=rb
+				Debris:AddItem(rbv,0.7)
+
+				-- Check ground hit and damage after it falls ~30 studs
+				task.delay(0.62, function()
+					if not rb.Parent then return end
+					local landPos=rb.Position
+
+					-- Apply effect to dummies nearby
+					for _,e in ipairs(spawnedDummies) do
+						if e.humanoid.Health>0 and (e.torso.Position-landPos).Magnitude<=4 then
+							if bt=="Normal" then e.humanoid:TakeDamage(5)
+							elseif bt=="Homing" then e.humanoid:TakeDamage(18)
+							elseif bt=="Explosive" then
+								e.humanoid:TakeDamage(20)
+								for _,e2 in ipairs(spawnedDummies) do
+									if e2.humanoid.Health>0 and (landPos-e2.torso.Position).Magnitude<=10 then
+										local fd=(e2.torso.Position-landPos) fd=Vector3.new(fd.X,0,fd.Z)
+										if fd.Magnitude<0.1 then fd=Vector3.new(1,0,0) end
+										local xbv=Instance.new("BodyVelocity") xbv.Velocity=fd.Unit*40+Vector3.new(0,20,0) xbv.MaxForce=Vector3.new(1e5,1e5,1e5) xbv.P=1e5 xbv.Parent=e2.torso
+										Debris:AddItem(xbv,0.25)
+										if e2~=e then e2.humanoid:TakeDamage(10) end
+									end
+								end
+								local expl=makePart({Shape=Enum.PartType.Ball,Size=Vector3.new(1,1,1),
+									Position=landPos,Anchored=true,CanCollide=false,
+									Color=Color3.fromRGB(255,120,30),Material=Enum.Material.Neon,Transparency=0.1,Parent=workspace})
+								TweenService:Create(expl,TweenInfo.new(0.35),{Size=Vector3.new(10,10,10),Transparency=1}):Play()
+								Debris:AddItem(expl,0.36)
+							elseif bt=="Ice" then
+								e.humanoid:TakeDamage(7)
+								e.frozen=true e.torso.Anchored=true
+								local ig=makePart({Shape=Enum.PartType.Ball,Size=Vector3.new(3.5,3.5,3.5),
+									Position=e.torso.Position,Anchored=true,CanCollide=false,
+									Color=Color3.fromRGB(120,220,255),Material=Enum.Material.Neon,Transparency=0.4,Parent=workspace})
+								local iw=Instance.new("WeldConstraint") iw.Part0=e.torso iw.Part1=ig iw.Parent=e.torso
+								task.delay(2.5,function() e.frozen=false pcall(function() e.torso.Anchored=false end) TweenService:Create(ig,TweenInfo.new(0.4),{Transparency=1,Size=Vector3.new(0.1,0.1,0.1)}):Play() Debris:AddItem(ig,0.45) end)
+							elseif bt=="Flame" then
+								e.humanoid:TakeDamage(8)
+								burnTimers[e]=(burnTimers[e] or 0)+8
+							end
+						end
+					end
+
+					-- Impact splash
+					local splash=makePart({Shape=Enum.PartType.Ball,Size=Vector3.new(0.5,0.5,0.5),
+						Position=landPos,Anchored=true,CanCollide=false,
+						Color=col,Material=Enum.Material.Neon,Transparency=0.2,Parent=workspace})
+					TweenService:Create(splash,TweenInfo.new(0.25),{Size=Vector3.new(3,3,3),Transparency=1}):Play()
+					Debris:AddItem(splash,0.26)
+					pcall(function() rb:Destroy() end)
+				end)
+			end
+		end
+
+		if elapsed >= DUMP_DUR then
+			dumpConn:Disconnect()
+			TweenService:Create(rainRing,TweenInfo.new(0.5),{Transparency=1,Size=Vector3.new(0.1,0.1,0.1)}):Play()
+			Debris:AddItem(rainRing,0.55)
+		end
+	end)
+end
+
+-- ---- BULLET GRAB (Coming Soon) ----
+function fireBullet_BulletGrab()
+	local notice=Instance.new("TextLabel")
+	notice.Size=UDim2.new(0,200,0,36) notice.Position=UDim2.new(0.5,-100,0.4,0)
+	notice.BackgroundColor3=Color3.fromRGB(15,15,30) notice.BackgroundTransparency=0.15
+	notice.BorderSizePixel=0 notice.Text="Bullet Grab — Coming Soon"
+	notice.TextColor3=Color3.fromRGB(160,200,255) notice.Font=Enum.Font.GothamBold notice.TextSize=13
+	notice.Parent=screenGui addCorner(notice,6)
+	TweenService:Create(notice,TweenInfo.new(2),{TextTransparency=1,BackgroundTransparency=1}):Play()
+	Debris:AddItem(notice,2.1)
+end
+
+-- ============================================================
 -- SORCERER PANEL + SWITCHING
 -- ============================================================
-local SORCERERS = {"Gojo","Sukuna","Nobara","Megumi","Itadori (Soon)","Nanami (Soon)"}
+local SORCERERS = {"Gojo","Sukuna","Nobara","Megumi","Bullet","Itadori (Soon)","Nanami (Soon)"}
 for _, sName in ipairs(SORCERERS) do
 	local isSoon = sName:find("Soon")
 	local b = Instance.new("TextButton")
@@ -3826,6 +4111,125 @@ RunService.Heartbeat:Connect(function(dt)
 
 	-- Adaptation HUD (only shown when Mahoraga is active sorcerer)
 	adaptFrame.Visible = (currentSorcerer == "Mahoraga")
+
+	-- Kill counter HUD (Bullet only)
+	killFrame.Visible = (currentSorcerer == "Bullet")
+
+	-- Orbit bullets rotation + homing + proximity check
+	if currentSorcerer == "Bullet" and #orbitBullets > 0 then
+		local orbitAngleStep = (math.pi*2) / math.max(1, #orbitBullets)
+		for i, ob in ipairs(orbitBullets) do
+			if ob.part and ob.part.Parent then
+				ob.angle = (ob.angle or 0) + ORBIT_SPEED * dt
+
+				-- Homing: find nearest enemy within 20 studs
+				if ob.btype == "Homing" and not ob.homing then
+					for _, e in ipairs(spawnedDummies) do
+						if e.humanoid.Health>0 and (ob.part.Position-e.torso.Position).Magnitude<=20 then
+							ob.homing = e
+							break
+						end
+					end
+				end
+
+				local newPos
+				if ob.homing and ob.homing.humanoid.Health>0 then
+					-- Chase the target
+					local toTarget = (ob.homing.torso.Position - ob.part.Position)
+					if toTarget.Magnitude < 2.5 then
+						-- Hit!
+						ob.homing.humanoid:TakeDamage(18)
+						local imp=makePart({Shape=Enum.PartType.Ball,Size=Vector3.new(0.8,0.8,0.8),
+							Position=ob.part.Position,Anchored=true,CanCollide=false,
+							Color=BULLET_COLORS.Homing,Material=Enum.Material.Neon,Transparency=0.2,Parent=workspace})
+						TweenService:Create(imp,TweenInfo.new(0.2),{Size=Vector3.new(4,4,4),Transparency=1}):Play()
+						Debris:AddItem(imp,0.21)
+						ob.part:Destroy()
+						table.remove(orbitBullets,i)
+						refreshKillHUD()
+						break
+					else
+						newPos = ob.part.Position + toTarget.Unit * 40 * dt
+					end
+				else
+					ob.homing = nil
+					-- Normal orbit
+					local baseAngle = orbitAngleStep * (i-1) + ob.angle
+					newPos = hrp.Position + Vector3.new(math.cos(baseAngle)*ORBIT_RADIUS, 1.2, math.sin(baseAngle)*ORBIT_RADIUS)
+				end
+
+				if newPos then ob.part.Position = newPos end
+
+				-- Proximity damage to dummies (contact)
+				for _, e in ipairs(spawnedDummies) do
+					if e.humanoid.Health>0 and (ob.part.Position-e.torso.Position).Magnitude<2.2 then
+						local bt = ob.btype
+						if bt=="Normal" then
+							e.humanoid:TakeDamage(5)
+						elseif bt=="Homing" then
+							e.humanoid:TakeDamage(18)
+						elseif bt=="Explosive" then
+							e.humanoid:TakeDamage(20)
+							for _,e2 in ipairs(spawnedDummies) do
+								if e2.humanoid.Health>0 and (ob.part.Position-e2.torso.Position).Magnitude<=10 then
+									local fd=(e2.torso.Position-ob.part.Position)
+									fd=Vector3.new(fd.X,0,fd.Z)
+									if fd.Magnitude<0.1 then fd=Vector3.new(1,0,0) end
+									local bv=Instance.new("BodyVelocity") bv.Velocity=fd.Unit*45+Vector3.new(0,22,0) bv.MaxForce=Vector3.new(1e5,1e5,1e5) bv.P=1e5 bv.Parent=e2.torso
+									Debris:AddItem(bv,0.25)
+									if e2~=e then e2.humanoid:TakeDamage(10) end
+								end
+							end
+							local expl=makePart({Shape=Enum.PartType.Ball,Size=Vector3.new(1,1,1),
+								Position=ob.part.Position,Anchored=true,CanCollide=false,
+								Color=BULLET_COLORS.Explosive,Material=Enum.Material.Neon,Transparency=0.1,Parent=workspace})
+							TweenService:Create(expl,TweenInfo.new(0.4),{Size=Vector3.new(12,12,12),Transparency=1}):Play()
+							Debris:AddItem(expl,0.41)
+						elseif bt=="Ice" then
+							e.humanoid:TakeDamage(7)
+							e.frozen=true e.torso.Anchored=true
+							local iceGlow=makePart({Shape=Enum.PartType.Ball,Size=Vector3.new(4,4,4),
+								Position=e.torso.Position,Anchored=true,CanCollide=false,
+								Color=Color3.fromRGB(120,220,255),Material=Enum.Material.Neon,Transparency=0.4,Parent=workspace})
+							local iceWeld=Instance.new("WeldConstraint") iceWeld.Part0=e.torso iceWeld.Part1=iceGlow iceWeld.Parent=e.torso
+							task.delay(3, function()
+								e.frozen=false pcall(function() e.torso.Anchored=false end)
+								TweenService:Create(iceGlow,TweenInfo.new(0.5),{Transparency=1,Size=Vector3.new(0.1,0.1,0.1)}):Play()
+								Debris:AddItem(iceGlow,0.55)
+							end)
+						elseif bt=="Flame" then
+							e.humanoid:TakeDamage(8)
+							burnTimers[e]=(burnTimers[e] or 0)+10
+						end
+						-- Common hit flash
+						local hitFlash=makePart({Shape=Enum.PartType.Ball,Size=Vector3.new(0.6,0.6,0.6),
+							Position=ob.part.Position,Anchored=true,CanCollide=false,
+							Color=BULLET_COLORS[bt],Material=Enum.Material.Neon,Transparency=0.2,Parent=workspace})
+						TweenService:Create(hitFlash,TweenInfo.new(0.15),{Size=Vector3.new(3,3,3),Transparency=1}):Play()
+						Debris:AddItem(hitFlash,0.16)
+						ob.part:Destroy()
+						table.remove(orbitBullets,i)
+						refreshKillHUD()
+						break
+					end
+				end
+			else
+				table.remove(orbitBullets,i)
+				refreshKillHUD()
+			end
+		end
+	end
+
+	-- Track dummy kills for Bullet Intervention
+	if currentSorcerer == "Bullet" then
+		for _, e in ipairs(spawnedDummies) do
+			if e.humanoid.Health<=0 and not e._countedKill then
+				e._countedKill = true
+				bulletKills = bulletKills + 1
+				refreshKillHUD()
+			end
+		end
+	end
 end)
 
 -- ============================================================
