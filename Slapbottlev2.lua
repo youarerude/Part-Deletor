@@ -765,6 +765,7 @@ end
 local function playerSlap()
     if not equippedGlove or not character or not character:FindFirstChild("HumanoidRootPart") then return end
     local now  = tick()
+    if not GLOVE_DATA[currentGlove] then currentGlove = "Tornado Glove" end
     local gd   = GLOVE_DATA[currentGlove]
     if now - lastSlapTime < gd.SlapCooldown then return end
     lastSlapTime = now
@@ -849,6 +850,7 @@ end)
 
 abilityButton.MouseButton1Click:Connect(function()
     local now = tick()
+    if not GLOVE_DATA[currentGlove] then currentGlove = "Tornado Glove" end
     local gd  = GLOVE_DATA[currentGlove]
 
     -- Don't let Chain fire again while already armed
@@ -891,6 +893,10 @@ end)
 
 -- Cooldown bar + stats live update
 RunService.Heartbeat:Connect(function()
+    -- Fallback: if currentGlove is somehow invalid, default to Tornado Glove
+    if not GLOVE_DATA[currentGlove] then
+        currentGlove = "Tornado Glove"
+    end
     local gd      = GLOVE_DATA[currentGlove]
     local elapsed = tick() - lastSlapTime
     if elapsed >= gd.SlapCooldown then
