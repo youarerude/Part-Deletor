@@ -7,6 +7,7 @@ local RunService       = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local TweenService     = game:GetService("TweenService")
 local Debris           = game:GetService("Debris")
+local ChatService      = game:GetService("Chat")
 
 local player    = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
@@ -49,6 +50,8 @@ local allCooldowns = {
 	SwordOfExtermination=0, Adaptation=0, DivineCrash=0, CrushingGrab=0, SlashCircle=0,
 	-- Bullet
 	RapidShooter=0, Intervention=0, MagazineDump=0, BulletGrab=0, GunMutilation=0,
+	-- Heian Sukuna
+	HeianCleave=0, HeianDismantle=0, WorldCuttingSlash=0, HeianDomain=0,
 }
 
 local blueOrb      = nil
@@ -100,6 +103,12 @@ local SORCERER_ABILITIES = {
 		{key="MagazineDump",   label="Mag Dump",     color=Color3.fromRGB(220,120,40),  cd=17},
 		{key="BulletGrab",     label="B.Grab",       color=Color3.fromRGB(200,180,255), cd=18},
 		{key="GunMutilation",  label="Gun Mutilate", color=Color3.fromRGB(10,5,20),     cd=120},
+	},
+	["Heian Sukuna"] = {
+		{key="HeianCleave",        label="H.Cleave",    color=Color3.fromRGB(200,30,30),   cd=10},
+		{key="HeianDismantle",     label="H.Dismantle", color=Color3.fromRGB(160,20,20),   cd=15},
+		{key="WorldCuttingSlash",  label="WC.Slash",    color=Color3.fromRGB(90,0,180),    cd=30},
+		{key="HeianDomain",        label="Domain (Soon)",color=Color3.fromRGB(20,0,40),    cd=999},
 	},
 }
 
@@ -443,6 +452,8 @@ local function rebuildAbilityBar(sorcererName)
 			local s = Instance.new("UIStroke") s.Color=Color3.fromRGB(80,220,80) s.Thickness=2 s.Parent=btn
 		elseif ad.key == "GunMutilation" then
 			local s = Instance.new("UIStroke") s.Color=Color3.fromRGB(180,80,255) s.Thickness=2 s.Parent=btn
+		elseif ad.key == "WorldCuttingSlash" then
+			local s = Instance.new("UIStroke") s.Color=Color3.fromRGB(160,80,255) s.Thickness=2 s.Parent=btn
 		end
 
 		abilityButtons[ad.key] = {btn=btn, overlay=overlay, baseColor=ad.color, cd=ad.cd, label=ad.label}
@@ -487,6 +498,12 @@ local function rebuildAbilityBar(sorcererName)
 				elseif ad.key=="MagazineDump"  then fireBullet_MagazineDump()
 				elseif ad.key=="BulletGrab"    then fireBullet_BulletGrab()
 				elseif ad.key=="GunMutilation" then fireBullet_GunMutilation()
+				end
+			elseif currentSorcerer == "Heian Sukuna" then
+				if     ad.key=="HeianCleave"       then fireHeian_Cleave()
+				elseif ad.key=="HeianDismantle"    then fireHeian_Dismantle()
+				elseif ad.key=="WorldCuttingSlash" then fireHeian_WorldCuttingSlash()
+				elseif ad.key=="HeianDomain"       then fireHeian_Domain()
 				end
 			end
 		end
@@ -4318,9 +4335,471 @@ function fireBullet_GunMutilation()
 end
 
 -- ============================================================
+-- ======= HEIAN SUKUNA ABILITIES =============================
+-- ============================================================
+
+-- Helper: fire a single Fuga-style fire arrow from a given origin toward dir (no cooldown, no isChanneling)
+local function spawnFugaArrow(origin, dir)
+	local arrowHead = makePart({
+		Size=Vector3.new(0.5,0.5,2),
+		CFrame=CFrame.new(origin, origin+dir)*CFrame.new(0,0,-1),
+		Anchored=true, CanCollide=false,
+		Color=Color3.fromRGB(255,140,20), Material=Enum.Material.Neon, Transparency=0.05, Parent=workspace})
+	local fl=Instance.new("PointLight") fl.Brightness=6 fl.Range=12 fl.Color=Color3.fromRGB(255,120,0) fl.Parent=arrowHead
+
+	local trav=0; local maxDist=220; local spd=110
+	local lastP=origin; local arrowHit=false
+	local conn
+	conn = RunService.Heartbeat:Connect(function(dt)
+		if not arrowHead.Parent or arrowHit then conn:Disconnect() return end
+		local move=spd*dt; trav=trav+move
+		local newPos=Vector3.new(lastP.X+dir.X*move, lastP.Y, lastP.Z+dir.Z*move)
+		arrowHead.CFrame=CFrame.new(newPos, newPos+dir)*CFrame.new(0,0,-1)
+		lastP=newPos
+		-- Trail
+		if math.random()<0.5 then
+			local tr=makePart({Shape=Enum.PartType.Ball, Size=Vector3.new(0.3,0.3,0.3),
+				Position=newPos, Anchored=true, CanCollide=false,
+				Color=Color3.fromRGB(255,120,0), Material=Enum.Material.Neon, Transparency=0.3, Parent=workspace})
+			TweenService:Create(tr, TweenInfo.new(0.12), {Transparency=1, Size=Vector3.new(0.1,0.1,0.1)}):Play()
+			Debris:AddItem(tr, 0.13)
+		end
+		for _, e in ipairs(spawnedDummies) do
+			if e.humanoid.Health>0 and (e.torso.Position-newPos).Magnitude<3 then
+				arrowHit=true; conn:Disconnect()
+				e.humanoid:TakeDamage(15)
+				burnTimers[e]=(burnTimers[e] or 0)+10
+				-- AOE burn
+				for _,e2 in ipairs(spawnedDummies) do
+					if e2.humanoid.Health>0 and (e2.torso.Position-newPos).Magnitude<=12 then
+						burnTimers[e2]=(burnTimers[e2] or 0)+5
+					end
+				end
+				local imp=makePart({Shape=Enum.PartType.Ball,Size=Vector3.new(1,1,1),
+					Position=newPos,Anchored=true,CanCollide=false,
+					Color=Color3.fromRGB(255,160,0),Material=Enum.Material.Neon,Transparency=0.1,Parent=workspace})
+				TweenService:Create(imp,TweenInfo.new(0.3),{Size=Vector3.new(10,10,10),Transparency=1}):Play()
+				Debris:AddItem(imp,0.31)
+				arrowHead:Destroy()
+				return
+			end
+		end
+		if trav>=maxDist then conn:Disconnect(); pcall(function() arrowHead:Destroy() end) end
+	end)
+end
+
+-- ---- HEIAN CLEAVE ----
+function fireHeian_Cleave()
+	if isCooldown("HeianCleave") or isChanneling then return end
+	startCD("HeianCleave", 10)
+
+	local center = hrp.Position
+	local RADIUS = 70
+
+	-- Large dark-red zone floor
+	local zonePart = makePart({Size=Vector3.new(RADIUS*2, 0.4, RADIUS*2),
+		Position=center+Vector3.new(0,-2.5,0), Anchored=true, CanCollide=false,
+		Color=Color3.fromRGB(140,0,0), Material=Enum.Material.Neon, Transparency=0.45, Parent=workspace})
+
+	-- Spawn VERY many slash particles per tick
+	local slashTimer=0
+	local slashConn = RunService.Heartbeat:Connect(function(dt)
+		if not zonePart.Parent then return end
+		slashTimer=slashTimer+dt
+		-- ~120 slashes/sec (every frame we spawn 8 at 60fps)
+		for _=1,8 do
+			local angle2=math.random()*math.pi*2
+			local r=math.random()*RADIUS*0.95
+			local sd=Vector3.new(math.cos(angle2),0,math.sin(angle2))
+			local sp=center+sd*r+Vector3.new(0,math.random(0,8),0)
+			local slashLen=math.random(4,14)
+			local perp=Vector3.new(-sd.Z,0,sd.X)
+			local cf=CFrame.fromMatrix(sp, perp, Vector3.new(0,1,0), -sd)
+			local s=makePart({Size=Vector3.new(slashLen,0.06,0.06),
+				CFrame=cf, Anchored=true, CanCollide=false,
+				Color=Color3.fromRGB(255,200,180), Material=Enum.Material.Neon, Transparency=0.0, Parent=workspace})
+			TweenService:Create(s,TweenInfo.new(0.1),{Transparency=1,Size=Vector3.new(slashLen*1.6,0.04,0.04)}):Play()
+			Debris:AddItem(s,0.11)
+		end
+	end)
+
+	-- Damage every 0.2s = 10 dmg each tick
+	local damageTimer=0
+	local damageConn = RunService.Heartbeat:Connect(function(dt)
+		if not zonePart.Parent then return end
+		damageTimer=damageTimer+dt
+		if damageTimer>=0.2 then
+			damageTimer=0
+			for _, e in ipairs(spawnedDummies) do
+				if e.humanoid.Health>0 and (e.torso.Position-center).Magnitude<=RADIUS then
+					e.humanoid:TakeDamage(10)
+				end
+			end
+		end
+	end)
+
+	task.delay(3, function()
+		slashConn:Disconnect(); damageConn:Disconnect()
+		TweenService:Create(zonePart,TweenInfo.new(0.3),{Transparency=1}):Play()
+		Debris:AddItem(zonePart,0.31)
+	end)
+end
+
+-- ---- HEIAN DISMANTLE ----
+function fireHeian_Dismantle()
+	if isCooldown("HeianDismantle") or isChanneling then return end
+	startCD("HeianDismantle", 15)
+
+	local baseDir = getFlatAimDir()
+	local right   = Vector3.new(-baseDir.Z, 0, baseDir.X)
+
+	-- 5 gigantic slash projectiles, slight fan spread
+	local spreads = {-0.18, -0.09, 0, 0.09, 0.18}
+	for si, offset in ipairs(spreads) do
+		task.delay(si*0.07, function()
+			local spreadDir = (baseDir + right*offset).Unit
+			local origin    = hrp.Position + Vector3.new(0,1.5,0)
+
+			-- HUGE slash: 12 wide, 0.3 tall — very thick slab
+			local slash = makePart({
+				Size=Vector3.new(12, 0.3, 0.2),
+				CFrame=CFrame.new(origin, origin+spreadDir)*CFrame.new(0,0,-6),
+				Anchored=true, CanCollide=false,
+				Color=Color3.fromRGB(255,200,180), Material=Enum.Material.Neon, Transparency=0.02, Parent=workspace})
+			local sl=Instance.new("PointLight") sl.Brightness=6 sl.Range=18 sl.Color=Color3.fromRGB(255,180,160) sl.Parent=slash
+
+			-- Bright aura band on the slash
+			local glow=makePart({Size=Vector3.new(11,0.55,0.55),
+				CFrame=slash.CFrame, Anchored=true, CanCollide=false,
+				Color=Color3.fromRGB(255,230,210), Material=Enum.Material.Neon, Transparency=0.4, Parent=workspace})
+			local gConn; gConn=RunService.Heartbeat:Connect(function()
+				if not slash.Parent then gConn:Disconnect() pcall(function() glow:Destroy() end) return end
+				glow.CFrame=slash.CFrame
+			end)
+
+			local trav=0; local maxDist=160; local spd=120
+			local lastP=origin; local hitSet={}
+
+			local conn
+			conn = RunService.Heartbeat:Connect(function(dt)
+				if not slash.Parent then conn:Disconnect() return end
+				local move=spd*dt; trav=trav+move
+				local newPos=Vector3.new(lastP.X+spreadDir.X*move, lastP.Y, lastP.Z+spreadDir.Z*move)
+				slash.CFrame=CFrame.new(newPos, newPos+spreadDir)*CFrame.new(0,0,-6)
+				lastP=newPos
+
+				-- Heavy slash trail every frame
+				if math.random()<0.7 then
+					local tr=makePart({Size=Vector3.new(10,0.2,0.15),
+						CFrame=slash.CFrame, Anchored=true, CanCollide=false,
+						Color=Color3.fromRGB(255,240,220), Material=Enum.Material.Neon, Transparency=0.3, Parent=workspace})
+					TweenService:Create(tr,TweenInfo.new(0.12),{Transparency=1}):Play()
+					Debris:AddItem(tr,0.13)
+				end
+
+				for _, e in ipairs(spawnedDummies) do
+					if e.humanoid.Health>0 and not hitSet[e] and (e.torso.Position-newPos).Magnitude<7 then
+						hitSet[e]=true
+						e.humanoid:TakeDamage(25)
+						local imp=makePart({Shape=Enum.PartType.Ball,Size=Vector3.new(1.5,1.5,1.5),
+							Position=e.torso.Position,Anchored=true,CanCollide=false,
+							Color=Color3.fromRGB(255,220,200),Material=Enum.Material.Neon,Transparency=0.2,Parent=workspace})
+						TweenService:Create(imp,TweenInfo.new(0.25),{Size=Vector3.new(7,7,7),Transparency=1}):Play()
+						Debris:AddItem(imp,0.26)
+						local fBV=Instance.new("BodyVelocity") fBV.Velocity=spreadDir*60+Vector3.new(0,20,0) fBV.MaxForce=Vector3.new(1e5,1e5,1e5) fBV.P=1e5 fBV.Parent=e.torso
+						Debris:AddItem(fBV,0.25)
+					end
+				end
+
+				if trav>=maxDist then
+					conn:Disconnect()
+					TweenService:Create(slash,TweenInfo.new(0.15),{Transparency=1}):Play()
+					Debris:AddItem(slash,0.16)
+				end
+			end)
+		end)
+	end
+end
+
+-- ---- WORLD CUTTING SLASH (4 incantation modes) ----
+local wcsIncant     = 0   -- current incantation count (0=idle)
+local wcsActive     = false
+local wcsInputConn  = nil
+
+local WCS_INCANTS = {
+	{phrase="Scale Of The Dragon",  delay=3},
+	{phrase="Recoil",               delay=3},
+	{phrase="Twin Meteors",         delay=3},
+	{phrase="Word Cutting Slash",   delay=3},
+}
+
+local function wcsExecuteIncant(n)
+	-- Force-say the phrase in the REAL Roblox chat
+	local phrase = WCS_INCANTS[n].phrase
+	local head   = character:FindFirstChild("Head")
+	if head then
+		ChatService:Chat(head, phrase, Enum.ChatColor.Red)
+	end
+
+	-- Show incantation label on screen
+	local incLabel=Instance.new("TextLabel")
+	incLabel.Size=UDim2.new(0,320,0,40)
+	incLabel.Position=UDim2.new(0.5,-160,0.28,0)
+	incLabel.BackgroundColor3=Color3.fromRGB(30,0,60)
+	incLabel.BackgroundTransparency=0.2
+	incLabel.BorderSizePixel=0
+	incLabel.Text="「 "..phrase.." 」  — Stage "..n.."/4"
+	incLabel.TextColor3=Color3.fromRGB(200,150,255)
+	incLabel.Font=Enum.Font.GothamBold
+	incLabel.TextSize=15
+	incLabel.Parent=screenGui
+	addCorner(incLabel,10)
+	TweenService:Create(incLabel,TweenInfo.new(3),{TextTransparency=1,BackgroundTransparency=1}):Play()
+	Debris:AddItem(incLabel,3.1)
+
+	task.delay(WCS_INCANTS[n].delay, function()
+		if n==1 then
+			-- Scale Of The Dragon: 5 nearest frozen + slashed 10dmg/0.1s for 3s
+			local nearest = {}
+			for _, e in ipairs(spawnedDummies) do
+				if e.humanoid.Health>0 then table.insert(nearest,e) end
+			end
+			table.sort(nearest, function(a,b)
+				return (a.torso.Position-hrp.Position).Magnitude < (b.torso.Position-hrp.Position).Magnitude
+			end)
+			local targets = {}
+			for i=1,math.min(5,#nearest) do
+				targets[i]=nearest[i]
+				targets[i].frozen=true
+				targets[i].torso.Anchored=true
+			end
+			-- Slash them for 3s
+			local elapsed2=0
+			local slashConn; slashConn=RunService.Heartbeat:Connect(function(dt)
+				elapsed2=elapsed2+dt
+				-- Slash particles on each frozen target
+				for _,e in ipairs(targets) do
+					if e.torso.Parent then
+						for _=1,3 do
+							local ang=math.random()*math.pi*2
+							local sd=Vector3.new(math.cos(ang),0,math.sin(ang))
+							local sp=e.torso.Position+sd*math.random(1,3)+Vector3.new(0,math.random(-2,2),0)
+							local sl2=makePart({Size=Vector3.new(math.random(2,6),0.06,0.06),
+								CFrame=CFrame.fromMatrix(sp,Vector3.new(-sd.Z,0,sd.X),Vector3.new(0,1,0),-sd),
+								Anchored=true,CanCollide=false,
+								Color=Color3.fromRGB(200,100,255),Material=Enum.Material.Neon,Transparency=0,Parent=workspace})
+							TweenService:Create(sl2,TweenInfo.new(0.09),{Transparency=1}):Play()
+							Debris:AddItem(sl2,0.1)
+						end
+					end
+				end
+				if elapsed2>=0.1 then
+					elapsed2=0
+					for _,e in ipairs(targets) do
+						if e.humanoid.Health>0 then e.humanoid:TakeDamage(10) end
+					end
+				end
+				if elapsed2>=3 or (function()
+					-- check if 3s total passed (use a separate timer)
+					return false
+				end)() then end
+			end)
+			task.delay(3, function()
+				slashConn:Disconnect()
+				for _,e in ipairs(targets) do
+					e.frozen=false; pcall(function() e.torso.Anchored=false end)
+				end
+			end)
+
+		elseif n==2 then
+			-- Recoil: big projectile grid wall of slashes
+			local dir=getFlatAimDir()
+			local right2=Vector3.new(-dir.Z,0,dir.X)
+			local origin=hrp.Position+Vector3.new(0,1.5,0)
+			-- 5 horizontal x 4 vertical = 20 slash tiles arranged as a grid wall
+			for row=-2,2 do
+				for col=-1,2 do
+					task.delay((row+2+(col+1)*5)*0.015, function()
+						local offset2=right2*row*2+Vector3.new(0,col*2.2,0)
+						local gs=makePart({Size=Vector3.new(2.2,2.2,0.18),
+							CFrame=CFrame.new(origin+offset2, origin+offset2+dir),
+							Anchored=true,CanCollide=false,
+							Color=Color3.fromRGB(255,210,200),Material=Enum.Material.Neon,Transparency=0.05,Parent=workspace})
+						local gl2=Instance.new("PointLight") gl2.Brightness=3 gl2.Range=8 gl2.Color=Color3.fromRGB(255,180,160) gl2.Parent=gs
+
+						local trav2=0; local lp2=origin+offset2; local hitSet2={}
+						local conn2
+						conn2=RunService.Heartbeat:Connect(function(dt)
+							if not gs.Parent then conn2:Disconnect() return end
+							local move=140*dt; trav2=trav2+move
+							local np=Vector3.new(lp2.X+dir.X*move, lp2.Y, lp2.Z+dir.Z*move)
+							gs.CFrame=CFrame.new(np, np+dir)
+							lp2=np
+							for _,e in ipairs(spawnedDummies) do
+								if e.humanoid.Health>0 and not hitSet2[e] and (e.torso.Position-np).Magnitude<3 then
+									hitSet2[e]=true
+									e.humanoid:TakeDamage(35)
+									local imp2=makePart({Shape=Enum.PartType.Ball,Size=Vector3.new(1,1,1),
+										Position=e.torso.Position,Anchored=true,CanCollide=false,
+										Color=Color3.fromRGB(255,200,180),Material=Enum.Material.Neon,Transparency=0.2,Parent=workspace})
+									TweenService:Create(imp2,TweenInfo.new(0.2),{Size=Vector3.new(5,5,5),Transparency=1}):Play()
+									Debris:AddItem(imp2,0.21)
+									local fBV2=Instance.new("BodyVelocity") fBV2.Velocity=dir*80+Vector3.new(0,25,0) fBV2.MaxForce=Vector3.new(1e5,1e5,1e5) fBV2.P=1e5 fBV2.Parent=e.torso
+									Debris:AddItem(fBV2,0.3)
+								end
+							end
+							if trav2>=200 then conn2:Disconnect(); TweenService:Create(gs,TweenInfo.new(0.1),{Transparency=1}):Play(); Debris:AddItem(gs,0.11) end
+						end)
+					end)
+				end
+			end
+
+		elseif n==3 then
+			-- Twin Meteors: rain Fuga arrows within 30 studs, 3 arrows/0.1s for 5s
+			local rainElap=0; local rainAccum=0
+			local rainConn; rainConn=RunService.Heartbeat:Connect(function(dt)
+				rainElap=rainElap+dt; rainAccum=rainAccum+dt
+				if rainAccum>=0.1 then
+					rainAccum=0
+					for _=1,3 do
+						local rAng=math.random()*math.pi*2
+						local rDist=math.random()*28
+						local dropX=hrp.Position.X+math.cos(rAng)*rDist
+						local dropZ=hrp.Position.Z+math.sin(rAng)*rDist
+						local dropFrom=Vector3.new(dropX, hrp.Position.Y+35, dropZ)
+						local dropDir=Vector3.new(0,-1,0)
+						spawnFugaArrow(dropFrom, dropDir)
+					end
+				end
+				if rainElap>=5 then rainConn:Disconnect() end
+			end)
+
+		elseif n==4 then
+			-- Word Cutting Slash: GIGANTIC rainbow slash projectile
+			local dir=getFlatAimDir()
+			local origin=hrp.Position+Vector3.new(0,1.5,0)
+
+			-- Rainbow layers (7 hues cycling)
+			local rainbowColors={
+				Color3.fromRGB(255,0,0), Color3.fromRGB(255,127,0),
+				Color3.fromRGB(255,255,0), Color3.fromRGB(0,255,0),
+				Color3.fromRGB(0,0,255), Color3.fromRGB(75,0,130), Color3.fromRGB(143,0,255)
+			}
+			local slashParts2={}
+			for ri, rc in ipairs(rainbowColors) do
+				local offset2=Vector3.new(0,(ri-4)*3,0)
+				local bigSlash=makePart({
+					Size=Vector3.new(30,3.5,0.3),
+					CFrame=CFrame.new(origin+offset2, origin+offset2+dir)*CFrame.new(0,0,-15),
+					Anchored=true,CanCollide=false,
+					Color=rc,Material=Enum.Material.Neon,Transparency=0.05,Parent=workspace})
+				local sl3=Instance.new("PointLight") sl3.Brightness=5 sl3.Range=22 sl3.Color=rc sl3.Parent=bigSlash
+				table.insert(slashParts2,{part=bigSlash,offset=offset2})
+			end
+
+			flashScreen(screenGui, Color3.fromRGB(255,255,255), 0.6, 0.05, 0.8)
+			startShake(3); task.delay(1, stopShake)
+
+			local trav3=0; local lp3=origin; local hitSet3={}
+			local conn3
+			conn3=RunService.Heartbeat:Connect(function(dt)
+				local move=170*dt; trav3=trav3+move
+				local np3=Vector3.new(lp3.X+dir.X*move, lp3.Y, lp3.Z+dir.Z*move)
+				lp3=np3
+				for _, sd in ipairs(slashParts2) do
+					if sd.part.Parent then
+						sd.part.CFrame=CFrame.new(np3+sd.offset, np3+sd.offset+dir)*CFrame.new(0,0,-15)
+						-- Rainbow color cycle
+						local t2=tick()%1
+						local ci=math.floor(t2*#rainbowColors)+1
+						sd.part.Color=rainbowColors[((ci-1+1-1)%#rainbowColors)+1]
+					end
+				end
+				-- Heavy trail
+				if math.random()<0.8 then
+					local trLen=28+math.random()*4
+					local trOff=Vector3.new(0,(math.random()-0.5)*18,0)
+					local tr2=makePart({Size=Vector3.new(trLen,3,0.2),
+						CFrame=CFrame.new(np3+trOff,np3+trOff+dir)*CFrame.new(0,0,-trLen/2),
+						Anchored=true,CanCollide=false,
+						Color=rainbowColors[math.random(1,#rainbowColors)],Material=Enum.Material.Neon,Transparency=0.35,Parent=workspace})
+					TweenService:Create(tr2,TweenInfo.new(0.15),{Transparency=1}):Play()
+					Debris:AddItem(tr2,0.16)
+				end
+				for _,e in ipairs(spawnedDummies) do
+					if e.humanoid.Health>0 and not hitSet3[e] and (e.torso.Position-np3).Magnitude<16 then
+						hitSet3[e]=true
+						e.humanoid:TakeDamage(50)
+						local imp3=makePart({Shape=Enum.PartType.Ball,Size=Vector3.new(2,2,2),
+							Position=e.torso.Position,Anchored=true,CanCollide=false,
+							Color=Color3.fromRGB(255,255,255),Material=Enum.Material.Neon,Transparency=0.1,Parent=workspace})
+						TweenService:Create(imp3,TweenInfo.new(0.3),{Size=Vector3.new(12,12,12),Transparency=1}):Play()
+						Debris:AddItem(imp3,0.31)
+						local fBV3=Instance.new("BodyVelocity") fBV3.Velocity=dir*100+Vector3.new(0,30,0) fBV3.MaxForce=Vector3.new(1e5,1e5,1e5) fBV3.P=1e5 fBV3.Parent=e.torso
+						Debris:AddItem(fBV3,0.3)
+					end
+				end
+				if trav3>=350 then
+					conn3:Disconnect()
+					for _,sd in ipairs(slashParts2) do
+						if sd.part.Parent then TweenService:Create(sd.part,TweenInfo.new(0.2),{Transparency=1}):Play() Debris:AddItem(sd.part,0.21) end
+					end
+				end
+			end)
+		end
+	end)
+end
+
+function fireHeian_WorldCuttingSlash()
+	if isCooldown("WorldCuttingSlash") then return end
+
+	-- First click starts the sequence
+	if not wcsActive then
+		wcsActive   = true
+		wcsIncant   = 1
+		startCD("WorldCuttingSlash", 30)
+		wcsExecuteIncant(1)
+
+		-- Set up subsequent click listener
+		if wcsInputConn then wcsInputConn:Disconnect() end
+		wcsInputConn = UserInputService.InputBegan:Connect(function(input)
+			if wcsIncant >= 4 then
+				wcsInputConn:Disconnect(); wcsInputConn=nil; wcsActive=false; wcsIncant=0
+				return
+			end
+			-- Only fire on Q button (the ability button binding)
+			-- We detect any click since the ability button itself triggers this
+		end)
+		return
+	end
+
+	-- 2nd / 3rd / 4th click while active
+	if wcsActive and wcsIncant < 4 then
+		wcsIncant = wcsIncant + 1
+		wcsExecuteIncant(wcsIncant)
+		if wcsIncant >= 4 then
+			wcsActive=false; wcsIncant=0
+			if wcsInputConn then wcsInputConn:Disconnect(); wcsInputConn=nil end
+		end
+	end
+end
+
+-- ---- HEIAN DOMAIN (Coming Soon) ----
+function fireHeian_Domain()
+	local notice=Instance.new("TextLabel")
+	notice.Size=UDim2.new(0,230,0,38) notice.Position=UDim2.new(0.5,-115,0.4,0)
+	notice.BackgroundColor3=Color3.fromRGB(20,0,40) notice.BackgroundTransparency=0.15
+	notice.BorderSizePixel=0 notice.Text="Domain Expansion — Coming Soon"
+	notice.TextColor3=Color3.fromRGB(200,150,255) notice.Font=Enum.Font.GothamBold notice.TextSize=13
+	notice.Parent=screenGui addCorner(notice,8)
+	TweenService:Create(notice,TweenInfo.new(2.2),{TextTransparency=1,BackgroundTransparency=1}):Play()
+	Debris:AddItem(notice,2.3)
+end
+
+-- ============================================================
 -- SORCERER PANEL + SWITCHING
 -- ============================================================
-local SORCERERS = {"Gojo","Sukuna","Nobara","Megumi","Bullet","Itadori (Soon)","Nanami (Soon)"}
+local SORCERERS = {"Gojo","Sukuna","Nobara","Megumi","Bullet","Heian Sukuna","Itadori (Soon)","Nanami (Soon)"}
 for _, sName in ipairs(SORCERERS) do
 	local isSoon = sName:find("Soon")
 	local b = Instance.new("TextButton")
