@@ -1,8 +1,3 @@
---[[
-	WARNING: Heads up! This script has not been verified by ScriptBlox. Use at your own risk!
-	GUI redesigned for mobile — large touch targets, rounded modern layout, smooth tweens.
-]]
-
 -- Services
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
@@ -43,7 +38,7 @@ BgStroke.Thickness = 1.5
 BgStroke.Transparency = 0.3
 BgStroke.Parent = Background
 
--- Inner clip frame (so content respects rounded corners)
+-- Inner clip frame
 local Inner = Instance.new("Frame")
 Inner.Name = "Inner"
 Inner.Parent = Background
@@ -56,7 +51,7 @@ local InnerCorner = Instance.new("UICorner")
 InnerCorner.CornerRadius = UDim.new(0, 18)
 InnerCorner.Parent = Inner
 
--- Top bar gradient
+-- Top bar
 local TopBar = Instance.new("Frame")
 TopBar.Name = "TopBar"
 TopBar.Parent = Inner
@@ -73,7 +68,6 @@ TopGradient.Color = ColorSequence.new({
 TopGradient.Rotation = 90
 TopGradient.Parent = TopBar
 
--- Title icon (crosshair symbol)
 local TitleIcon = Instance.new("TextLabel")
 TitleIcon.Parent = TopBar
 TitleIcon.BackgroundTransparency = 1
@@ -85,7 +79,6 @@ TitleIcon.TextColor3 = Color3.fromRGB(180, 120, 255)
 TitleIcon.TextSize = 22
 TitleIcon.ZIndex = 4
 
--- Title
 local Title = Instance.new("TextLabel")
 Title.Name = "Title"
 Title.Parent = TopBar
@@ -99,7 +92,6 @@ Title.TextSize = 17
 Title.TextXAlignment = Enum.TextXAlignment.Left
 Title.ZIndex = 4
 
--- Minimize button
 local MinimizeBtn = Instance.new("TextButton")
 MinimizeBtn.Name = "MinimizeBtn"
 MinimizeBtn.Parent = TopBar
@@ -117,7 +109,7 @@ local MinCorner = Instance.new("UICorner")
 MinCorner.CornerRadius = UDim.new(0, 8)
 MinCorner.Parent = MinimizeBtn
 
--- Divider line
+-- Divider
 local Divider = Instance.new("Frame")
 Divider.Parent = Inner
 Divider.BackgroundColor3 = Color3.fromRGB(90, 50, 160)
@@ -126,7 +118,7 @@ Divider.Position = UDim2.new(0, 14, 0, 54)
 Divider.Size = UDim2.new(1, -28, 0, 1)
 Divider.ZIndex = 3
 
--- Status badge row
+-- Status row
 local StatusRow = Instance.new("Frame")
 StatusRow.Parent = Inner
 StatusRow.BackgroundColor3 = Color3.fromRGB(22, 14, 40)
@@ -164,13 +156,37 @@ StatusLabel.TextSize = 13
 StatusLabel.TextXAlignment = Enum.TextXAlignment.Left
 StatusLabel.ZIndex = 4
 
--- Big toggle button
+-- Free-look indicator (visible while dragging screen)
+local FreeLookBadge = Instance.new("Frame")
+FreeLookBadge.Parent = Inner
+FreeLookBadge.BackgroundColor3 = Color3.fromRGB(160, 110, 0)
+FreeLookBadge.BorderSizePixel = 0
+FreeLookBadge.Position = UDim2.new(0, 14, 0, 110)
+FreeLookBadge.Size = UDim2.new(1, -28, 0, 26)
+FreeLookBadge.ZIndex = 3
+FreeLookBadge.Visible = false
+
+local FreeLookCorner = Instance.new("UICorner")
+FreeLookCorner.CornerRadius = UDim.new(0, 8)
+FreeLookCorner.Parent = FreeLookBadge
+
+local FreeLookLabel = Instance.new("TextLabel")
+FreeLookLabel.Parent = FreeLookBadge
+FreeLookLabel.BackgroundTransparency = 1
+FreeLookLabel.Size = UDim2.new(1, 0, 1, 0)
+FreeLookLabel.Font = Enum.Font.GothamSemibold
+FreeLookLabel.Text = "⟲  FREE LOOK — RELEASE TO SNAP"
+FreeLookLabel.TextColor3 = Color3.fromRGB(255, 235, 160)
+FreeLookLabel.TextSize = 11
+FreeLookLabel.ZIndex = 4
+
+-- Toggle button
 local EnableToggle = Instance.new("TextButton")
 EnableToggle.Name = "EnableToggle"
 EnableToggle.Parent = Inner
 EnableToggle.BackgroundColor3 = Color3.fromRGB(70, 30, 140)
 EnableToggle.BorderSizePixel = 0
-EnableToggle.Position = UDim2.new(0, 14, 0, 116)
+EnableToggle.Position = UDim2.new(0, 14, 0, 146)
 EnableToggle.Size = UDim2.new(1, -28, 0, 68)
 EnableToggle.Font = Enum.Font.GothamBold
 EnableToggle.Text = "ENABLE"
@@ -197,13 +213,13 @@ ToggleStroke.Thickness = 1.5
 ToggleStroke.Transparency = 0.2
 ToggleStroke.Parent = EnableToggle
 
--- FOV info row
+-- FOV row
 local FovRow = Instance.new("Frame")
 FovRow.Parent = Inner
 FovRow.BackgroundColor3 = Color3.fromRGB(20, 12, 36)
 FovRow.BorderSizePixel = 0
-FovRow.Position = UDim2.new(0, 14, 0, 198)
-FovRow.Size = UDim2.new(1, -28, 0, 30)
+FovRow.Position = UDim2.new(0, 14, 0, 226)
+FovRow.Size = UDim2.new(1, -28, 0, 24)
 FovRow.ZIndex = 3
 
 local FovRowCorner = Instance.new("UICorner")
@@ -211,7 +227,6 @@ FovRowCorner.CornerRadius = UDim.new(0, 8)
 FovRowCorner.Parent = FovRow
 
 local FovLabel = Instance.new("TextLabel")
-FovLabel.Name = "FovLabel"
 FovLabel.Parent = FovRow
 FovLabel.BackgroundTransparency = 1
 FovLabel.Size = UDim2.new(1, 0, 1, 0)
@@ -221,13 +236,11 @@ FovLabel.TextColor3 = Color3.fromRGB(130, 100, 180)
 FovLabel.TextSize = 12
 FovLabel.ZIndex = 4
 
--- Credits
 local Credits = Instance.new("TextLabel")
-Credits.Name = "Credits"
 Credits.Parent = Inner
 Credits.BackgroundTransparency = 1
-Credits.Position = UDim2.new(0, 0, 0, 236)
-Credits.Size = UDim2.new(1, 0, 0, 18)
+Credits.Position = UDim2.new(0, 0, 0, 252)
+Credits.Size = UDim2.new(1, 0, 0, 16)
 Credits.Font = Enum.Font.Gotham
 Credits.Text = "by Bloodscript"
 Credits.TextColor3 = Color3.fromRGB(80, 60, 110)
@@ -235,37 +248,30 @@ Credits.TextSize = 11
 Credits.ZIndex = 4
 
 -- ─────────────────────────────────────────
---  MINIMIZE LOGIC
+--  MINIMIZE
 -- ─────────────────────────────────────────
 
 local minimized = false
-local fullHeight = 260
-local miniHeight = 54
 local tweenInfo = TweenInfo.new(0.25, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
 
 MinimizeBtn.MouseButton1Click:Connect(function()
 	minimized = not minimized
 	local targetSize = minimized
-		and UDim2.new(0, 250, 0, miniHeight)
-		or  UDim2.new(0, 250, 0, fullHeight)
+		and UDim2.new(0, 250, 0, 54)
+		or  UDim2.new(0, 250, 0, 260)
 	MinimizeBtn.Text = minimized and "+" or "—"
 	TweenService:Create(Background, tweenInfo, {Size = targetSize}):Play()
 end)
 
--- Toggle hover effects
 EnableToggle.MouseEnter:Connect(function()
-	TweenService:Create(EnableToggle, TweenInfo.new(0.15), {
-		BackgroundColor3 = Color3.fromRGB(90, 45, 170)
-	}):Play()
+	TweenService:Create(EnableToggle, TweenInfo.new(0.12), {BackgroundColor3 = Color3.fromRGB(90, 45, 170)}):Play()
 end)
 EnableToggle.MouseLeave:Connect(function()
-	TweenService:Create(EnableToggle, TweenInfo.new(0.15), {
-		BackgroundColor3 = Color3.fromRGB(70, 30, 140)
-	}):Play()
+	TweenService:Create(EnableToggle, TweenInfo.new(0.12), {BackgroundColor3 = Color3.fromRGB(70, 30, 140)}):Play()
 end)
 
 -- ─────────────────────────────────────────
---  FOV CIRCLE
+--  FOV RING
 -- ─────────────────────────────────────────
 
 local fov = 100
@@ -278,14 +284,31 @@ FOVring.Filled = false
 FOVring.Radius = fov
 FOVring.Position = Cam.ViewportSize / 2
 
-local function updateDrawings()
-	FOVring.Position = Cam.ViewportSize / 2
-end
+-- ─────────────────────────────────────────
+--  TOUCH / FREE-LOOK TRACKING
+--
+--  gameProcessed = true  → finger landed on a GUI element (button, panel, etc.)
+--                          aimbot keeps running uninterrupted
+--  gameProcessed = false → finger landed on bare game screen
+--                          free-look activates while held; instant snap on release
+-- ─────────────────────────────────────────
 
-UserInputService.InputBegan:Connect(function(input)
-	if input.KeyCode == Enum.KeyCode.Delete then
-		RunService:UnbindFromRenderStep("FOVUpdate")
-		FOVring:Remove()
+local screenTouchCount = 0
+
+UserInputService.TouchStarted:Connect(function(touch, gameProcessed)
+	if not gameProcessed then
+		screenTouchCount = screenTouchCount + 1
+		FreeLookBadge.Visible = true
+	end
+end)
+
+UserInputService.TouchEnded:Connect(function(touch, gameProcessed)
+	if not gameProcessed then
+		screenTouchCount = math.max(0, screenTouchCount - 1)
+		if screenTouchCount == 0 then
+			FreeLookBadge.Visible = false
+			-- snap happens automatically the very next RenderStepped frame
+		end
 	end
 end)
 
@@ -295,79 +318,28 @@ end)
 
 local aimbotEnabled = false
 
--- Touch tracking — while the player is swiping to look around, pause locking
--- so the camera moves freely. On release, instantly snap back to the target.
-local isTouchDragging = false
-
--- Only pause aimbot when the player is actually MOVING their finger (camera swipe).
--- A button hold stays still — a camera drag moves. We use a movement threshold
--- so tapping or holding shoot never pauses the lock.
-local SWIPE_THRESHOLD = 12  -- pixels of movement before we consider it a camera drag
-local touchStartPositions = {}  -- [touchId] = Vector2 start pos
-
-UserInputService.TouchStarted:Connect(function(touch, processed)
-	if processed then return end
-	-- Record where this finger started
-	touchStartPositions[touch] = Vector2.new(touch.Position.X, touch.Position.Y)
-end)
-
-UserInputService.TouchMoved:Connect(function(touch, processed)
-	if processed then return end
-	local startPos = touchStartPositions[touch]
-	if startPos then
-		local delta = (Vector2.new(touch.Position.X, touch.Position.Y) - startPos).Magnitude
-		if delta >= SWIPE_THRESHOLD then
-			-- This touch moved enough — it's a camera swipe, pause aimbot
-			isTouchDragging = true
-		end
-	end
-end)
-
-UserInputService.TouchEnded:Connect(function(touch, processed)
-	touchStartPositions[touch] = nil
-	-- Check if any remaining tracked touches are still swiping
-	-- If none left, release the pause
-	local anyActive = false
-	for _ in pairs(touchStartPositions) do
-		anyActive = true
-		break
-	end
-	if not anyActive then
-		isTouchDragging = false
-	end
-end)
-
-local function lookAt(target)
-	local lookVector = (target - Cam.CFrame.Position).unit
-	Cam.CFrame = CFrame.new(Cam.CFrame.Position, Cam.CFrame.Position + lookVector)
+-- Instant snap — no lerp, no delay, straight CFrame assignment
+local function snapToTarget(targetPos)
+	local pos = Cam.CFrame.Position
+	local look = (targetPos - pos).Unit
+	Cam.CFrame = CFrame.new(pos, pos + look)
 end
 
--- Smooth snap-back: lerp the camera toward the target over snapSpeed.
--- Lower = snappier. 1 = instant. 0.1 = slow drift.
-local snapSpeed = 0.18
-
-local function smoothLookAt(target, dt)
-	local currentLook = Cam.CFrame.LookVector
-	local desiredLook = (target - Cam.CFrame.Position).Unit
-	local blendedLook = currentLook:Lerp(desiredLook, math.min(1, snapSpeed + dt * 8))
-	Cam.CFrame = CFrame.new(Cam.CFrame.Position, Cam.CFrame.Position + blendedLook)
-end
-
-local function getClosestPlayerInFOV(trg_part)
-	local nearest = nil
-	local last = math.huge
-	local center = Cam.ViewportSize / 2
-	local localPlayer = Players.LocalPlayer
+local function getClosestInFOV(partName)
+	local nearest  = nil
+	local bestDist = math.huge
+	local center   = Cam.ViewportSize / 2
+	local lp       = Players.LocalPlayer
 
 	for _, player in ipairs(Players:GetPlayers()) do
-		if player ~= localPlayer and (not player.Team or player.Team ~= localPlayer.Team) then
-			local part = player.Character and player.Character:FindFirstChild(trg_part)
+		if player ~= lp and (not player.Team or player.Team ~= lp.Team) then
+			local part = player.Character and player.Character:FindFirstChild(partName)
 			if part then
 				local ePos, isVisible = Cam:WorldToViewportPoint(part.Position)
 				local dist = (Vector2.new(ePos.X, ePos.Y) - center).Magnitude
-				if dist < last and isVisible and dist < fov then
-					last = dist
-					nearest = player
+				if dist < bestDist and isVisible and dist < fov then
+					bestDist = dist
+					nearest  = player
 				end
 			end
 		end
@@ -384,31 +356,28 @@ local function setAimbotState(enabled)
 			ColorSequenceKeypoint.new(0, Color3.fromRGB(40, 180, 100)),
 			ColorSequenceKeypoint.new(1, Color3.fromRGB(20, 100, 60)),
 		})
-		ToggleStroke.Color = Color3.fromRGB(60, 220, 120)
-		EnableToggle.Text = "DISABLE"
-		EnableToggle.TextColor3 = Color3.fromRGB(200, 255, 220)
-
+		ToggleStroke.Color         = Color3.fromRGB(60, 220, 120)
+		EnableToggle.Text          = "DISABLE"
+		EnableToggle.TextColor3    = Color3.fromRGB(200, 255, 220)
 		StatusDot.BackgroundColor3 = Color3.fromRGB(60, 220, 120)
-		StatusLabel.Text = "AIMBOT  ·  ACTIVE"
-		StatusLabel.TextColor3 = Color3.fromRGB(140, 220, 160)
-
-		FOVring.Color = Color3.fromRGB(60, 220, 120)
-		FOVring.Visible = true
+		StatusLabel.Text           = "AIMBOT  ·  ACTIVE"
+		StatusLabel.TextColor3     = Color3.fromRGB(140, 220, 160)
+		FOVring.Color              = Color3.fromRGB(60, 220, 120)
+		FOVring.Visible            = true
 	else
 		ToggleGradient.Color = ColorSequence.new({
 			ColorSequenceKeypoint.new(0, Color3.fromRGB(110, 40, 200)),
 			ColorSequenceKeypoint.new(1, Color3.fromRGB(50, 20, 120)),
 		})
-		ToggleStroke.Color = Color3.fromRGB(160, 90, 255)
-		EnableToggle.Text = "ENABLE"
-		EnableToggle.TextColor3 = Color3.fromRGB(230, 200, 255)
-
+		ToggleStroke.Color         = Color3.fromRGB(160, 90, 255)
+		EnableToggle.Text          = "ENABLE"
+		EnableToggle.TextColor3    = Color3.fromRGB(230, 200, 255)
 		StatusDot.BackgroundColor3 = Color3.fromRGB(255, 60, 80)
-		StatusLabel.Text = "AIMBOT  ·  INACTIVE"
-		StatusLabel.TextColor3 = Color3.fromRGB(180, 140, 220)
-
-		FOVring.Color = Color3.fromRGB(160, 80, 255)
-		FOVring.Visible = false
+		StatusLabel.Text           = "AIMBOT  ·  INACTIVE"
+		StatusLabel.TextColor3     = Color3.fromRGB(180, 140, 220)
+		FOVring.Color              = Color3.fromRGB(160, 80, 255)
+		FOVring.Visible            = false
+		FreeLookBadge.Visible      = false
 	end
 end
 
@@ -420,19 +389,18 @@ end)
 --  RENDER LOOP
 -- ─────────────────────────────────────────
 
-RunService.RenderStepped:Connect(function(dt)
-	updateDrawings()
-	if aimbotEnabled then
-		local closest = getClosestPlayerInFOV("Head")
-		if closest and closest.Character and closest.Character:FindFirstChild("Head") then
-			local headPos = closest.Character.Head.Position
-			if isTouchDragging then
-				-- Player is swiping: let the camera move freely, do nothing.
-				-- FOV ring stays visible so they know aim is still locked on release.
-			else
-				-- Not touching: smoothly snap back toward the target.
-				smoothLookAt(headPos, dt)
-			end
-		end
+RunService.RenderStepped:Connect(function()
+	FOVring.Position = Cam.ViewportSize / 2
+
+	if not aimbotEnabled then return end
+
+	-- Player is dragging the game screen → free look, don't touch the camera.
+	-- The instant they lift their finger, screenTouchCount hits 0 and the very
+	-- next frame snaps the camera back to the target with no lerp.
+	if screenTouchCount > 0 then return end
+
+	local closest = getClosestInFOV("Head")
+	if closest and closest.Character and closest.Character:FindFirstChild("Head") then
+		snapToTarget(closest.Character.Head.Position)
 	end
 end)
