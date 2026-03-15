@@ -298,32 +298,42 @@ local aimbotEnabled = false
 -- Touch tracking — while the player is swiping to look around, pause locking
 -- so the camera moves freely. On release, instantly snap back to the target.
 local isTouchDragging = false
-local activeTouches = 0  -- count fingers on screen (ignore GUI touches)
 
--- We only count touches that begin on the game viewport, not on the GUI panel.
--- To detect this we check if the touch position is NOT inside the Background frame.
-local function isTouchOnGUI(pos)
-	local bgPos = Background.AbsolutePosition
-	local bgSize = Background.AbsoluteSize
-	return pos.X >= bgPos.X and pos.X <= bgPos.X + bgSize.X
-		and pos.Y >= bgPos.Y and pos.Y <= bgPos.Y + bgSize.Y
-end
+-- Only pause aimbot when the player is actually MOVING their finger (camera swipe).
+-- A button hold stays still — a camera drag moves. We use a movement threshold
+-- so tapping or holding shoot never pauses the lock.
+local SWIPE_THRESHOLD = 12  -- pixels of movement before we consider it a camera drag
+local touchStartPositions = {}  -- [touchId] = Vector2 start pos
 
 UserInputService.TouchStarted:Connect(function(touch, processed)
-	if processed then return end  -- touch was consumed by a GUI element
-	if isTouchOnGUI(touch.Position) then return end
-	activeTouches = activeTouches + 1
-	if activeTouches > 0 then
-		isTouchDragging = true
+	if processed then return end
+	-- Record where this finger started
+	touchStartPositions[touch] = Vector2.new(touch.Position.X, touch.Position.Y)
+end)
+
+UserInputService.TouchMoved:Connect(function(touch, processed)
+	if processed then return end
+	local startPos = touchStartPositions[touch]
+	if startPos then
+		local delta = (Vector2.new(touch.Position.X, touch.Position.Y) - startPos).Magnitude
+		if delta >= SWIPE_THRESHOLD then
+			-- This touch moved enough — it's a camera swipe, pause aimbot
+			isTouchDragging = true
+		end
 	end
 end)
 
 UserInputService.TouchEnded:Connect(function(touch, processed)
-	activeTouches = math.max(0, activeTouches - 1)
-	if activeTouches == 0 then
+	touchStartPositions[touch] = nil
+	-- Check if any remaining tracked touches are still swiping
+	-- If none left, release the pause
+	local anyActive = false
+	for _ in pairs(touchStartPositions) do
+		anyActive = true
+		break
+	end
+	if not anyActive then
 		isTouchDragging = false
-		-- Snap-back happens automatically on the next RenderStepped frame
-		-- because we resume locking immediately.
 	end
 end)
 
