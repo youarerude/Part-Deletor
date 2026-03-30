@@ -51,6 +51,25 @@ local pinpointSpawned=false; local pinpointChasing=false
 local pinpointLoop=nil; local pinpointHBConn=nil; local pinpointConn=nil
 local isParrying=false
 
+-- Modifier system
+local appliedMods    = {}  -- set: mod id -> true
+local modInexplicable  = false
+local modWatchoutKiddo = false
+local modFixation      = false
+-- Prisoner state (Inexplicable)
+local prisonerPart    = nil
+local prisonerAngle   = 0
+local prisonerDir     = 1
+local prisonerBoosted = false
+local prisonerBoostT  = 0
+local prisonerRage    = 0
+local prisonerHeadless = false
+local prisonerChasing  = false
+local prisonerChaseSpd = 0
+local prisonerHBConn   = nil
+local prisonerRageGui  = nil
+local prisonerHeadFrame = nil
+
 local function getHRP() local c=player.Character; return c and c:FindFirstChild("HumanoidRootPart") end
 local function getHumanoid() local c=player.Character; return c and c:FindFirstChildOfClass("Humanoid") end
 local function shuffle(t) for i=#t,2,-1 do local j=math.random(1,i); t[i],t[j]=t[j],t[i] end end
@@ -106,6 +125,173 @@ local UIS=game:GetService("UserInputService")
 UIS.InputBegan:Connect(function(inp,gpe) if gpe then return end; if inp.KeyCode==Enum.KeyCode.Q or inp.KeyCode==Enum.KeyCode.ButtonR1 then holdParry() end end)
 UIS.InputEnded:Connect(function(inp) if inp.KeyCode==Enum.KeyCode.Q or inp.KeyCode==Enum.KeyCode.ButtonR1 then releaseParry() end end)
 
+-- All modifier definitions
+local ALL_MODIFIERS = {
+    {id="Inexplicable",  name="Inexplicable.",    col=Color3.fromRGB(160,80,255),
+     desc="Prisoner Appears.",
+     perk="[+20% shard magnetize range]",
+     onApply=function() modInexplicable=true end},
+    {id="WatchoutKiddo", name="Watchout Kiddo!",  col=Color3.fromRGB(255,130,30),
+     desc="Dasher has infinite turns and 3x faster.",
+     perk="[15% dmg reduction from entities]",
+     onApply=function() modWatchoutKiddo=true end},
+    {id="FIXATION",      name="FIXATION.",         col=Color3.fromRGB(255,40,40),
+     desc="Pinpoint is 5x faster.",
+     perk="[+100% walkspeed]",
+     onApply=function()
+         modFixation=true
+         local hum=getHumanoid(); if hum then hum.WalkSpeed=32 end
+     end},
+    {id="Wanderlust",    name="Wanderlust.",        col=Color3.fromRGB(80,200,120),
+     desc="Maze breathes wider next round.",
+     perk="[+5% walk speed]",
+     onApply=function() local h=getHumanoid(); if h then h.WalkSpeed=math.min(32,h.WalkSpeed+0.8) end end},
+    {id="Ironclad",      name="Ironclad.",          col=Color3.fromRGB(160,160,180),
+     desc="Collect a shard, recover a little.",
+     perk="[+8 HP per shard]",
+     onApply=function() end},  -- handled in onShardTouched check
+    {id="BlindEye",      name="Blind Eye.",          col=Color3.fromRGB(200,200,60),
+     desc="ESP kicks in at 20% shards instead of 10%.",
+     perk="[ESP activates earlier]",
+     onApply=function() end},  -- handled via ESP_PCT override
+    {id="Phantom",       name="Phantom.",            col=Color3.fromRGB(100,200,220),
+     desc="Entities flicker — harder to track.",
+     perk="[+10 studs parry window]",
+     onApply=function() end},
+    {id="Bloodpact",     name="Bloodpact.",          col=Color3.fromRGB(200,20,20),
+     desc="Half your HP from the start.",
+     perk="[Shards give +5 HP each]",
+     onApply=function() local h=getHumanoid(); if h then h.Health=h.MaxHealth/2 end end},
+}
+
+-- ── Modifier GUI ──
+local modGui = Instance.new("ScreenGui")
+modGui.Name="ModifierGui"; modGui.ResetOnSpawn=false; modGui.Parent=player.PlayerGui
+
+local modToggleBtn = Instance.new("TextButton")
+modToggleBtn.Size     = UDim2.new(0,140,0,38)
+modToggleBtn.Position = UDim2.new(1,-150,0,10)
+modToggleBtn.BackgroundColor3 = Color3.fromRGB(18,12,30)
+modToggleBtn.Text = "MODIFIERS ▼"
+modToggleBtn.Font = Enum.Font.GothamBold; modToggleBtn.TextSize=15
+modToggleBtn.TextColor3 = Color3.fromRGB(200,150,255)
+modToggleBtn.BorderSizePixel=0; modToggleBtn.Parent=modGui
+Instance.new("UICorner",modToggleBtn).CornerRadius=UDim.new(0,8)
+local ms=Instance.new("UIStroke"); ms.Color=Color3.fromRGB(120,60,200); ms.Thickness=2; ms.Parent=modToggleBtn
+
+local modPanel = Instance.new("Frame")
+modPanel.Size = UDim2.new(0,295,0,460)
+modPanel.Position = UDim2.new(0,10,0,60)
+modPanel.BackgroundColor3 = Color3.fromRGB(10,8,20)
+modPanel.BackgroundTransparency=0.1; modPanel.BorderSizePixel=0
+modPanel.Visible=false; modPanel.Parent=modGui
+Instance.new("UICorner",modPanel).CornerRadius=UDim.new(0,12)
+local mps=Instance.new("UIStroke"); mps.Color=Color3.fromRGB(80,40,140); mps.Thickness=2; mps.Parent=modPanel
+
+local modPanelOpen = false
+
+-- Visibility: hide when in round
+local visConn = RunService.Heartbeat:Connect(function()
+    local show = not gameActive
+    modToggleBtn.Visible = show
+    if not show and modPanelOpen then
+        modPanel.Visible=false; modPanelOpen=false
+        modToggleBtn.Text="MODIFIERS ▼"
+    end
+end)
+
+local function getAvailableMods()
+    local pool={}
+    for _,m in ipairs(ALL_MODIFIERS) do
+        if not appliedMods[m.id] then table.insert(pool,m) end
+    end
+    -- shuffle
+    for i=#pool,2,-1 do local j=math.random(1,i); pool[i],pool[j]=pool[j],pool[i] end
+    local out={}; for i=1,math.min(5,#pool) do out[i]=pool[i] end
+    return out
+end
+
+local function rebuildModPanel()
+    -- Clear existing cards
+    for _,c in ipairs(modPanel:GetChildren()) do
+        if c:IsA("Frame") or c:IsA("TextLabel") then c:Destroy() end
+    end
+
+    local title=Instance.new("TextLabel"); title.Size=UDim2.new(1,-20,0,28)
+    title.Position=UDim2.new(0,10,0,8); title.BackgroundTransparency=1
+    title.Text="— MODIFIERS —"; title.TextColor3=Color3.fromRGB(200,150,255)
+    title.Font=Enum.Font.GothamBold; title.TextScaled=true; title.Parent=modPanel
+
+    local choices = getAvailableMods()
+    if #choices==0 then
+        local el=Instance.new("TextLabel"); el.Size=UDim2.new(1,-20,0,40)
+        el.Position=UDim2.new(0,10,0,44); el.BackgroundTransparency=1
+        el.Text="No modifiers left."; el.TextColor3=Color3.fromRGB(150,150,150)
+        el.Font=Enum.Font.Gotham; el.TextScaled=true; el.Parent=modPanel
+        return
+    end
+
+    for i,mod in ipairs(choices) do
+        local card=Instance.new("TextButton")
+        card.Size=UDim2.new(1,-20,0,78)
+        card.Position=UDim2.new(0,10,0,40+(i-1)*84)
+        card.BackgroundColor3=Color3.fromRGB(22,16,36)
+        card.BorderSizePixel=0; card.Text=""; card.AutoButtonColor=false
+        card.Parent=modPanel
+        Instance.new("UICorner",card).CornerRadius=UDim.new(0,9)
+        local cs=Instance.new("UIStroke"); cs.Color=mod.col; cs.Thickness=1.5; cs.Parent=card
+
+        local cname=Instance.new("TextLabel"); cname.Size=UDim2.new(1,-10,0,24)
+        cname.Position=UDim2.new(0,8,0,6); cname.BackgroundTransparency=1
+        cname.Text=mod.name; cname.TextColor3=mod.col
+        cname.Font=Enum.Font.GothamBold; cname.TextScaled=true
+        cname.TextXAlignment=Enum.TextXAlignment.Left; cname.Parent=card
+
+        local cdesc=Instance.new("TextLabel"); cdesc.Size=UDim2.new(1,-10,0,20)
+        cdesc.Position=UDim2.new(0,8,0,30); cdesc.BackgroundTransparency=1
+        cdesc.Text=mod.desc; cdesc.TextColor3=Color3.fromRGB(190,180,200)
+        cdesc.Font=Enum.Font.Gotham; cdesc.TextScaled=true
+        cdesc.TextXAlignment=Enum.TextXAlignment.Left; cdesc.Parent=card
+
+        local cperk=Instance.new("TextLabel"); cperk.Size=UDim2.new(1,-10,0,18)
+        cperk.Position=UDim2.new(0,8,0,52); cperk.BackgroundTransparency=1
+        cperk.Text=mod.perk; cperk.TextColor3=Color3.fromRGB(80,220,120)
+        cperk.Font=Enum.Font.Gotham; cperk.TextScaled=true
+        cperk.TextXAlignment=Enum.TextXAlignment.Left; cperk.Parent=card
+
+        card.MouseButton1Click:Connect(function()
+            if gameActive then return end
+            if appliedMods[mod.id] then return end
+            appliedMods[mod.id]=true
+            mod.onApply()
+            -- Flash card
+            TweenService:Create(card,TweenInfo.new(0.15),{BackgroundColor3=mod.col}):Play()
+            task.delay(0.2,function()
+                rebuildModPanel()
+                -- Start prisoner immediately if inexplicable applied
+                if mod.id=="Inexplicable" then
+                    startPrisonerLoop()
+                end
+            end)
+        end)
+    end
+end
+
+modToggleBtn.MouseButton1Click:Connect(function()
+    if gameActive then return end
+    modPanelOpen = not modPanelOpen
+    modPanel.Visible = modPanelOpen
+    modToggleBtn.Text = modPanelOpen and "MODIFIERS ▲" or "MODIFIERS ▼"
+    if modPanelOpen then rebuildModPanel() end
+end)
+
+-- entityDamage helper (respects WatchoutKiddo 15% reduction)
+local function entityDamage(hum, amount)
+    if not hum or hum.Health<=0 then return end
+    local mult = modWatchoutKiddo and 0.85 or 1
+    hum.Health = math.max(0.1, hum.Health - amount * mult)
+end
+
 -- ESP threshold
 local function checkESP()
     if espActive then return end
@@ -140,7 +326,7 @@ local function spawnShard(wp,folder)
             if not p or not p.Parent then return end
             local hrp=getHRP(); if not hrp then return end
             local diff=hrp.Position-p.Position
-            if diff.Magnitude<=10 and diff.Magnitude>0.5 then
+            if diff.Magnitude<=(modInexplicable and 12 or 10) and diff.Magnitude>0.5 then
                 p.CFrame=CFrame.new(p.Position+diff.Unit*math.min(18*dt,diff.Magnitude))
             end
         end)
@@ -297,7 +483,7 @@ end
 
 local function moveDasherAlong(wps,onDone)
     if not dasherPart then if onDone then onDone() end; return end
-    local SPEED=55; local idx=1
+    local SPEED=modWatchoutKiddo and 165 or 55; local idx=1
     local function nxt()
         if not dasherPart or not dasherPart.Parent then if onDone then onDone() end; return end
         idx+=1; if idx>#wps then if onDone then onDone() end; return end
@@ -332,7 +518,7 @@ local function startDasherLoop(chance,numTurns)
         local hrp=getHRP(); if not hrp then dasherActive=false; return end
         -- Line spawns at player, walks random turns outward
         local pcx,pcy=worldToCell(hrp.Position)
-        local wps=genDasherPath(pcx,pcy,numTurns)
+        local wps=genDasherPath(pcx,pcy,modWatchoutKiddo and 9999 or numTurns)
         if #wps<2 then dasherActive=false; return end
 
         local pf=drawDasherPath(wps,mazeFolder)
@@ -476,9 +662,9 @@ local function startPinpointChase(scx, scy)
     if pinpointHBConn then pinpointHBConn:Disconnect(); pinpointHBConn=nil end
     pinpointChasing=true
 
-    -- R2=90, R3=115, R4=145, R5+=180
     local SPEED = 90 + math.max(0, currentRound - 2) * 30
     if currentRound >= 5 then SPEED = 180 end
+    if modFixation then SPEED = SPEED * 5 end
     local hrp=getHRP(); if not hrp then pinpointChasing=false; return end
 
     -- Build full cell path from current pinpoint pos to player
@@ -932,7 +1118,7 @@ local function runSaintEvent()
         if hum and hum.Health > 0 then
             if dot > 0.82 then
                 -- Looking at saint → drain health
-                hum.Health = math.max(0.1, hum.Health - 8 * dt)
+                entityDamage(hum, 8 * dt)
                 gazeTime += dt
                 if gazeTime >= 2.2 then
                     -- Fully captured → die
@@ -1919,6 +2105,208 @@ local function startVortexLoop()
     schedule()
 end
 
+
+-- ── Prisoner (Inexplicable modifier) ──────────────────────
+local PRISONER_RADIUS = 7
+
+local function buildPrisonerFace(part)
+    local bb = Instance.new("BillboardGui")
+    bb.Size = UDim2.new(0,90,0,100)
+    bb.StudsOffsetWorldSpace = Vector3.new(0,0,0)
+    bb.AlwaysOnTop = true; bb.Parent = part
+
+    local face = Instance.new("Frame")
+    face.Size=UDim2.new(1,0,1,0); face.BackgroundTransparency=1
+    face.BorderSizePixel=0; face.Parent=bb
+
+    -- Head
+    local head=Instance.new("Frame"); head.Name="Head"
+    head.Size=UDim2.new(0,72,0,80); head.Position=UDim2.new(0.5,-36,0.05,0)
+    head.BackgroundColor3=Color3.fromRGB(190,165,140); head.BorderSizePixel=0
+    head.Parent=face
+    Instance.new("UICorner",head).CornerRadius=UDim.new(0.35,0)
+    prisonerHeadFrame=head
+
+    -- Prison stripe (forehead band)
+    local band=Instance.new("Frame"); band.Size=UDim2.new(1,0,0,10)
+    band.Position=UDim2.new(0,0,0.08,0); band.BackgroundColor3=Color3.fromRGB(40,40,40)
+    band.BorderSizePixel=0; band.Parent=head
+
+    -- Eyes
+    for _,xoff in ipairs({-14,14}) do
+        local eye=Instance.new("Frame"); eye.Size=UDim2.new(0,12,0,14)
+        eye.Position=UDim2.new(0.5,xoff-6,0.38,0)
+        eye.BackgroundColor3=Color3.fromRGB(20,15,15); eye.BorderSizePixel=0
+        eye.Parent=head; Instance.new("UICorner",eye).CornerRadius=UDim.new(1,0)
+    end
+
+    -- Mouth (flat nervous)
+    local mouth=Instance.new("Frame"); mouth.Size=UDim2.new(0,26,0,4)
+    mouth.Position=UDim2.new(0.5,-13,0.7,0)
+    mouth.BackgroundColor3=Color3.fromRGB(70,35,35); mouth.BorderSizePixel=0
+    mouth.Parent=head; Instance.new("UICorner",mouth).CornerRadius=UDim.new(0.5,0)
+
+    -- Number badge (prisoner number)
+    local badge=Instance.new("TextLabel"); badge.Size=UDim2.new(0.85,0,0,18)
+    badge.Position=UDim2.new(0.075,0,0.82,0); badge.BackgroundTransparency=1
+    badge.Text="847"; badge.TextColor3=Color3.fromRGB(70,70,70)
+    badge.Font=Enum.Font.GothamBold; badge.TextScaled=true; badge.Parent=head
+end
+
+local function startPrisonerLoop()
+    if prisonerHBConn then prisonerHBConn:Disconnect(); prisonerHBConn=nil end
+    if prisonerPart then prisonerPart:Destroy(); prisonerPart=nil end
+    if prisonerRageGui then prisonerRageGui:Destroy(); prisonerRageGui=nil end
+
+    -- Create part
+    local p=Instance.new("Part"); p.Name="Prisoner"; p.Size=Vector3.new(1,1,1)
+    p.Anchored=true; p.CanCollide=false; p.Transparency=1; p.CastShadow=false
+    p.Parent=workspace; prisonerPart=p
+    buildPrisonerFace(p)
+
+    -- Rage bar GUI
+    local rGui=Instance.new("ScreenGui"); rGui.Name="RageGui"
+    rGui.ResetOnSpawn=false; rGui.Parent=player.PlayerGui
+    prisonerRageGui=rGui
+
+    local rBG=Instance.new("Frame"); rBG.Size=UDim2.new(0,200,0,8)
+    rBG.Position=UDim2.new(0.5,-100,1,-162); rBG.BackgroundColor3=Color3.fromRGB(25,8,8)
+    rBG.BorderSizePixel=0; rBG.Parent=rGui
+    Instance.new("UICorner",rBG).CornerRadius=UDim.new(0.5,0)
+
+    local rFill=Instance.new("Frame"); rFill.Name="Fill"; rFill.Size=UDim2.new(0,0,1,0)
+    rFill.BackgroundColor3=Color3.fromRGB(200,30,30); rFill.BorderSizePixel=0
+    rFill.Parent=rBG; Instance.new("UICorner",rFill).CornerRadius=UDim.new(0.5,0)
+
+    local rLbl=Instance.new("TextLabel"); rLbl.Size=UDim2.new(1,0,0,14)
+    rLbl.Position=UDim2.new(0,0,-2.2,0); rLbl.BackgroundTransparency=1
+    rLbl.Text="RAGE"; rLbl.TextColor3=Color3.fromRGB(200,50,50)
+    rLbl.Font=Enum.Font.GothamBold; rLbl.TextScaled=true; rLbl.Parent=rBG
+
+    -- Reset state
+    prisonerAngle=0; prisonerDir=1; prisonerBoosted=false; prisonerBoostT=0
+    prisonerRage=0; prisonerHeadless=false; prisonerChasing=false; prisonerChaseSpd=0
+
+    local cam=workspace.CurrentCamera
+    local rageTickT=0
+    local prevParry=false
+
+    prisonerHBConn=RunService.Heartbeat:Connect(function(dt)
+        local hrp=getHRP(); if not hrp then return end
+
+        if not prisonerChasing then
+            -- Orbit
+            local spd=1.0*(prisonerBoosted and 1.5 or 1.0)
+            prisonerAngle+=dt*spd*prisonerDir
+
+            if prisonerBoosted then
+                prisonerBoostT-=dt
+                if prisonerBoostT<=0 then prisonerBoosted=false end
+            end
+
+            local px=hrp.Position.X+math.cos(prisonerAngle)*PRISONER_RADIUS
+            local pz=hrp.Position.Z+math.sin(prisonerAngle)*PRISONER_RADIUS
+            p.CFrame=CFrame.new(px,hrp.Position.Y+2,pz)*CFrame.Angles(0,-prisonerAngle,0)
+
+            -- Vision check
+            local toP=(p.Position-cam.CFrame.Position)
+            local inVision=toP.Magnitude>0.1 and cam.CFrame.LookVector:Dot(toP.Unit)>0.5
+
+            if inVision then
+                -- Rage tick every 0.1s
+                rageTickT+=dt
+                if rageTickT>=0.1 then
+                    rageTickT=0
+                    prisonerRage=math.min(100,prisonerRage+1)
+                    rFill.Size=UDim2.new(prisonerRage/100,0,1,0)
+                    local rc=math.floor(100+prisonerRage)
+                    local gc=math.max(0,math.floor(30-prisonerRage*0.28))
+                    rFill.BackgroundColor3=Color3.fromRGB(rc,gc,gc)
+                end
+
+                -- Screen shake (only if camera not taken by Saint)
+                if prisonerRage>0 and cam.CameraType~=Enum.CameraType.Scriptable then
+                    local shk=(prisonerRage/100)*0.22
+                    cam.CFrame=cam.CFrame*CFrame.new(
+                        (math.random()-0.5)*shk,(math.random()-0.5)*shk*0.6,0)
+                end
+
+                -- Parry edge: boost + maybe flip direction
+                if isParrying and not prevParry then
+                    prisonerBoosted=true; prisonerBoostT=1.0
+                    if math.random()<0.5 then prisonerDir=-prisonerDir end
+                end
+            else
+                rageTickT=0
+            end
+            prevParry=isParrying
+
+            -- Rage hits 100: go headless then chase
+            if prisonerRage>=100 and not prisonerHeadless then
+                prisonerHeadless=true
+                if prisonerHeadFrame and prisonerHeadFrame.Parent then
+                    TweenService:Create(prisonerHeadFrame,TweenInfo.new(0.12),{
+                        Size=UDim2.new(0,110,0,110),
+                        BackgroundTransparency=1
+                    }):Play()
+                    task.delay(0.15,function()
+                        if prisonerHeadFrame then prisonerHeadFrame.Visible=false end
+                    end)
+                end
+                -- Flash red
+                local expG=Instance.new("ScreenGui"); expG.Name="RageFlash"
+                expG.ResetOnSpawn=false; expG.Parent=player.PlayerGui
+                local ef=Instance.new("Frame"); ef.Size=UDim2.new(1,0,1,0)
+                ef.BackgroundColor3=Color3.fromRGB(200,20,20); ef.BackgroundTransparency=0.2
+                ef.BorderSizePixel=0; ef.Parent=expG
+                TweenService:Create(ef,TweenInfo.new(0.4),{BackgroundTransparency=1}):Play()
+                task.delay(0.45,function() if expG and expG.Parent then expG:Destroy() end end)
+                -- 3s then chase
+                task.delay(3,function()
+                    if p and p.Parent and gameActive then
+                        prisonerChasing=true; prisonerChaseSpd=6
+                    end
+                end)
+            end
+
+        else
+            -- Chase: accelerate toward player
+            prisonerChaseSpd=prisonerChaseSpd+dt*0.9
+            local tgt=hrp.Position+Vector3.new(0,2,0)
+            local diff=tgt-p.Position
+            if diff.Magnitude>0.5 then
+                p.CFrame=CFrame.new(p.Position+diff.Unit*math.min(prisonerChaseSpd*dt,diff.Magnitude))
+            end
+            -- Caught player
+            if diff.Magnitude<3 then
+                prisonerChasing=false
+                if prisonerHBConn then prisonerHBConn:Disconnect(); prisonerHBConn=nil end
+                -- Raise then explode
+                local hrp2=getHRP()
+                if hrp2 then
+                    hrp2.Anchored=true
+                    TweenService:Create(hrp2,TweenInfo.new(1.6,Enum.EasingStyle.Quad,Enum.EasingDirection.In),
+                        {CFrame=hrp2.CFrame+Vector3.new(0,40,0)}):Play()
+                end
+                local eGui=Instance.new("ScreenGui"); eGui.Name="PrisonerKill"
+                eGui.ResetOnSpawn=false; eGui.Parent=player.PlayerGui
+                local ef2=Instance.new("Frame"); ef2.Size=UDim2.new(1,0,1,0)
+                ef2.BackgroundColor3=Color3.fromRGB(255,100,20); ef2.BackgroundTransparency=0
+                ef2.BorderSizePixel=0; ef2.Parent=eGui
+                TweenService:Create(ef2,TweenInfo.new(0.5),{BackgroundTransparency=1}):Play()
+                task.delay(1.8,function()
+                    local h=getHumanoid(); if h then h.Health=0 end
+                    if eGui and eGui.Parent then eGui:Destroy() end
+                    if p and p.Parent then p:Destroy(); prisonerPart=nil end
+                    if prisonerRageGui and prisonerRageGui.Parent then
+                        prisonerRageGui:Destroy(); prisonerRageGui=nil
+                    end
+                end)
+            end
+        end
+    end)
+end
+
 -- Saferoom
 local function buildSaferoom()
     local f=Instance.new("Folder"); f.Name="Saferoom"; f.Parent=workspace
@@ -2029,6 +2417,13 @@ local function startRound()
     if currentRound>=3 then startUnlivelLoop() end
     if currentRound>=4 then startDespairLoop(); startEcneulfniLoop() end
     if currentRound>=5 then startVortexLoop() end
+    if modInexplicable then
+        prisonerRage=0; prisonerHeadless=false; prisonerChasing=false
+        task.delay(0.5,function() startPrisonerLoop() end)
+    end
+    if modFixation then
+        local hum2=getHumanoid(); if hum2 then hum2.WalkSpeed=32 end
+    end
     task.wait(0.15); local hrp=getHRP(); if hrp then hrp.CFrame=CFrame.new(sp) end
 end
 
@@ -2040,7 +2435,10 @@ initDoor.Touched:Connect(function(hit) if hit.Parent==player.Character and not g
 player.CharacterAdded:Connect(function(c)
     character=c; task.wait(0.5); local h=c:WaitForChild("HumanoidRootPart",5)
     if h then
-        if not gameActive then h.CFrame=CFrame.new(safeSpawnPos)
+        if not gameActive then
+            h.CFrame=CFrame.new(safeSpawnPos)
+            if modFixation then task.delay(0.5,function() local hm=getHumanoid(); if hm then hm.WalkSpeed=32 end end) end
+            if modInexplicable and not prisonerHBConn then task.delay(1,function() startPrisonerLoop() end) end
         else
             gameActive=false; pinpointChasing=false; cleanAnimConns()
             if mazeFolder then mazeFolder:Destroy(); mazeFolder=nil end
@@ -2061,6 +2459,8 @@ player.CharacterAdded:Connect(function(c)
             if puddleSlowConn then puddleSlowConn:Disconnect(); puddleSlowConn=nil end
             accentBar.BackgroundColor3=C.shard
             h.CFrame=CFrame.new(safeSpawnPos)
+            if modFixation then h.WalkSpeed=32 end
+            if modInexplicable then task.delay(1,function() startPrisonerLoop() end) end
             refreshHUD("You died. Enter door to retry Round "..currentRound,C.dasher)
         end
     end
