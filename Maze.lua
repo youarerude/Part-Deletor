@@ -58,6 +58,10 @@ local modWatchoutKiddo = false
 local modFixation      = false
 local modUnforgiving   = false
 local modGreedMaze     = false
+local modFalsehood     = false
+-- Faker state
+local fakerList        = {}   -- array of faker instances
+local fakerFolder      = nil
 -- shard multiplier (multiplicative)
 local shardCollectMult = 1
 -- greed state
@@ -169,6 +173,13 @@ local ALL_MODIFIERS = {
      onApply=function()
          modUnforgiving=true
          shardCollectMult=shardCollectMult*3
+     end},
+    {id="Falsehood",     name="Falsehood.",       col=Color3.fromRGB(60,160,255),
+     desc="Faker appears.",
+     perk="[50% damage reduction to all entity damage]",
+     chainOf=nil,
+     onApply=function()
+         modFalsehood=true
      end},
 }
 
@@ -310,10 +321,12 @@ modToggleBtn.MouseButton1Click:Connect(function()
     if modPanelOpen then rebuildModPanel() end
 end)
 
--- entityDamage helper (respects WatchoutKiddo 15% reduction)
+-- entityDamage helper (respects WatchoutKiddo 15% + Falsehood 50% reduction)
 local function entityDamage(hum, amount)
     if not hum or hum.Health<=0 then return end
-    local mult = modWatchoutKiddo and 0.85 or 1
+    local mult = 1
+    if modWatchoutKiddo then mult = mult * 0.85 end
+    if modFalsehood     then mult = mult * 0.50 end
     hum.Health = math.max(0.1, hum.Health - amount * mult)
 end
 
@@ -416,6 +429,7 @@ local function onShardTouched(sd)
             shardList={}; collected=0; totalShards=0; espActive=false
             dasherActive=false; pinpointSpawned=false; pinpointChasing=false; currentGrid=nil
             clearGreedRoom()
+            clearAllFakers()
             accentBar.BackgroundColor3=C.shard
             refreshHUD("Round "..(currentRound-1).." clear! Enter door for Round "..currentRound,C.door)
         end)
@@ -2422,145 +2436,241 @@ local function buildGreedRoom()
     greedRoomFolder=f
 
     local go=GREED_ORIGIN
-    local GW=13; local GH=13  -- grid cells (~100 studs)
-    local CS=8
+    -- Odd grid so DFS works: 13x13 = ~104 studs
+    local GW=13; local GH=13; local CS=8
 
-    -- Floor
+    -- ── Generate internal maze ──
+    local ggrid={}
+    for y=1,GH do ggrid[y]=table.create(GW,1) end
+    ggrid[2][2]=0
+    local gstack={{2,2}}
+    local gdirs={{0,-2},{0,2},{-2,0},{2,0}}
+    while #gstack>0 do
+        local cur=gstack[#gstack]; local cx,cy=cur[1],cur[2]
+        local dd={}; for _,d in ipairs(gdirs) do table.insert(dd,d) end
+        -- shuffle dd
+        for i=#dd,2,-1 do local j=math.random(1,i); dd[i],dd[j]=dd[j],dd[i] end
+        local moved=false
+        for _,d in ipairs(dd) do
+            local nx,ny=cx+d[1],cy+d[2]
+            if nx>=1 and nx<=GW and ny>=1 and ny<=GH and ggrid[ny][nx]==1 then
+                ggrid[cy+d[2]/2][cx+d[1]/2]=0; ggrid[ny][nx]=0
+                table.insert(gstack,{nx,ny}); moved=true; break
+            end
+        end
+        if not moved then table.remove(gstack) end
+    end
+
+    -- Floor slab
     makePart("GFloor",Vector3.new(GW*CS,1,GH*CS),
         go+Vector3.new(GW*CS/2,-0.5,GH*CS/2),
-        Color3.fromRGB(180,140,30),Enum.Material.SmoothPlastic,0,true,f)
+        Color3.fromRGB(160,120,20),Enum.Material.SmoothPlastic,0,true,f)
 
-    -- Walls
-    for side=1,4 do
-        local sz,pos
-        if side==1 then sz=Vector3.new(GW*CS,WALL_H,1);  pos=go+Vector3.new(GW*CS/2,WALL_H/2,0)
-        elseif side==2 then sz=Vector3.new(GW*CS,WALL_H,1);  pos=go+Vector3.new(GW*CS/2,WALL_H/2,GH*CS)
-        elseif side==3 then sz=Vector3.new(1,WALL_H,GH*CS); pos=go+Vector3.new(0,WALL_H/2,GH*CS/2)
-        else              sz=Vector3.new(1,WALL_H,GH*CS); pos=go+Vector3.new(GW*CS,WALL_H/2,GH*CS/2)
-        end
-        makePart("GWall",sz,pos,Color3.fromRGB(140,100,20),Enum.Material.SmoothPlastic,0,true,f)
-    end
-
-    -- Ceiling (hydraulic press — starts high)
-    local press=makePart("HydPress",Vector3.new(GW*CS,4,GH*CS),
-        go+Vector3.new(GW*CS/2,80,GH*CS/2),
-        Color3.fromRGB(60,60,70),Enum.Material.Metal,0,true,f)
-    -- Press spikes (decorative)
-    for i=1,6 do
-        local sp=Instance.new("SpecialMesh"); sp.MeshType=Enum.MeshType.Wedge
-        sp.Parent=makePart("Spike",Vector3.new(4,8,4),
-            press.Position+Vector3.new(-20+i*8,-6,0),
-            Color3.fromRGB(80,80,90),Enum.Material.Metal,0,false,f)
-    end
-
-    -- Hydraulic press ESPchlight
-    setESP(press,Color3.fromRGB(255,50,50),Color3.fromRGB(255,80,80),0.4)
-
-    -- Spawn 100 gold shards randomly placed
-    local placed=0
-    for y=1,GH-1 do for x=1,GW-1 do
-        if placed<100 and math.random()<0.65 then
-            spawnGreedShard(go+Vector3.new(x*CS+math.random(-2,2),0,y*CS+math.random(-2,2)),f)
-            placed+=1
+    -- Maze walls (gold-tinted)
+    for y=1,GH do for x=1,GW do
+        if ggrid[y][x]==1 then
+            makePart("GWall",Vector3.new(CS,WALL_H,CS),
+                go+Vector3.new((x-0.5)*CS,WALL_H/2,(y-0.5)*CS),
+                Color3.fromRGB(130,95,15),Enum.Material.SmoothPlastic,0,true,f)
         end
     end end
 
-    -- Entrance door (teleport pad on edge, player walks through to enter)
-    -- Door is placed on a random maze edge, bridging to GreedRoom
-    local doorWorldPos=MAZE_ORIGIN+Vector3.new(gridW*CELL_SIZE*0.5,0,0) -- front edge
-    local bridgePart=makePart("GreedBridge",Vector3.new(8,1,50),
-        (doorWorldPos+GREED_ORIGIN)/2+Vector3.new(0,0.5,0),
-        Color3.fromRGB(180,140,30),Enum.Material.SmoothPlastic,0,true,f)
+    -- ── Hydraulic press (starts at sky) ──
+    local pressY=85
+    local press=makePart("HydPress",Vector3.new(GW*CS+2,3,GH*CS+2),
+        go+Vector3.new(GW*CS/2,pressY,GH*CS/2),
+        Color3.fromRGB(55,55,65),Enum.Material.Metal,0,true,f)
+    setESP(press,Color3.fromRGB(255,40,40),Color3.fromRGB(255,80,80),0.35)
+    -- Spike rows on underside
+    for xi=0,5 do for zi=0,5 do
+        makePart("Spike",Vector3.new(3,7,3),
+            go+Vector3.new(6+xi*16,pressY-5,6+zi*16),
+            Color3.fromRGB(75,75,85),Enum.Material.Metal,0,false,f)
+    end end
 
-    -- Door pad (entry)
+    -- ── Scatter 100 gold shards on open cells ──
+    local openG={}
+    for y=2,GH-1 do for x=2,GW-1 do
+        if ggrid[y][x]==0 then table.insert(openG,{x,y}) end
+    end end
+    -- shuffle openG
+    for i=#openG,2,-1 do local j=math.random(1,i); openG[i],openG[j]=openG[j],openG[i] end
+    for i=1,math.min(100,#openG) do
+        local cell=openG[i]
+        local wx=go.X+(cell[1]-0.5)*CS; local wz=go.Z+(cell[2]-0.5)*CS
+        spawnGreedShard(Vector3.new(wx,0,wz),f)
+    end
+
+    -- ── Entry door on maze edge, big glowing frame ──
+    local doorWorldPos=MAZE_ORIGIN+Vector3.new(gridW*CELL_SIZE*0.5, 0, 0)
+    -- Bridge path between main maze edge and greed room
+    local bridgeMid=(doorWorldPos+go)/2+Vector3.new(0,0.5,0)
+    local bridgeLen=(doorWorldPos-go).Magnitude
+    local bridgePart=Instance.new("Part")
+    bridgePart.Name="GreedBridge"; bridgePart.Size=Vector3.new(8,1,bridgeLen)
+    bridgePart.CFrame=CFrame.new(bridgeMid, go+Vector3.new(0,0.5,0))
+    bridgePart.Anchored=true; bridgePart.Material=Enum.Material.SmoothPlastic
+    bridgePart.Color=Color3.fromRGB(160,120,20); bridgePart.CastShadow=false
+    bridgePart.Parent=f
+
+    -- Big door visual (arch frame)
+    local doorCol=Color3.fromRGB(255,200,30)
+    makePart("DoorFrameL",Vector3.new(1.5,WALL_H,1.5),
+        doorWorldPos+Vector3.new(-5,WALL_H/2,0),doorCol,Enum.Material.Neon,0.1,true,f)
+    makePart("DoorFrameR",Vector3.new(1.5,WALL_H,1.5),
+        doorWorldPos+Vector3.new(5,WALL_H/2,0),doorCol,Enum.Material.Neon,0.1,true,f)
+    makePart("DoorFrameTop",Vector3.new(12,1.5,1.5),
+        doorWorldPos+Vector3.new(0,WALL_H,0),doorCol,Enum.Material.Neon,0.1,true,f)
+
+    -- Entry trigger pad
     local entryPad=makePart("GreedEntry",Vector3.new(10,0.4,10),
         doorWorldPos+Vector3.new(0,0.2,0),
-        Color3.fromRGB(255,210,30),Enum.Material.Neon,0.3,false,f)
+        doorCol,Enum.Material.Neon,0.35,false,f)
     setESP(entryPad,Color3.fromRGB(255,220,50),Color3.fromRGB(255,220,50),0.3)
+    -- Pulse entry pad
+    local epConn=RunService.Heartbeat:Connect(function()
+        if entryPad and entryPad.Parent then
+            entryPad.Transparency=0.25+0.2*math.abs(math.sin(tick()*3))
+        end
+    end); table.insert(animConns,epConn)
 
-    -- Exit pad (inside greedroom, near entrance, opens at 8s)
-    local exitPad=makePart("GreedExit",Vector3.new(10,0.4,10),
-        go+Vector3.new(GW*CS/2,0.2,4),
-        Color3.fromRGB(80,220,80),Enum.Material.Neon,1,false,f)  -- starts invisible
+    -- Exit pad (inside, near entrance side, starts invisible/locked)
+    local greedSpawnPos=go+Vector3.new(GW*CS/2,2,GH*CS/2)
+    local exitPadPos=go+Vector3.new(GW*CS/2,0.2,CS*1.5)
+    local exitPad=makePart("GreedExit",Vector3.new(10,0.4,10),exitPadPos,
+        Color3.fromRGB(80,220,80),Enum.Material.Neon,1,false,f)
 
-    local greedDebounce=false
-    entryPad.Touched:Connect(function(hit)
-        if hit.Parent~=player.Character or greedDebounce then return end
-        greedDebounce=true
-        local hrp=getHRP(); if not hrp then greedDebounce=false; return end
-        -- Teleport player inside
-        hrp.CFrame=CFrame.new(go+Vector3.new(GW*CS/2,2,GH*CS/2))
-        task.delay(0.5,function() greedDebounce=false end)
-    end)
+    -- Timer + countdown HUD (created but hidden, starts when player enters)
+    local cdGui=Instance.new("ScreenGui"); cdGui.Name="GreedCD"
+    cdGui.ResetOnSpawn=false; cdGui.Parent=player.PlayerGui
 
-    -- HUD countdown
-    local cdGui=Instance.new("ScreenGui"); cdGui.Name="GreedCD"; cdGui.ResetOnSpawn=false
-    cdGui.Parent=player.PlayerGui
-    local cdLbl=Instance.new("TextLabel"); cdLbl.Size=UDim2.new(0,200,0,55)
-    cdLbl.Position=UDim2.new(0.5,-100,0,60); cdLbl.BackgroundTransparency=0.2
-    cdLbl.BackgroundColor3=Color3.fromRGB(20,15,5); cdLbl.BorderSizePixel=0
-    cdLbl.Text="GREEDMAZE  10s"; cdLbl.TextColor3=Color3.fromRGB(255,210,30)
-    cdLbl.Font=Enum.Font.GothamBold; cdLbl.TextScaled=true; cdLbl.Parent=cdGui
-    Instance.new("UICorner",cdLbl).CornerRadius=UDim.new(0,8)
+    local cdFrame=Instance.new("Frame"); cdFrame.Size=UDim2.new(0,240,0,60)
+    cdFrame.Position=UDim2.new(0.5,-120,0,55); cdFrame.BackgroundColor3=Color3.fromRGB(15,10,3)
+    cdFrame.BackgroundTransparency=0.15; cdFrame.BorderSizePixel=0; cdFrame.Visible=false
+    cdFrame.Parent=cdGui; Instance.new("UICorner",cdFrame).CornerRadius=UDim.new(0,10)
+    local cdStroke=Instance.new("UIStroke"); cdStroke.Color=Color3.fromRGB(200,160,20)
+    cdStroke.Thickness=2; cdStroke.Parent=cdFrame
+    local cdLbl=Instance.new("TextLabel"); cdLbl.Size=UDim2.new(1,0,1,0)
+    cdLbl.BackgroundTransparency=1; cdLbl.Text="GREEDMAZE  20s"
+    cdLbl.TextColor3=Color3.fromRGB(255,210,30); cdLbl.Font=Enum.Font.GothamBold
+    cdLbl.TextScaled=true; cdLbl.Parent=cdFrame
 
-    local timer=10; local timerConn
-    timerConn=RunService.Heartbeat:Connect(function(dt)
-        if not greedActive then timerConn:Disconnect(); return end
-        timer-=dt; if timer<0 then timer=0 end
-        cdLbl.Text=string.format("GREEDMAZE  %.1fs",timer)
-        if timer<=5 then cdLbl.TextColor3=Color3.fromRGB(255,80,30) end
+    -- Timer state — countdown only starts on entry
+    local timer=20
+    local timerStarted=false
+    local timerConn=nil
 
-        -- At 8s: open exit pad
-        if timer<=2 then
-            if exitPad and exitPad.Parent then
-                exitPad.Transparency=0.3
-                setESP(exitPad,Color3.fromRGB(80,220,80),Color3.fromRGB(80,220,80),0.3)
+    -- Hype text phrases
+    local PHRASES={"ITS ON BABY!!!","OH YEAH BOI","ITS MORBIN TIME","CASH OUT!","LETS FRICKING GO!!!"}
+
+    local function startCountdown()
+        if timerStarted then return end
+        timerStarted=true
+        cdFrame.Visible=true
+
+        -- Rainbow hype text
+        local hyGui=Instance.new("ScreenGui"); hyGui.Name="GreedHype"
+        hyGui.ResetOnSpawn=false; hyGui.Parent=player.PlayerGui
+        local hyLbl=Instance.new("TextLabel"); hyLbl.Size=UDim2.new(0.9,0,0,90)
+        hyLbl.Position=UDim2.new(0.05,0,0.35,0); hyLbl.BackgroundTransparency=1
+        hyLbl.Text=PHRASES[math.random(1,#PHRASES)]
+        hyLbl.Font=Enum.Font.GothamBold; hyLbl.TextScaled=true
+        hyLbl.TextStrokeColor3=Color3.new(0,0,0); hyLbl.TextStrokeTransparency=0
+        hyLbl.Parent=hyGui
+        -- Rainbow colour + shake loop
+        local hyT=0; local hyConn
+        hyConn=RunService.Heartbeat:Connect(function(dt)
+            hyT+=dt
+            if hyT>=3 then
+                pcall(function() hyConn:Disconnect() end)
+                TweenService:Create(hyLbl,TweenInfo.new(0.4),{TextTransparency=1}):Play()
+                task.delay(0.45,function() if hyGui and hyGui.Parent then hyGui:Destroy() end end)
+                return
             end
-        end
+            local h=hyT*2  -- hue cycles
+            hyLbl.TextColor3=Color3.fromHSV(h%1, 1, 1)
+            -- Shake
+            local sx=(math.random()-0.5)*12*(1-hyT/3)
+            local sy=(math.random()-0.5)*8*(1-hyT/3)
+            hyLbl.Position=UDim2.new(0.05,sx,0.35,sy)
+            -- Grow then shrink
+            local sc=1+math.sin(hyT*8)*0.06
+            hyLbl.Size=UDim2.new(0.9,0,0,90*sc)
+        end)
 
-        -- Hydraulic press descends from t=5 to t=0 (60 studs in 5s)
-        if timer<=5 and press and press.Parent then
-            local dropProgress=(5-timer)/5
-            press.CFrame=CFrame.new(press.Position.X,80-dropProgress*74,press.Position.Z)
-        end
+        timerConn=RunService.Heartbeat:Connect(function(dt)
+            if not greedActive then timerConn:Disconnect(); return end
+            timer-=dt; if timer<0 then timer=0 end
+            cdLbl.Text=string.format("GREEDMAZE  %.1fs",timer)
+            -- Colour shift: gold→orange→red
+            if timer<=5 then
+                cdLbl.TextColor3=Color3.fromRGB(255,60+math.floor(timer*24),30)
+                cdStroke.Color=Color3.fromRGB(220,40,20)
+            elseif timer<=10 then
+                cdLbl.TextColor3=Color3.fromRGB(255,150,30)
+            end
+
+            -- Exit opens at t=5 (15s in)
+            if timer<=5 then
+                if exitPad and exitPad.Parent and exitPad.Transparency>=0.9 then
+                    exitPad.Transparency=0.3
+                    setESP(exitPad,Color3.fromRGB(80,220,80),Color3.fromRGB(80,220,80),0.3)
+                    -- Pulse exit
+                    local exConn=RunService.Heartbeat:Connect(function()
+                        if exitPad and exitPad.Parent then
+                            exitPad.Transparency=0.2+0.2*math.abs(math.sin(tick()*4))
+                        end
+                    end); table.insert(animConns,exConn)
+                end
+            end
+
+            -- Press descends t=5 → t=0 (80 studs in 5s → floor at 6)
+            if timer<=5 and press and press.Parent then
+                local dp=(5-timer)/5
+                press.CFrame=CFrame.new(press.Position.X, pressY - dp*(pressY-6), press.Position.Z)
+            end
+        end)
+    end
+
+    -- Player enters greed room
+    local entryDebounce=false
+    entryPad.Touched:Connect(function(hit)
+        if hit.Parent~=player.Character or entryDebounce then return end
+        entryDebounce=true
+        local hrp=getHRP(); if not hrp then entryDebounce=false; return end
+        hrp.CFrame=CFrame.new(greedSpawnPos)
+        startCountdown()
+        task.delay(0.8,function() entryDebounce=false end)
     end)
 
     -- Exit pad touch
     local exitDebounce=false
     exitPad.Touched:Connect(function(hit)
         if hit.Parent~=player.Character or exitDebounce then return end
-        if exitPad.Transparency>0.5 then return end  -- not open yet
+        if exitPad.Transparency>0.6 then return end
         exitDebounce=true
         local hrp=getHRP(); if not hrp then exitDebounce=false; return end
-        hrp.CFrame=CFrame.new(doorWorldPos+Vector3.new(0,2,12))
+        hrp.CFrame=CFrame.new(doorWorldPos+Vector3.new(0,2,15))
         task.delay(0.5,function() exitDebounce=false end)
-    end)
-
-    -- Press kills at timer=0
-    greedHydConn=RunService.Heartbeat:Connect(function()
-        if not greedActive then return end
-        if timer>0 then return end
-        -- Check if player still inside
-        local hrp=getHRP(); if not hrp then return end
-        local rel=hrp.Position-go
-        if rel.X>0 and rel.X<GW*CS and rel.Z>0 and rel.Z<GH*CS then
-            if rel.Y < 15 then  -- press has come down
-                local hum=getHumanoid(); if hum then hum.Health=0 end
-            end
-        end
-        timerConn:Disconnect(); greedHydConn:Disconnect(); greedHydConn=nil
-        task.delay(1,function()
+        task.delay(2,function()
+            if timerConn then pcall(function() timerConn:Disconnect() end) end
             if cdGui and cdGui.Parent then cdGui:Destroy() end
             clearGreedRoom()
         end)
     end)
 
-    -- Cleanup after exit
-    exitPad.Touched:Connect(function(hit)
-        if hit.Parent~=player.Character then return end
-        if exitPad.Transparency>0.5 then return end
-        task.delay(2,function()
-            pcall(function() timerConn:Disconnect() end)
+    -- Press kills when timer=0 and player still inside
+    greedHydConn=RunService.Heartbeat:Connect(function()
+        if not greedActive then greedHydConn:Disconnect(); greedHydConn=nil; return end
+        if not timerStarted or timer>0 then return end
+        local hrp=getHRP(); if not hrp then return end
+        local rel=hrp.Position-go
+        if rel.X>0 and rel.X<GW*CS and rel.Z>0 and rel.Z<GH*CS and rel.Y<12 then
+            local hum=getHumanoid(); if hum and hum.Health>0 then hum.Health=0 end
+        end
+        if timerConn then pcall(function() timerConn:Disconnect() end) end
+        greedHydConn:Disconnect(); greedHydConn=nil
+        task.delay(1,function()
             if cdGui and cdGui.Parent then cdGui:Destroy() end
             clearGreedRoom()
         end)
@@ -2569,17 +2679,238 @@ local function buildGreedRoom()
     return f
 end
 
-local function startGreedLoop()
-    if greedLoop then greedLoop:Disconnect(); greedLoop=nil end
-    -- 10% chance per round start, handled in startRound
-end
-
 local function trySpawnGreedRoom()
     if not modGreedMaze then return end
     if greedActive then return end
     if math.random()>0.10 then return end
     greedActive=true
     buildGreedRoom()
+end
+
+
+-- ── Faker (Falsehood modifier) ─────────────────────────────
+local FAKER_MSGS = {
+    "Why wont you forgive me?", "Stop escaping.", "Why?",
+    "Stop...", "Don't go...",
+}
+
+local function clearAllFakers()
+    for _, fk in ipairs(fakerList) do
+        if fk.part and fk.part.Parent then fk.part:Destroy() end
+        if fk.hbConn then pcall(function() fk.hbConn:Disconnect() end) end
+        if fk.flickConn then pcall(function() fk.flickConn:Disconnect() end) end
+    end
+    fakerList = {}
+    if fakerFolder and fakerFolder.Parent then fakerFolder:Destroy(); fakerFolder=nil end
+end
+
+local function buildFakerModel(folder)
+    -- R6-shaped humanoid built from parts
+    local root = Instance.new("Model"); root.Name="FakerModel"; root.Parent=folder
+
+    local skinCol    = Color3.fromRGB(200,175,150)
+    local shirtCol   = Color3.fromRGB(40,60,180)
+    local pantsCol   = Color3.fromRGB(30,30,80)
+    local shoeCol    = Color3.fromRGB(20,20,20)
+
+    local function bp(name,sz,cf,col)
+        local p=Instance.new("Part"); p.Name=name; p.Size=sz; p.CFrame=cf
+        p.Anchored=true; p.CanCollide=false; p.Color=col
+        p.Material=Enum.Material.SmoothPlastic; p.CastShadow=false; p.Parent=root
+        return p
+    end
+
+    -- HRP (invisible anchor)
+    local hrpPart=bp("HumanoidRootPart",Vector3.new(2,2,1),CFrame.new(0,3,0),Color3.new(0,0,0))
+    hrpPart.Transparency=1
+
+    -- Torso
+    local torso=bp("Torso",Vector3.new(2,2,1),CFrame.new(0,3,0),shirtCol)
+    -- Head
+    local head=bp("Head",Vector3.new(2,1,1),CFrame.new(0,4.5,0),skinCol)
+    -- Arms
+    bp("RightArm",Vector3.new(1,2,1),CFrame.new(1.5,3,0),skinCol)
+    bp("LeftArm", Vector3.new(1,2,1),CFrame.new(-1.5,3,0),skinCol)
+    -- Legs
+    bp("RightLeg",Vector3.new(1,2,1),CFrame.new(0.5,1,0),pantsCol)
+    bp("LeftLeg", Vector3.new(1,2,1),CFrame.new(-0.5,1,0),pantsCol)
+    -- Shoes
+    bp("RightShoe",Vector3.new(1,0.4,1.2),CFrame.new(0.5,-0.1,0),shoeCol)
+    bp("LeftShoe", Vector3.new(1,0.4,1.2),CFrame.new(-0.5,-0.1,0),shoeCol)
+    -- Eyes (dark)
+    bp("REye",Vector3.new(0.35,0.35,0.15),CFrame.new(0.35,4.55,-0.43),Color3.fromRGB(15,10,30))
+    bp("LEye",Vector3.new(0.35,0.35,0.15),CFrame.new(-0.35,4.55,-0.43),Color3.fromRGB(15,10,30))
+
+    return root, hrpPart
+end
+
+local function applyFakerESP(model)
+    -- Flickering distorted Highlight on each part
+    local hls={}
+    for _,p in ipairs(model:GetDescendants()) do
+        if p:IsA("BasePart") and p.Transparency<0.9 then
+            local hl=Instance.new("Highlight"); hl.Adornee=p
+            hl.OutlineColor=Color3.fromRGB(60,160,255)
+            hl.OutlineTransparency=0
+            hl.FillColor=Color3.fromRGB(30,80,200)
+            hl.FillTransparency=0.4
+            hl.DepthMode=Enum.HighlightDepthMode.AlwaysOnTop
+            hl.Parent=p; table.insert(hls,hl)
+        end
+    end
+    -- Flicker connection
+    local flickT=0
+    local flickConn=RunService.Heartbeat:Connect(function(dt)
+        flickT+=dt
+        -- Irregular flicker: random rapid toggling
+        local visible = math.sin(flickT*47+math.sin(flickT*13)*8) > (math.random()*0.6-0.3)
+        for _,hl in ipairs(hls) do
+            if hl and hl.Parent then
+                hl.OutlineTransparency = visible and 0 or 1
+                hl.FillTransparency   = visible and (0.3+math.random()*0.4) or 1
+            end
+        end
+    end)
+    return flickConn
+end
+
+local function spawnFaker(existingFk)
+    if #fakerList >= 5 then return end
+
+    if not fakerFolder then
+        fakerFolder=Instance.new("Folder"); fakerFolder.Name="FakerFolder"; fakerFolder.Parent=workspace
+    end
+
+    local model, hrpPart = buildFakerModel(fakerFolder)
+    local flickConn = applyFakerESP(model)
+
+    -- Start near player but offset
+    local hrp=getHRP()
+    local startPos = hrp and (hrp.Position+Vector3.new(math.random(-20,-10)*math.random(-1,1),0,math.random(-20,-10)*math.random(-1,1))) or Vector3.new(MAZE_ORIGIN.X,2,MAZE_ORIGIN.Z)
+
+    -- Move all parts to startPos
+    local function setFakerPos(pos)
+        if not model.Parent then return end
+        for _,p in ipairs(model:GetDescendants()) do
+            if p:IsA("BasePart") then
+                local offset=p.CFrame.Position-hrpPart.CFrame.Position
+                p.CFrame=CFrame.new(pos+offset)
+            end
+        end
+    end
+    setFakerPos(startPos+Vector3.new(0,2,0))
+
+    local fk = {part=hrpPart, model=model, hbConn=nil, flickConn=flickConn,
+                speed=0, accelT=0, knockedBack=false}
+    table.insert(fakerList, fk)
+
+    local ACCEL_TIME = 10  -- 0→100 studs/s in 10s
+
+    fk.hbConn = RunService.Heartbeat:Connect(function(dt)
+        if not gameActive then return end
+        if not model.Parent then return end
+        local h=getHRP(); if not h then return end
+
+        -- Accelerate
+        if not fk.knockedBack then
+            fk.accelT = math.min(fk.accelT + dt, ACCEL_TIME)
+            fk.speed  = (fk.accelT / ACCEL_TIME) * 100
+        end
+
+        -- Move toward player (noclip = no collision, just lerp)
+        local curPos = hrpPart.CFrame.Position
+        local target = h.Position
+        local diff   = target - curPos
+        local dist   = diff.Magnitude
+
+        if dist > 0.5 then
+            local move = diff.Unit * math.min(fk.speed * dt, dist)
+            setFakerPos(curPos + move + Vector3.new(0,2,0))
+        end
+
+        -- Touch check
+        if dist < 3.2 then
+            if isParrying then
+                -- Knock back
+                fk.knockedBack = true
+                fk.speed       = 0
+                fk.accelT      = 0
+                local away = (curPos - h.Position)
+                local kbDir = away.Magnitude>0.1 and away.Unit or Vector3.new(1,0,0)
+                -- Tween knockback
+                local kbTarget = curPos + kbDir * 100
+                local steps = 20; local stepDt = 0.35/steps; local stepI = 0
+                task.spawn(function()
+                    while stepI < steps and model.Parent do
+                        stepI+=1
+                        local t = stepI/steps
+                        setFakerPos(curPos:Lerp(kbTarget+Vector3.new(0,2,0), t))
+                        task.wait(stepDt)
+                    end
+                    fk.knockedBack = false
+                end)
+                -- 10% chance spawn extra faker
+                if math.random() < 0.10 then
+                    task.delay(1, function() spawnFaker(fk) end)
+                end
+            else
+                -- Player caught — spam text then die
+                if fk.hbConn then fk.hbConn:Disconnect(); fk.hbConn=nil end
+
+                -- Text spam GUI
+                local spamGui=Instance.new("ScreenGui"); spamGui.Name="FakerSpam"
+                spamGui.ResetOnSpawn=false; spamGui.IgnoreGuiInset=true; spamGui.Parent=player.PlayerGui
+
+                local spamConn; local spawnCount=0; local maxSpawn=60
+                spamConn=RunService.Heartbeat:Connect(function()
+                    if spawnCount>=maxSpawn then return end
+                    spawnCount+=1
+                    local lbl=Instance.new("TextLabel"); lbl.Size=UDim2.new(0,200,0,28)
+                    lbl.Position=UDim2.new(math.random()*0.85,0,math.random()*0.88,0)
+                    lbl.BackgroundTransparency=1
+                    lbl.Text=FAKER_MSGS[math.random(1,#FAKER_MSGS)]
+                    lbl.TextColor3=Color3.fromRGB(math.random(150,255),math.random(0,80),math.random(0,80))
+                    lbl.Font=Enum.Font.GothamBold; lbl.TextScaled=true; lbl.Parent=spamGui
+                    if spawnCount>=maxSpawn then
+                        pcall(function() spamConn:Disconnect() end)
+                        task.delay(0.4,function()
+                            -- Leave blue ghost
+                            local char=player.Character
+                            if char then
+                                for _,obj in ipairs(char:GetDescendants()) do
+                                    if obj:IsA("BasePart") then
+                                        local ghost=obj:Clone()
+                                        ghost.Anchored=true; ghost.CanCollide=false
+                                        ghost.Material=Enum.Material.Neon
+                                        ghost.Color=Color3.fromRGB(40,120,255)
+                                        ghost.Transparency=0.45
+                                        ghost.CastShadow=false
+                                        -- Remove any scripts/GUIs from ghost
+                                        for _,c in ipairs(ghost:GetDescendants()) do
+                                            if c:IsA("Script") or c:IsA("LocalScript") or c:IsA("BillboardGui") then c:Destroy() end
+                                        end
+                                        ghost.Parent=workspace
+                                        -- Clear any Highlight from ghost
+                                        for _,c in ipairs(ghost:GetDescendants()) do
+                                            if c:IsA("Highlight") then c:Destroy() end
+                                        end
+                                        -- Add blue Highlight
+                                        local ghl=Instance.new("Highlight"); ghl.Adornee=ghost
+                                        ghl.OutlineColor=Color3.fromRGB(80,160,255); ghl.OutlineTransparency=0
+                                        ghl.FillColor=Color3.fromRGB(40,100,255); ghl.FillTransparency=0.5
+                                        ghl.DepthMode=Enum.HighlightDepthMode.AlwaysOnTop; ghl.Parent=ghost
+                                    end
+                                end
+                            end
+                            -- Kill
+                            local hum2=getHumanoid(); if hum2 then hum2.Health=0 end
+                            task.delay(1,function() if spamGui and spamGui.Parent then spamGui:Destroy() end end)
+                        end)
+                    end
+                end)
+            end
+        end
+    end)
 end
 
 -- Saferoom
@@ -2697,6 +3028,9 @@ local function startRound()
         prisonerRage=0; prisonerHeadless=false; prisonerChasing=false
         task.delay(0.5,function() startPrisonerLoop() end)
     end
+    if modFalsehood then
+        task.delay(0.5, function() spawnFaker() end)
+    end
     if modFixation then
         local hum2=getHumanoid(); if hum2 then hum2.WalkSpeed=32 end
     end
@@ -2737,6 +3071,8 @@ player.CharacterAdded:Connect(function(c)
             h.CFrame=CFrame.new(safeSpawnPos)
             if modFixation then h.WalkSpeed=32 end
             if modInexplicable then task.delay(1,function() startPrisonerLoop() end) end
+            clearAllFakers()
+            if modFalsehood then task.delay(1.5, function() spawnFaker() end) end
             refreshHUD("You died. Enter door to retry Round "..currentRound,C.dasher)
         end
     end
