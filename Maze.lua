@@ -56,6 +56,13 @@ local appliedMods    = {}  -- set: mod id -> true
 local modInexplicable  = false
 local modWatchoutKiddo = false
 local modFixation      = false
+local modUnforgiving   = false
+local modGreedMaze     = false
+-- shard multiplier (multiplicative)
+local shardCollectMult = 1
+-- greed state
+local greedActive      = false
+local greedLoop        = nil
 -- Prisoner state (Inexplicable)
 local prisonerPart    = nil
 local prisonerAngle   = 0
@@ -126,42 +133,43 @@ UIS.InputBegan:Connect(function(inp,gpe) if gpe then return end; if inp.KeyCode=
 UIS.InputEnded:Connect(function(inp) if inp.KeyCode==Enum.KeyCode.Q or inp.KeyCode==Enum.KeyCode.ButtonR1 then releaseParry() end end)
 
 -- All modifier definitions
+-- Base modifiers (shown in normal rotation)
 local ALL_MODIFIERS = {
-    {id="Inexplicable",  name="Inexplicable.",    col=Color3.fromRGB(160,80,255),
+    {id="Inexplicable",  name="Inexplicable.",   col=Color3.fromRGB(160,80,255),
      desc="Prisoner Appears.",
      perk="[+20% shard magnetize range]",
+     chainOf=nil,
      onApply=function() modInexplicable=true end},
-    {id="WatchoutKiddo", name="Watchout Kiddo!",  col=Color3.fromRGB(255,130,30),
+    {id="WatchoutKiddo", name="Watchout Kiddo!", col=Color3.fromRGB(255,130,30),
      desc="Dasher has infinite turns and 3x faster.",
      perk="[15% dmg reduction from entities]",
+     chainOf=nil,
      onApply=function() modWatchoutKiddo=true end},
-    {id="FIXATION",      name="FIXATION.",         col=Color3.fromRGB(255,40,40),
+    {id="FIXATION",      name="FIXATION.",        col=Color3.fromRGB(255,40,40),
      desc="Pinpoint is 5x faster.",
      perk="[+100% walkspeed]",
+     chainOf=nil,
      onApply=function()
          modFixation=true
          local hum=getHumanoid(); if hum then hum.WalkSpeed=32 end
      end},
-    {id="Wanderlust",    name="Wanderlust.",        col=Color3.fromRGB(80,200,120),
-     desc="Maze breathes wider next round.",
-     perk="[+5% walk speed]",
-     onApply=function() local h=getHumanoid(); if h then h.WalkSpeed=math.min(32,h.WalkSpeed+0.8) end end},
-    {id="Ironclad",      name="Ironclad.",          col=Color3.fromRGB(160,160,180),
-     desc="Collect a shard, recover a little.",
-     perk="[+8 HP per shard]",
-     onApply=function() end},  -- handled in onShardTouched check
-    {id="BlindEye",      name="Blind Eye.",          col=Color3.fromRGB(200,200,60),
-     desc="ESP kicks in at 20% shards instead of 10%.",
-     perk="[ESP activates earlier]",
-     onApply=function() end},  -- handled via ESP_PCT override
-    {id="Phantom",       name="Phantom.",            col=Color3.fromRGB(100,200,220),
-     desc="Entities flicker — harder to track.",
-     perk="[+10 studs parry window]",
-     onApply=function() end},
-    {id="Bloodpact",     name="Bloodpact.",          col=Color3.fromRGB(200,20,20),
-     desc="Half your HP from the start.",
-     perk="[Shards give +5 HP each]",
-     onApply=function() local h=getHumanoid(); if h then h.Health=h.MaxHealth/2 end end},
+    {id="GreedMaze",     name="GreedMaze",        col=Color3.fromRGB(255,200,30),
+     desc="Greedmazes have a chance of spawning.",
+     perk="[0.7x normal shard collection]",
+     chainOf=nil,
+     onApply=function()
+         modGreedMaze=true
+         shardCollectMult=shardCollectMult*0.7
+     end},
+    -- Chain modifier: only appears after Inexplicable is applied
+    {id="Unforgiving",   name="Unforgiving",      col=Color3.fromRGB(200,50,255),
+     desc="Shards no longer decrease Prisoner's rage.",
+     perk="[3x Shard collection]",
+     chainOf="Inexplicable",   -- only shown if Inexplicable is applied
+     onApply=function()
+         modUnforgiving=true
+         shardCollectMult=shardCollectMult*3
+     end},
 }
 
 -- ── Modifier GUI ──
@@ -203,7 +211,16 @@ end)
 local function getAvailableMods()
     local pool={}
     for _,m in ipairs(ALL_MODIFIERS) do
-        if not appliedMods[m.id] then table.insert(pool,m) end
+        if appliedMods[m.id] then continue end
+        -- chain modifiers only show if their parent was applied
+        if m.chainOf and not appliedMods[m.chainOf] then continue end
+        -- non-chain modifiers only show if no chain requirement
+        if not m.chainOf then
+            table.insert(pool, m)
+        else
+            -- chain mod: force it to appear if parent is applied and not yet applied
+            table.insert(pool, m)
+        end
     end
     -- shuffle
     for i=#pool,2,-1 do local j=math.random(1,i); pool[i],pool[j]=pool[j],pool[i] end
@@ -241,11 +258,19 @@ local function rebuildModPanel()
         Instance.new("UICorner",card).CornerRadius=UDim.new(0,9)
         local cs=Instance.new("UIStroke"); cs.Color=mod.col; cs.Thickness=1.5; cs.Parent=card
 
-        local cname=Instance.new("TextLabel"); cname.Size=UDim2.new(1,-10,0,24)
+        local cname=Instance.new("TextLabel"); cname.Size=UDim2.new(1,-65,0,24)
         cname.Position=UDim2.new(0,8,0,6); cname.BackgroundTransparency=1
         cname.Text=mod.name; cname.TextColor3=mod.col
         cname.Font=Enum.Font.GothamBold; cname.TextScaled=true
         cname.TextXAlignment=Enum.TextXAlignment.Left; cname.Parent=card
+        if mod.chainOf then
+            local chainTag=Instance.new("TextLabel"); chainTag.Size=UDim2.new(0,55,0,18)
+            chainTag.Position=UDim2.new(1,-62,0,8); chainTag.BackgroundColor3=Color3.fromRGB(60,20,80)
+            chainTag.BorderSizePixel=0; chainTag.Text="⛓ CHAIN"
+            chainTag.TextColor3=Color3.fromRGB(200,100,255); chainTag.Font=Enum.Font.GothamBold
+            chainTag.TextScaled=true; chainTag.Parent=card
+            Instance.new("UICorner",chainTag).CornerRadius=UDim.new(0,4)
+        end
 
         local cdesc=Instance.new("TextLabel"); cdesc.Size=UDim2.new(1,-10,0,20)
         cdesc.Position=UDim2.new(0,8,0,30); cdesc.BackgroundTransparency=1
@@ -353,7 +378,24 @@ local function onShardTouched(sd)
     local p=sd.part; sd.part=nil
     TweenService:Create(p,TweenInfo.new(0.12),{Size=Vector3.new(2.8,2.8,2.8),Transparency=1}):Play()
     task.delay(0.14,function() if p then p:Destroy() end end)
-    collected+=1; refreshHUD(); checkESP()
+    -- Apply shard multiplier (GreedMaze curse, Unforgiving perk etc.)
+    local mult = math.floor(shardCollectMult + 0.5)
+    if mult < 1 then mult = 1 end
+    collected += mult; refreshHUD(); checkESP()
+    -- Prisoner rage decrease (unless Unforgiving blocks it)
+    if modInexplicable and not modUnforgiving then
+        prisonerRage = math.max(0, prisonerRage - 2)
+        -- Update rage fill bar if it exists
+        if prisonerRageGui then
+            local rBG = prisonerRageGui:FindFirstChild("Frame")
+            if rBG then
+                local rF = rBG:FindFirstChild("Fill")
+                if rF then
+                    TweenService:Create(rF, TweenInfo.new(0.2), {Size=UDim2.new(prisonerRage/100,0,1,0)}):Play()
+                end
+            end
+        end
+    end
     local rem=0; for _,s in ipairs(shardList) do if s.part and s.part.Parent then rem+=1 end end
     if rem==0 then
         accentBar.BackgroundColor3=C.beam; refreshHUD("All shards! Reach the EXIT!",C.beam)
@@ -373,6 +415,7 @@ local function onShardTouched(sd)
             if pinpointLinePart then pinpointLinePart:Destroy(); pinpointLinePart=nil end
             shardList={}; collected=0; totalShards=0; espActive=false
             dasherActive=false; pinpointSpawned=false; pinpointChasing=false; currentGrid=nil
+            clearGreedRoom()
             accentBar.BackgroundColor3=C.shard
             refreshHUD("Round "..(currentRound-1).." clear! Enter door for Round "..currentRound,C.door)
         end)
@@ -2307,6 +2350,238 @@ local function startPrisonerLoop()
     end)
 end
 
+
+-- ── Greedmaze ─────────────────────────────────────────────
+local greedRoomFolder = nil
+local greedDoorPart   = nil
+local greedShards     = {}
+local greedHydConn    = nil
+
+local GREED_ORIGIN    = Vector3.new(300, 0, 300)  -- offset from maze, tucked away
+local GREED_SIZE      = 100  -- studs square
+
+local function clearGreedRoom()
+    if greedRoomFolder and greedRoomFolder.Parent then
+        greedRoomFolder:Destroy(); greedRoomFolder=nil
+    end
+    greedShards={}
+    if greedHydConn then greedHydConn:Disconnect(); greedHydConn=nil end
+    greedActive=false
+end
+
+local function spawnGreedShard(pos, folder)
+    local p=Instance.new("Part"); p.Name="GreedShard"
+    p.Size=Vector3.new(1.4,1.4,1.4); p.Shape=Enum.PartType.Ball
+    p.Position=pos+Vector3.new(0,2.8,0); p.Anchored=true; p.CanCollide=false
+    p.Material=Enum.Material.Neon; p.Color=Color3.fromRGB(255,210,30); p.CastShadow=false
+    p.Parent=folder
+    local hl=Instance.new("Highlight"); hl.Adornee=p
+    hl.OutlineColor=Color3.fromRGB(255,230,80); hl.OutlineTransparency=0
+    hl.FillColor=Color3.fromRGB(255,200,0); hl.FillTransparency=0.4
+    hl.DepthMode=Enum.HighlightDepthMode.AlwaysOnTop; hl.Parent=p
+    local light=Instance.new("PointLight"); light.Brightness=3; light.Range=10
+    light.Color=Color3.fromRGB(255,200,30); light.Parent=p
+    local ang=math.random()*math.pi*2; local baseY=p.Position.Y
+    local ac=RunService.Heartbeat:Connect(function(dt)
+        if p and p.Parent then ang+=dt*2.2
+            p.CFrame=CFrame.new(p.Position.X,baseY+math.sin(ang)*0.3,p.Position.Z)*CFrame.Angles(0,ang,0)
+        end
+    end); table.insert(animConns,ac)
+    local conn; conn=p.Touched:Connect(function(hit)
+        if hit.Parent~=player.Character then return end
+        if not p.Parent then return end
+        conn:Disconnect()
+        p:Destroy()
+        -- Gold shards give 3x
+        local amt=math.max(1,math.floor(3*shardCollectMult+0.5))
+        collected+=amt; refreshHUD(); checkESP()
+        if modInexplicable and not modUnforgiving then
+            prisonerRage=math.max(0,prisonerRage-2)
+        end
+        -- Respawn at new spot after 1.5s
+        task.delay(1.5,function()
+            if not greedActive then return end
+            local cells2={}
+            for y=2,12 do for x=2,12 do
+                if math.random()<0.3 then
+                    table.insert(cells2,{x,y})
+                end
+            end end
+            if #cells2>0 then
+                shuffle(cells2)
+                local nc=cells2[1]
+                local np=GREED_ORIGIN+Vector3.new(nc[1]*8,0,nc[2]*8)
+                spawnGreedShard(np, greedRoomFolder)
+            end
+        end)
+    end)
+end
+
+local function buildGreedRoom()
+    local f=Instance.new("Folder"); f.Name="GreedRoom"; f.Parent=workspace
+    greedRoomFolder=f
+
+    local go=GREED_ORIGIN
+    local GW=13; local GH=13  -- grid cells (~100 studs)
+    local CS=8
+
+    -- Floor
+    makePart("GFloor",Vector3.new(GW*CS,1,GH*CS),
+        go+Vector3.new(GW*CS/2,-0.5,GH*CS/2),
+        Color3.fromRGB(180,140,30),Enum.Material.SmoothPlastic,0,true,f)
+
+    -- Walls
+    for side=1,4 do
+        local sz,pos
+        if side==1 then sz=Vector3.new(GW*CS,WALL_H,1);  pos=go+Vector3.new(GW*CS/2,WALL_H/2,0)
+        elseif side==2 then sz=Vector3.new(GW*CS,WALL_H,1);  pos=go+Vector3.new(GW*CS/2,WALL_H/2,GH*CS)
+        elseif side==3 then sz=Vector3.new(1,WALL_H,GH*CS); pos=go+Vector3.new(0,WALL_H/2,GH*CS/2)
+        else              sz=Vector3.new(1,WALL_H,GH*CS); pos=go+Vector3.new(GW*CS,WALL_H/2,GH*CS/2)
+        end
+        makePart("GWall",sz,pos,Color3.fromRGB(140,100,20),Enum.Material.SmoothPlastic,0,true,f)
+    end
+
+    -- Ceiling (hydraulic press — starts high)
+    local press=makePart("HydPress",Vector3.new(GW*CS,4,GH*CS),
+        go+Vector3.new(GW*CS/2,80,GH*CS/2),
+        Color3.fromRGB(60,60,70),Enum.Material.Metal,0,true,f)
+    -- Press spikes (decorative)
+    for i=1,6 do
+        local sp=Instance.new("SpecialMesh"); sp.MeshType=Enum.MeshType.Wedge
+        sp.Parent=makePart("Spike",Vector3.new(4,8,4),
+            press.Position+Vector3.new(-20+i*8,-6,0),
+            Color3.fromRGB(80,80,90),Enum.Material.Metal,0,false,f)
+    end
+
+    -- Hydraulic press ESPchlight
+    setESP(press,Color3.fromRGB(255,50,50),Color3.fromRGB(255,80,80),0.4)
+
+    -- Spawn 100 gold shards randomly placed
+    local placed=0
+    for y=1,GH-1 do for x=1,GW-1 do
+        if placed<100 and math.random()<0.65 then
+            spawnGreedShard(go+Vector3.new(x*CS+math.random(-2,2),0,y*CS+math.random(-2,2)),f)
+            placed+=1
+        end
+    end end
+
+    -- Entrance door (teleport pad on edge, player walks through to enter)
+    -- Door is placed on a random maze edge, bridging to GreedRoom
+    local doorWorldPos=MAZE_ORIGIN+Vector3.new(gridW*CELL_SIZE*0.5,0,0) -- front edge
+    local bridgePart=makePart("GreedBridge",Vector3.new(8,1,50),
+        (doorWorldPos+GREED_ORIGIN)/2+Vector3.new(0,0.5,0),
+        Color3.fromRGB(180,140,30),Enum.Material.SmoothPlastic,0,true,f)
+
+    -- Door pad (entry)
+    local entryPad=makePart("GreedEntry",Vector3.new(10,0.4,10),
+        doorWorldPos+Vector3.new(0,0.2,0),
+        Color3.fromRGB(255,210,30),Enum.Material.Neon,0.3,false,f)
+    setESP(entryPad,Color3.fromRGB(255,220,50),Color3.fromRGB(255,220,50),0.3)
+
+    -- Exit pad (inside greedroom, near entrance, opens at 8s)
+    local exitPad=makePart("GreedExit",Vector3.new(10,0.4,10),
+        go+Vector3.new(GW*CS/2,0.2,4),
+        Color3.fromRGB(80,220,80),Enum.Material.Neon,1,false,f)  -- starts invisible
+
+    local greedDebounce=false
+    entryPad.Touched:Connect(function(hit)
+        if hit.Parent~=player.Character or greedDebounce then return end
+        greedDebounce=true
+        local hrp=getHRP(); if not hrp then greedDebounce=false; return end
+        -- Teleport player inside
+        hrp.CFrame=CFrame.new(go+Vector3.new(GW*CS/2,2,GH*CS/2))
+        task.delay(0.5,function() greedDebounce=false end)
+    end)
+
+    -- HUD countdown
+    local cdGui=Instance.new("ScreenGui"); cdGui.Name="GreedCD"; cdGui.ResetOnSpawn=false
+    cdGui.Parent=player.PlayerGui
+    local cdLbl=Instance.new("TextLabel"); cdLbl.Size=UDim2.new(0,200,0,55)
+    cdLbl.Position=UDim2.new(0.5,-100,0,60); cdLbl.BackgroundTransparency=0.2
+    cdLbl.BackgroundColor3=Color3.fromRGB(20,15,5); cdLbl.BorderSizePixel=0
+    cdLbl.Text="GREEDMAZE  10s"; cdLbl.TextColor3=Color3.fromRGB(255,210,30)
+    cdLbl.Font=Enum.Font.GothamBold; cdLbl.TextScaled=true; cdLbl.Parent=cdGui
+    Instance.new("UICorner",cdLbl).CornerRadius=UDim.new(0,8)
+
+    local timer=10; local timerConn
+    timerConn=RunService.Heartbeat:Connect(function(dt)
+        if not greedActive then timerConn:Disconnect(); return end
+        timer-=dt; if timer<0 then timer=0 end
+        cdLbl.Text=string.format("GREEDMAZE  %.1fs",timer)
+        if timer<=5 then cdLbl.TextColor3=Color3.fromRGB(255,80,30) end
+
+        -- At 8s: open exit pad
+        if timer<=2 then
+            if exitPad and exitPad.Parent then
+                exitPad.Transparency=0.3
+                setESP(exitPad,Color3.fromRGB(80,220,80),Color3.fromRGB(80,220,80),0.3)
+            end
+        end
+
+        -- Hydraulic press descends from t=5 to t=0 (60 studs in 5s)
+        if timer<=5 and press and press.Parent then
+            local dropProgress=(5-timer)/5
+            press.CFrame=CFrame.new(press.Position.X,80-dropProgress*74,press.Position.Z)
+        end
+    end)
+
+    -- Exit pad touch
+    local exitDebounce=false
+    exitPad.Touched:Connect(function(hit)
+        if hit.Parent~=player.Character or exitDebounce then return end
+        if exitPad.Transparency>0.5 then return end  -- not open yet
+        exitDebounce=true
+        local hrp=getHRP(); if not hrp then exitDebounce=false; return end
+        hrp.CFrame=CFrame.new(doorWorldPos+Vector3.new(0,2,12))
+        task.delay(0.5,function() exitDebounce=false end)
+    end)
+
+    -- Press kills at timer=0
+    greedHydConn=RunService.Heartbeat:Connect(function()
+        if not greedActive then return end
+        if timer>0 then return end
+        -- Check if player still inside
+        local hrp=getHRP(); if not hrp then return end
+        local rel=hrp.Position-go
+        if rel.X>0 and rel.X<GW*CS and rel.Z>0 and rel.Z<GH*CS then
+            if rel.Y < 15 then  -- press has come down
+                local hum=getHumanoid(); if hum then hum.Health=0 end
+            end
+        end
+        timerConn:Disconnect(); greedHydConn:Disconnect(); greedHydConn=nil
+        task.delay(1,function()
+            if cdGui and cdGui.Parent then cdGui:Destroy() end
+            clearGreedRoom()
+        end)
+    end)
+
+    -- Cleanup after exit
+    exitPad.Touched:Connect(function(hit)
+        if hit.Parent~=player.Character then return end
+        if exitPad.Transparency>0.5 then return end
+        task.delay(2,function()
+            pcall(function() timerConn:Disconnect() end)
+            if cdGui and cdGui.Parent then cdGui:Destroy() end
+            clearGreedRoom()
+        end)
+    end)
+
+    return f
+end
+
+local function startGreedLoop()
+    if greedLoop then greedLoop:Disconnect(); greedLoop=nil end
+    -- 10% chance per round start, handled in startRound
+end
+
+local function trySpawnGreedRoom()
+    if not modGreedMaze then return end
+    if greedActive then return end
+    if math.random()>0.10 then return end
+    greedActive=true
+    buildGreedRoom()
+end
+
 -- Saferoom
 local function buildSaferoom()
     local f=Instance.new("Folder"); f.Name="Saferoom"; f.Parent=workspace
@@ -2412,6 +2687,7 @@ local function startRound()
         sd.conn=s.Touched:Connect(function(hit) if hit.Parent==player.Character then onShardTouched(sd) end end)
     end
     refreshHUD("Collect all "..totalShards.." shards!",C.shard)
+    trySpawnGreedRoom()
     if currentRound==1 then createDasherPart(mazeFolder); startDasherLoop(0.30,5) end
     if currentRound>=2 then createDasherPart(mazeFolder); startDasherLoop(0.50,10); createPinpointPart(mazeFolder); startPinpointLoop(); startSaintLoop() end
     if currentRound>=3 then startUnlivelLoop() end
