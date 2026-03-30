@@ -61,11 +61,16 @@ local function makePart(name,sz,pos,color,mat,trans,collide,parent)
     p.Color=color; p.Transparency=trans or 0; p.CastShadow=false; p.Parent=parent; return p
 end
 local function cellToWorld(cx,cy) return MAZE_ORIGIN+Vector3.new((cx-0.5)*CELL_SIZE,0,(cy-0.5)*CELL_SIZE) end
-local function setESP(part,lc,fc,ft)
-    local s=part:FindFirstChildOfClass("SelectionBox")
-    if not s then s=Instance.new("SelectionBox"); s.Parent=part end
-    s.Adornee=part; s.Color3=lc; s.LineThickness=0.08
-    s.SurfaceColor3=fc or lc; s.SurfaceTransparency=ft or 0.55
+local function setESP(part, outlineColor, fillColor, fillTransparency)
+    if not part or not part:IsA("BasePart") then return end
+    local hl = part:FindFirstChildOfClass("Highlight")
+    if not hl then hl = Instance.new("Highlight"); hl.Name="ESP_Highlight"; hl.Parent=part end
+    hl.Adornee             = part
+    hl.OutlineColor        = outlineColor
+    hl.OutlineTransparency = 0
+    hl.FillColor           = fillColor or outlineColor
+    hl.FillTransparency    = fillTransparency or 0.55
+    hl.DepthMode           = Enum.HighlightDepthMode.AlwaysOnTop
 end
 
 -- HUD
@@ -458,7 +463,9 @@ local function startPinpointChase(scx, scy)
     if pinpointHBConn then pinpointHBConn:Disconnect(); pinpointHBConn=nil end
     pinpointChasing=true
 
-    local SPEED=90
+    -- R2=90, R3=115, R4=145, R5+=180
+    local SPEED = 90 + math.max(0, currentRound - 2) * 30
+    if currentRound >= 5 then SPEED = 180 end
     local hrp=getHRP(); if not hrp then pinpointChasing=false; return end
 
     -- Build full cell path from current pinpoint pos to player
@@ -995,20 +1002,9 @@ local function runUnlivelEvent()
     end
 
     -- Progress bar (time left)
-    local barBG=Instance.new("Frame"); barBG.Size=UDim2.new(1,0,0,10)
-    barBG.Position=UDim2.new(0,0,1,8); barBG.BackgroundColor3=Color3.fromRGB(30,30,30)
-    barBG.BorderSizePixel=0; barBG.Parent=root
-    Instance.new("UICorner",barBG).CornerRadius=UDim.new(0.5,0)
-    local barFill=Instance.new("Frame"); barFill.Size=UDim2.new(1,0,1,0)
-    barFill.BackgroundColor3=Color3.fromRGB(60,200,80); barFill.BorderSizePixel=0
-    barFill.Parent=barBG; Instance.new("UICorner",barFill).CornerRadius=UDim.new(0.5,0)
 
-    -- Parry count label
-    local parryLbl=Instance.new("TextLabel"); parryLbl.Size=UDim2.new(1,0,0,30)
-    parryLbl.Position=UDim2.new(0,0,1,22); parryLbl.BackgroundTransparency=1
-    parryLbl.Text="Parry 0/5"; parryLbl.TextColor3=C.white
-    parryLbl.Font=Enum.Font.GothamBold; parryLbl.TextScaled=true
-    parryLbl.Parent=root
+
+
 
     local TIMER=5; local elapsed=0; local parryCount=0
     local parryDebounce=false; local finished=false
@@ -1090,7 +1086,6 @@ local function runUnlivelEvent()
             if not parryDebounce then
                 parryDebounce=true
                 parryCount+=1
-                parryLbl.Text="Parry "..parryCount.."/5"
                 if parryCount<5 then
                     applyWither(parryCount)
                 else
@@ -1114,8 +1109,6 @@ local function runUnlivelEvent()
             for _,blob in ipairs(foliage) do
                 blob.BackgroundColor3=Color3.fromRGB(rc,math.max(0,gc),math.max(0,bc))
             end
-            barFill.Size=UDim2.new(1-t,0,1,0)
-            barFill.BackgroundColor3=Color3.fromRGB(rc,math.max(0,gc),math.max(0,bc))
 
             if elapsed>=TIMER then
                 finished=true
@@ -1410,6 +1403,289 @@ local function startDespairLoop()
     scheduleNext()
 end
 
+
+-- ── Ecneulfni ──────────────────────────────────────────────
+local ecneulfniLoop   = nil
+local ecneulfniActive = false
+
+local function runEcneulfniEvent()
+    if ecneulfniActive or not gameActive then return end
+    ecneulfniActive = true
+
+    -- Decide eye count (0-5) and whether the single-eye blood variant triggers
+    local eyeCount   = math.random(0, 5)
+    local bloodEye   = (eyeCount == 1) and (math.random() < 0.45)  -- ~45% chance if 1 eye
+    local jumpTarget = bloodEye and 0 or eyeCount   -- 0-jump if blood eye
+
+    -- ── Face GUI ──
+    local fGui = Instance.new("ScreenGui")
+    fGui.Name = "EcneulfniGui"; fGui.ResetOnSpawn = false
+    fGui.IgnoreGuiInset = true; fGui.Parent = player.PlayerGui
+
+    -- Face container: center screen
+    local face = Instance.new("Frame")
+    face.Size = UDim2.new(0, 280, 0, 280)
+    face.Position = UDim2.new(0.5, -140, 0.5, -160)
+    face.BackgroundColor3 = Color3.fromRGB(30, 22, 22)
+    face.BorderSizePixel = 0; face.Parent = fGui
+    Instance.new("UICorner", face).CornerRadius = UDim.new(0.15, 0)
+
+    -- Dark outer glow
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = Color3.fromRGB(80, 0, 0); stroke.Thickness = 5; stroke.Parent = face
+
+
+
+    -- Timer bar
+    local timerBG = Instance.new("Frame")
+    timerBG.Size = UDim2.new(0, 280, 0, 8)
+    timerBG.Position = UDim2.new(0.5, -140, 0.5, 135)
+    timerBG.BackgroundColor3 = Color3.fromRGB(40, 10, 10)
+    timerBG.BorderSizePixel = 0; timerBG.Parent = fGui
+    Instance.new("UICorner", timerBG).CornerRadius = UDim.new(0.5, 0)
+
+    local timerFill = Instance.new("Frame")
+    timerFill.Size = UDim2.new(1, 0, 1, 0)
+    timerFill.BackgroundColor3 = Color3.fromRGB(220, 40, 40)
+    timerFill.BorderSizePixel = 0; timerFill.Parent = timerBG
+    Instance.new("UICorner", timerFill).CornerRadius = UDim.new(0.5, 0)
+
+    -- Eye builder
+    local function makeEye(px, py, sz, isBlood)
+        local eyeFrame = Instance.new("Frame")
+        eyeFrame.Size = UDim2.new(0, sz, 0, sz * 0.55)
+        eyeFrame.Position = UDim2.new(0, px - sz/2, 0, py - sz*0.27)
+        eyeFrame.BackgroundColor3 = Color3.fromRGB(230, 220, 215)
+        eyeFrame.BorderSizePixel = 0; eyeFrame.ClipsDescendants = true
+        eyeFrame.Parent = face
+        Instance.new("UICorner", eyeFrame).CornerRadius = UDim.new(0.5, 0)
+
+        -- Closed lid (starts covering entire eye)
+        local lid = Instance.new("Frame")
+        lid.Size = UDim2.new(1, 0, 1.2, 0)
+        lid.Position = UDim2.new(0, 0, -0.1, 0)
+        lid.BackgroundColor3 = Color3.fromRGB(30, 22, 22)
+        lid.BorderSizePixel = 0; lid.ZIndex = 4; lid.Parent = eyeFrame
+        Instance.new("UICorner", lid).CornerRadius = UDim.new(0.3, 0)
+
+        if isBlood then
+            -- Blood iris (red, no pupil)
+            local iris = Instance.new("Frame")
+            iris.Size = UDim2.new(0, sz*0.55, 0, sz*0.55)
+            iris.Position = UDim2.new(0.5, -sz*0.275, 0.5, -sz*0.275)
+            iris.BackgroundColor3 = Color3.fromRGB(160, 5, 5)
+            iris.BorderSizePixel = 0; iris.ZIndex = 2; iris.Parent = eyeFrame
+            Instance.new("UICorner", iris).CornerRadius = UDim.new(1, 0)
+            -- Blood drip
+            local drip = Instance.new("Frame")
+            drip.Size = UDim2.new(0, 6, 0, sz * 0.7)
+            drip.Position = UDim2.new(0.5, -3, 0.6, 0)
+            drip.BackgroundColor3 = Color3.fromRGB(180, 5, 5)
+            drip.BorderSizePixel = 0; drip.ZIndex = 3; drip.Parent = eyeFrame
+            Instance.new("UICorner", drip).CornerRadius = UDim.new(0.5, 0)
+        else
+            -- Normal iris
+            local irisColor = BrickColor.Random().Color
+            local iris = Instance.new("Frame")
+            iris.Size = UDim2.new(0, sz*0.52, 0, sz*0.52)
+            iris.Position = UDim2.new(0.5, -sz*0.26, 0.5, -sz*0.26)
+            iris.BackgroundColor3 = irisColor
+            iris.BorderSizePixel = 0; iris.ZIndex = 2; iris.Parent = eyeFrame
+            Instance.new("UICorner", iris).CornerRadius = UDim.new(1, 0)
+            -- Pupil
+            local pupil = Instance.new("Frame")
+            pupil.Size = UDim2.new(0, sz*0.28, 0, sz*0.28)
+            pupil.Position = UDim2.new(0.5, -sz*0.14, 0.5, -sz*0.14)
+            pupil.BackgroundColor3 = Color3.fromRGB(8, 5, 5)
+            pupil.BorderSizePixel = 0; pupil.ZIndex = 3; pupil.Parent = eyeFrame
+            Instance.new("UICorner", pupil).CornerRadius = UDim.new(1, 0)
+            -- Glint
+            local glint = Instance.new("Frame")
+            glint.Size = UDim2.new(0, sz*0.1, 0, sz*0.1)
+            glint.Position = UDim2.new(0.62, 0, 0.12, 0)
+            glint.BackgroundColor3 = Color3.new(1, 1, 1)
+            glint.BorderSizePixel = 0; glint.ZIndex = 4; glint.Parent = eyeFrame
+            Instance.new("UICorner", glint).CornerRadius = UDim.new(1, 0)
+        end
+        return lid
+    end
+
+    -- Place eyes on the face (distribute evenly)
+    local lids = {}
+    if eyeCount == 0 then
+        -- No eyes: blank face, just show the face with a "…" or empty
+        local emptyLbl = Instance.new("TextLabel")
+        emptyLbl.Size = UDim2.new(1, 0, 0.5, 0); emptyLbl.Position = UDim2.new(0, 0, 0.25, 0)
+        emptyLbl.BackgroundTransparency = 1; emptyLbl.Text = "—"
+        emptyLbl.TextColor3 = Color3.fromRGB(180, 160, 160)
+        emptyLbl.Font = Enum.Font.GothamBold; emptyLbl.TextScaled = true; emptyLbl.Parent = face
+    else
+        -- Grid layout: up to 3 per row
+        local cols = math.min(eyeCount, 3)
+        local rows = math.ceil(eyeCount / cols)
+        local eyeSz = math.min(70, math.floor(220 / cols))
+        local padX = math.floor(280 / (cols + 1))
+        local padY = math.floor(280 / (rows + 1))
+        local placed = 0
+        for row = 1, rows do
+            local rowCount = math.min(cols, eyeCount - placed)
+            for col = 1, rowCount do
+                local px = math.floor(280 / (rowCount + 1)) * col
+                local py = padY * row
+                local isBlood = bloodEye and (placed == 0)
+                table.insert(lids, makeEye(px, py, eyeSz, isBlood))
+                placed += 1
+            end
+        end
+    end
+
+    -- ── Phase 1: face appears, eyes closed (3s) ──
+    task.wait(3)
+    if not gameActive then
+        if fGui and fGui.Parent then fGui:Destroy() end
+        ecneulfniActive = false; return
+    end
+
+    -- Red flash
+    local flash = Instance.new("Frame")
+    flash.Size = UDim2.new(1,0,1,0); flash.BackgroundColor3 = Color3.fromRGB(200, 0, 0)
+    flash.BackgroundTransparency = 0.3; flash.BorderSizePixel = 0; flash.Parent = fGui
+    TweenService:Create(flash, TweenInfo.new(0.08), {BackgroundTransparency = 1}):Play()
+    task.delay(0.12, function() if flash and flash.Parent then flash:Destroy() end end)
+
+    task.wait(1) -- 1s after flash, eyes open
+
+    -- Open all lids
+    for _, lid in ipairs(lids) do
+        TweenService:Create(lid, TweenInfo.new(0.35, Enum.EasingStyle.Back), {
+            Position = UDim2.new(0, 0, -1.3, 0)
+        }):Play()
+    end
+
+    -- Show jump requirement
+    if jumpTarget == 0 then
+    else
+    end
+
+    -- ── Phase 2: player must jump N times in 5s ──
+    local jumpsDone = 0
+    local success   = false
+    local WINDOW    = 5
+
+    local hrp = getHRP()
+    local lastGrounded = true
+    local jumpConn = nil
+    local elapsed = 0
+
+    if jumpTarget > 0 then
+        jumpConn = RunService.Heartbeat:Connect(function(dt)
+            elapsed += dt
+            local h2 = getHRP(); if not h2 then return end
+            local hum = getHumanoid(); if not hum then return end
+            -- Detect jump (left ground)
+            local grounded = (hum.FloorMaterial ~= Enum.Material.Air)
+            if lastGrounded and not grounded then
+                jumpsDone += 1
+                if jumpsDone >= jumpTarget then success = true end
+            end
+            lastGrounded = grounded
+            timerFill.Size = UDim2.new(math.max(0, 1 - elapsed/WINDOW), 0, 1, 0)
+        end)
+    else
+        -- 0 jumps: player must NOT jump
+        jumpConn = RunService.Heartbeat:Connect(function(dt)
+            elapsed += dt
+            local hum = getHumanoid(); if not hum then return end
+            local grounded = (hum.FloorMaterial ~= Enum.Material.Air)
+            if lastGrounded and not grounded then
+                -- jumped when they shouldn't have
+                success = false
+                elapsed = WINDOW + 1
+            end
+            lastGrounded = grounded
+            timerFill.Size = UDim2.new(math.max(0, 1 - elapsed/WINDOW), 0, 1, 0)
+        end)
+        success = true  -- will be set false if they jump
+    end
+
+    -- Wait for window
+    while elapsed < WINDOW and not success and gameActive do
+        task.wait(0.05)
+    end
+    -- For 0-jump: need to also wait the full window without jumping
+    if jumpTarget == 0 then
+        while elapsed < WINDOW and gameActive do
+            task.wait(0.05)
+        end
+    end
+    pcall(function() if jumpConn then jumpConn:Disconnect() end end)
+
+    if not gameActive then
+        if fGui and fGui.Parent then fGui:Destroy() end
+        ecneulfniActive = false; return
+    end
+
+    -- Close lids
+    for _, lid in ipairs(lids) do
+        TweenService:Create(lid, TweenInfo.new(0.25, Enum.EasingStyle.Quad), {
+            Position = UDim2.new(0, 0, -0.1, 0)
+        }):Play()
+    end
+
+    if (jumpTarget == 0 and success) or (jumpTarget > 0 and jumpsDone >= jumpTarget) then
+        -- ✓ Correct: dismiss face
+        TweenService:Create(face, TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.In), {
+            Position = UDim2.new(0.5, -140, -0.5, 0)
+        }):Play()
+        task.delay(0.6, function()
+            if fGui and fGui.Parent then fGui:Destroy() end
+            ecneulfniActive = false
+        end)
+    else
+        -- ✗ Wrong: head chop
+
+        local chop = Instance.new("Frame")
+        chop.Size = UDim2.new(1,0,1,0); chop.BackgroundColor3 = Color3.new(0,0,0)
+        chop.BackgroundTransparency = 0; chop.BorderSizePixel = 0; chop.Parent = fGui
+        -- Red slash
+        local slash = Instance.new("Frame")
+        slash.Size = UDim2.new(1.5, 0, 0, 8); slash.Position = UDim2.new(-0.25, 0, 0.48, 0)
+        slash.Rotation = -12; slash.BackgroundColor3 = Color3.fromRGB(220, 20, 20)
+        slash.BorderSizePixel = 0; slash.Parent = chop
+
+        task.wait(0.25)
+        local char = player.Character
+        if char then
+            -- Detach head visually
+            local head = char:FindFirstChild("Head")
+            if head then
+                head.Anchored = false
+                local bv = Instance.new("BodyVelocity")
+                bv.Velocity = Vector3.new(math.random(-15,15), 25, math.random(-15,15))
+                bv.MaxForce = Vector3.new(1e5,1e5,1e5); bv.Parent = head
+                game:GetService("Debris"):AddItem(bv, 0.3)
+            end
+            local hum = getHumanoid(); if hum then hum.Health = 0 end
+        end
+        task.delay(0.5, function()
+            if fGui and fGui.Parent then fGui:Destroy() end
+            ecneulfniActive = false
+        end)
+    end
+end
+
+local function startEcneulfniLoop()
+    if ecneulfniLoop then ecneulfniLoop:Disconnect(); ecneulfniLoop=nil end
+    local el = 0
+    ecneulfniLoop = RunService.Heartbeat:Connect(function(dt)
+        if not gameActive then return end
+        if ecneulfniActive then return end
+        el += dt; if el < 15 then return end; el = 0
+        if math.random() > 0.23 then return end
+        runEcneulfniEvent()
+    end)
+end
+
 -- Saferoom
 local function buildSaferoom()
     local f=Instance.new("Folder"); f.Name="Saferoom"; f.Parent=workspace
@@ -1495,6 +1771,8 @@ local function startRound()
     if puddleSlowConn then puddleSlowConn:Disconnect(); puddleSlowConn=nil end
     for _,pd in ipairs(despairPuddles) do if pd and pd.Parent then pd:Destroy() end end
     despairPuddles={}
+    if ecneulfniLoop then ecneulfniLoop:Disconnect(); ecneulfniLoop=nil end
+    ecneulfniActive=false
     accentBar.BackgroundColor3=C.shard
     local gW,gH,st=getRound(currentRound); refreshHUD("Generating Round "..currentRound.."…",C.white)
     math.randomseed(os.clock()*100000+currentRound*997)
@@ -1514,7 +1792,7 @@ local function startRound()
     if currentRound==1 then createDasherPart(mazeFolder); startDasherLoop(0.30,5) end
     if currentRound>=2 then createDasherPart(mazeFolder); startDasherLoop(0.50,10); createPinpointPart(mazeFolder); startPinpointLoop(); startSaintLoop() end
     if currentRound>=3 then startUnlivelLoop() end
-    if currentRound>=4 then startDespairLoop() end
+    if currentRound>=4 then startDespairLoop(); startEcneulfniLoop() end
     task.wait(0.15); local hrp=getHRP(); if hrp then hrp.CFrame=CFrame.new(sp) end
 end
 
