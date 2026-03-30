@@ -133,7 +133,20 @@ local function spawnShard(wp,folder)
     local baseY=p.Position.Y; local ang=math.random()*math.pi*2
     local ac=RunService.Heartbeat:Connect(function(dt)
         if p and p.Parent then ang+=dt*1.6; p.CFrame=CFrame.new(p.Position.X,baseY+math.sin(ang*1.2)*0.3,p.Position.Z)*CFrame.Angles(0,ang,0) end
-    end); table.insert(animConns,ac); return p
+    end); table.insert(animConns,ac)
+    -- R3+: magnet — pull toward player within 10 studs
+    if currentRound>=3 then
+        local mc=RunService.Heartbeat:Connect(function(dt)
+            if not p or not p.Parent then return end
+            local hrp=getHRP(); if not hrp then return end
+            local diff=hrp.Position-p.Position
+            if diff.Magnitude<=10 and diff.Magnitude>0.5 then
+                p.CFrame=CFrame.new(p.Position+diff.Unit*math.min(18*dt,diff.Magnitude))
+            end
+        end)
+        table.insert(animConns,mc)
+    end
+    return p
 end
 
 -- Exit beam (see-through ESP only, no billboard)
@@ -1686,6 +1699,226 @@ local function startEcneulfniLoop()
     end)
 end
 
+
+-- ── Vortex ─────────────────────────────────────────────────
+local vortexActive = false
+local vortexLoop   = nil
+
+local function runVortexEvent()
+    if vortexActive or not gameActive then return end
+    vortexActive = true
+
+    -- Pause all entity spawning
+    local wasDasher   = dasherActive;    dasherActive   = true   -- prevent new dashes
+    local wasSaint    = saintActive;     saintActive    = true
+    local wasUnlivel  = unlivelActive;   unlivelActive  = true
+    local wasDespair  = despairActive;   despairActive  = true
+    local wasEcn      = ecneulfniActive; ecneulfniActive= true
+    local wasPin      = pinpointChasing; pinpointChasing= false
+    if pinpointHBConn then pinpointHBConn:Disconnect(); pinpointHBConn=nil end
+
+    -- ── Build vortex visual at sky-centre ──
+    local mazeCX = MAZE_ORIGIN.X + (gridW * CELL_SIZE) / 2
+    local mazeCZ = MAZE_ORIGIN.Z + (gridH * CELL_SIZE) / 2
+    local vortexCentre = Vector3.new(mazeCX, 85, mazeCZ)
+
+    local vGui = Instance.new("ScreenGui")
+    vGui.Name = "VortexGui"; vGui.ResetOnSpawn = false
+    vGui.IgnoreGuiInset = true; vGui.Parent = player.PlayerGui
+
+    -- Spinning ring overlay (pure 2D vortex spiral)
+    local spinRoot = Instance.new("Frame")
+    spinRoot.Size = UDim2.new(0,320,0,320)
+    spinRoot.Position = UDim2.new(0.5,-160,0.5,-160)
+    spinRoot.BackgroundTransparency = 1; spinRoot.BorderSizePixel = 0
+    spinRoot.Parent = vGui
+
+    -- Ring layers
+    local rings = {}
+    local ringColors = {
+        Color3.fromRGB(80,40,180), Color3.fromRGB(120,60,220),
+        Color3.fromRGB(60,20,140), Color3.fromRGB(160,80,255),
+    }
+    for i=1,8 do
+        local r = Instance.new("Frame")
+        local sz = 320 - (i-1)*30
+        r.Size = UDim2.new(0,sz,0,sz)
+        r.Position = UDim2.new(0.5,-sz/2,0.5,-sz/2)
+        r.BackgroundTransparency = 1; r.BorderSizePixel = 0; r.Parent = spinRoot
+        local stroke = Instance.new("UIStroke")
+        stroke.Color = ringColors[(i-1)%4+1]
+        stroke.Thickness = 4 - (i*0.3); stroke.Parent = r
+        Instance.new("UICorner", r).CornerRadius = UDim.new(1,0)
+        table.insert(rings, {frame=r, speed=(i%2==0 and 1 or -1) * (0.6+i*0.12)})
+    end
+
+    -- Vortex centre dot
+    local dot = Instance.new("Frame")
+    dot.Size = UDim2.new(0,18,0,18)
+    dot.Position = UDim2.new(0.5,-9,0.5,-9)
+    dot.BackgroundColor3 = Color3.fromRGB(200,120,255)
+    dot.BorderSizePixel=0; dot.Parent=spinRoot
+    Instance.new("UICorner",dot).CornerRadius=UDim.new(1,0)
+
+    -- Dark vignette
+    local vig = Instance.new("Frame")
+    vig.Size = UDim2.new(1,0,1,0); vig.BackgroundColor3 = Color3.new(0,0,0)
+    vig.BackgroundTransparency = 0.5; vig.BorderSizePixel=0; vig.Parent=vGui
+
+    -- Spin the rings
+    local spinConn = RunService.Heartbeat:Connect(function(dt)
+        for _, rd in ipairs(rings) do
+            if rd.frame and rd.frame.Parent then
+                rd.frame.Rotation = rd.frame.Rotation + rd.speed * dt * 120
+            end
+        end
+        if dot and dot.Parent then
+            dot.Rotation = dot.Rotation + dt * 200
+        end
+    end)
+
+    -- ── Phase 1: form for ~2s ──
+    task.wait(2)
+    if not gameActive then
+        pcall(function() spinConn:Disconnect() end)
+        if vGui and vGui.Parent then vGui:Destroy() end
+        vortexActive=false; return
+    end
+
+    -- ── Phase 2: suck walls + shards (3s) ──
+    -- Collect all wall/floor parts + live shard parts
+    local suckParts = {}
+    if mazeFolder then
+        for _, obj in ipairs(mazeFolder:GetDescendants()) do
+            if obj:IsA("BasePart") and obj.Name ~= "ExitBeam" then
+                table.insert(suckParts, obj)
+            end
+        end
+    end
+    -- Also collect live shards
+    local liveShards = {}
+    for _, sd in ipairs(shardList) do
+        if sd.part and sd.part.Parent then
+            table.insert(suckParts, sd.part)
+            table.insert(liveShards, sd)  -- remember which are still alive
+        end
+    end
+
+    -- Count remaining before suck
+    local remainingCount = #liveShards
+
+    -- Animate parts flying toward vortex centre
+    for _, p in ipairs(suckParts) do
+        if p and p.Parent then
+            p.Anchored = false; p.CanCollide = false
+            local dist = (p.Position - vortexCentre).Magnitude
+            local dur  = math.clamp(dist / 120, 0.5, 3.0)
+            TweenService:Create(p, TweenInfo.new(dur, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+                Position  = vortexCentre,
+                Size      = Vector3.new(0.1, 0.1, 0.1),
+                Transparency = 1,
+            }):Play()
+        end
+    end
+
+    -- Disconnect shard touch connections during suck
+    for _, sd in ipairs(liveShards) do
+        if sd.conn then sd.conn:Disconnect(); sd.conn=nil end
+    end
+
+    task.wait(3)
+    if not gameActive then
+        pcall(function() spinConn:Disconnect() end)
+        if vGui and vGui.Parent then vGui:Destroy() end
+        if mazeFolder and mazeFolder.Parent then mazeFolder:Destroy(); mazeFolder=nil end
+        vortexActive=false; return
+    end
+
+    -- Destroy old maze
+    if mazeFolder and mazeFolder.Parent then mazeFolder:Destroy(); mazeFolder=nil end
+
+    -- ── Phase 3: flash + rebuild ──
+    pcall(function() spinConn:Disconnect() end)
+
+    local flash = Instance.new("Frame")
+    flash.Size = UDim2.new(1,0,1,0); flash.BackgroundColor3 = Color3.new(1,1,1)
+    flash.BackgroundTransparency = 0; flash.BorderSizePixel = 0; flash.Parent = vGui
+    TweenService:Create(flash, TweenInfo.new(0.35), {BackgroundTransparency = 1}):Play()
+
+    -- Rebuild maze (same W/H/seed free)
+    local gW, gH, _ = getRound(currentRound)
+    math.randomseed(os.clock() * 99991 + currentRound * 1337)
+    local newGrid = generateMaze(gW, gH)
+    currentGrid = newGrid; gridW = gW; gridH = gH
+    mazeFolder  = buildMazeWorld(newGrid, gW, gH)
+
+    -- Re-place exit cell (same relative position: far corner)
+    local newCells = getOpenCells(newGrid, gW, gH)
+    shuffle(newCells)
+    exitCellPos = cellToWorld(newCells[#newCells][1], newCells[#newCells][2])
+
+    -- Respawn only the shards that were still uncollected
+    -- Clear old shard entries and rebuild just the live ones
+    for _, sd in ipairs(shardList) do
+        if sd.part and sd.part.Parent then sd.part:Destroy() end
+    end
+    shardList = {}
+
+    shuffle(newCells)
+    local respawnCount = math.min(remainingCount, #newCells - 1)
+    for i = 1, respawnCount do
+        local cell = newCells[i]; if not cell then break end
+        local sp2  = spawnShard(cellToWorld(cell[1], cell[2]), mazeFolder)
+        local idx  = i
+        local sd2  = {part=sp2, conn=nil}
+        shardList[idx] = sd2
+        sd2.conn = sp2.Touched:Connect(function(hit)
+            if hit.Parent == player.Character then onShardTouched(sd2) end
+        end)
+    end
+
+    -- Rebuild entity parts in new maze
+    if currentRound >= 1 and dasherPart then
+        dasherPart:Destroy(); dasherPart=nil
+        createDasherPart(mazeFolder)
+    end
+    if currentRound >= 2 and pinpointPart then
+        pinpointPart:Destroy(); pinpointPart=nil
+        createPinpointPart(mazeFolder)
+    end
+
+    task.wait(0.4)
+    if vGui and vGui.Parent then vGui:Destroy() end
+
+    -- Restore entity flags
+    dasherActive    = false
+    saintActive     = false
+    unlivelActive   = false
+    despairActive   = false
+    ecneulfniActive = false
+    pinpointSpawned = false
+    vortexActive    = false
+
+    refreshHUD("Map rebuilt! " .. #shardList .. " shards remain.", C.gold)
+end
+
+local function startVortexLoop()
+    if vortexLoop then vortexLoop:Disconnect(); vortexLoop=nil end
+    local function schedule()
+        local el = 0
+        vortexLoop = RunService.Heartbeat:Connect(function(dt)
+            if not gameActive then return end
+            el += dt; if el < 60 then return end
+            vortexLoop:Disconnect(); vortexLoop=nil
+            if math.random() <= 0.10 then
+                runVortexEvent()
+            end
+            if gameActive then schedule() end
+        end)
+    end
+    schedule()
+end
+
 -- Saferoom
 local function buildSaferoom()
     local f=Instance.new("Folder"); f.Name="Saferoom"; f.Parent=workspace
@@ -1773,6 +2006,8 @@ local function startRound()
     despairPuddles={}
     if ecneulfniLoop then ecneulfniLoop:Disconnect(); ecneulfniLoop=nil end
     ecneulfniActive=false
+    if vortexLoop then vortexLoop:Disconnect(); vortexLoop=nil end
+    vortexActive=false
     accentBar.BackgroundColor3=C.shard
     local gW,gH,st=getRound(currentRound); refreshHUD("Generating Round "..currentRound.."…",C.white)
     math.randomseed(os.clock()*100000+currentRound*997)
@@ -1793,6 +2028,7 @@ local function startRound()
     if currentRound>=2 then createDasherPart(mazeFolder); startDasherLoop(0.50,10); createPinpointPart(mazeFolder); startPinpointLoop(); startSaintLoop() end
     if currentRound>=3 then startUnlivelLoop() end
     if currentRound>=4 then startDespairLoop(); startEcneulfniLoop() end
+    if currentRound>=5 then startVortexLoop() end
     task.wait(0.15); local hrp=getHRP(); if hrp then hrp.CFrame=CFrame.new(sp) end
 end
 
