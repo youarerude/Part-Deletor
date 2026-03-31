@@ -184,6 +184,7 @@ local ALL_MODIFIERS = {
      chainOf=nil,
      onApply=function()
          modFalsehood=true
+         task.delay(0.2, startFakerIfNeeded)
      end},
     {id="DontLeaveMe",   name="Don't Leave Me.",  col=Color3.fromRGB(120,200,255),
      desc="Faker takes 5s to reach full speed instead of 10s.",
@@ -2701,235 +2702,291 @@ local function trySpawnGreedRoom()
 end
 
 
--- ── Faker (Falsehood modifier) ─────────────────────────────
+-- ── Faker (Falsehood modifier) ──────────────────────────────
 local FAKER_MSGS = {
-    "Why wont you forgive me?", "Stop escaping.", "Why?",
-    "Stop...", "Don't go...",
+    "Why wont you forgive me?",
+    "Stop escaping.",
+    "Why?",
+    "Stop...",
+    "Don't go...",
 }
 
+-- forward-declared above
 clearAllFakers = function()
     for _, fk in ipairs(fakerList) do
-        if fk.part and fk.part.Parent then fk.part:Destroy() end
-        if fk.hbConn then pcall(function() fk.hbConn:Disconnect() end) end
-        if fk.flickConn then pcall(function() fk.flickConn:Disconnect() end) end
+        pcall(function()
+            if fk.hbConn   then fk.hbConn:Disconnect()   end
+            if fk.flickConn then fk.flickConn:Disconnect() end
+            if fk.model and fk.model.Parent then fk.model:Destroy() end
+        end)
     end
     fakerList = {}
-    if fakerFolder and fakerFolder.Parent then fakerFolder:Destroy(); fakerFolder=nil end
+    if fakerFolder and fakerFolder.Parent then fakerFolder:Destroy(); fakerFolder = nil end
 end
 
-local function buildFakerModel(folder)
-    -- R6-shaped humanoid built from parts
-    local root = Instance.new("Model"); root.Name="FakerModel"; root.Parent=folder
+-- Build R6-shaped model, return (model, rootPart)
+local function buildFakerModel(parent)
+    local m = Instance.new("Model"); m.Name = "Faker"; m.Parent = parent
 
-    local skinCol    = Color3.fromRGB(200,175,150)
-    local shirtCol   = Color3.fromRGB(40,60,180)
-    local pantsCol   = Color3.fromRGB(30,30,80)
-    local shoeCol    = Color3.fromRGB(20,20,20)
+    local skin  = Color3.fromRGB(200, 175, 150)
+    local shirt = Color3.fromRGB(40, 60, 180)
+    local pants = Color3.fromRGB(30, 30, 80)
+    local shoe  = Color3.fromRGB(15, 15, 15)
 
-    local function bp(name,sz,cf,col)
-        local p=Instance.new("Part"); p.Name=name; p.Size=sz; p.CFrame=cf
-        p.Anchored=true; p.CanCollide=false; p.Color=col
-        p.Material=Enum.Material.SmoothPlastic; p.CastShadow=false; p.Parent=root
+    local function bp(name, sz, cf, col, trans)
+        local p = Instance.new("Part")
+        p.Name = name; p.Size = sz; p.CFrame = cf
+        p.Anchored = true; p.CanCollide = false
+        p.Color = col; p.Transparency = trans or 0
+        p.Material = Enum.Material.SmoothPlastic
+        p.CastShadow = false; p.Parent = m
         return p
     end
 
-    -- HRP (invisible anchor)
-    local hrpPart=bp("HumanoidRootPart",Vector3.new(2,2,1),CFrame.new(0,3,0),Color3.new(0,0,0))
-    hrpPart.Transparency=1
+    -- anchor (invisible)
+    local root = bp("Root", Vector3.new(2,2,1), CFrame.new(0,3,0), Color3.new(0,0,0), 1)
 
-    -- Torso
-    local torso=bp("Torso",Vector3.new(2,2,1),CFrame.new(0,3,0),shirtCol)
-    -- Head
-    local head=bp("Head",Vector3.new(2,1,1),CFrame.new(0,4.5,0),skinCol)
-    -- Arms
-    bp("RightArm",Vector3.new(1,2,1),CFrame.new(1.5,3,0),skinCol)
-    bp("LeftArm", Vector3.new(1,2,1),CFrame.new(-1.5,3,0),skinCol)
-    -- Legs
-    bp("RightLeg",Vector3.new(1,2,1),CFrame.new(0.5,1,0),pantsCol)
-    bp("LeftLeg", Vector3.new(1,2,1),CFrame.new(-0.5,1,0),pantsCol)
-    -- Shoes
-    bp("RightShoe",Vector3.new(1,0.4,1.2),CFrame.new(0.5,-0.1,0),shoeCol)
-    bp("LeftShoe", Vector3.new(1,0.4,1.2),CFrame.new(-0.5,-0.1,0),shoeCol)
-    -- Eyes (dark)
-    bp("REye",Vector3.new(0.35,0.35,0.15),CFrame.new(0.35,4.55,-0.43),Color3.fromRGB(15,10,30))
-    bp("LEye",Vector3.new(0.35,0.35,0.15),CFrame.new(-0.35,4.55,-0.43),Color3.fromRGB(15,10,30))
+    -- body
+    bp("Torso",     Vector3.new(2,2,1),    CFrame.new(0,   3,   0),   shirt)
+    bp("Head",      Vector3.new(2,1,1),    CFrame.new(0,   4.5, 0),   skin)
+    bp("RightArm",  Vector3.new(1,2,1),    CFrame.new( 1.5,3,   0),   skin)
+    bp("LeftArm",   Vector3.new(1,2,1),    CFrame.new(-1.5,3,   0),   skin)
+    bp("RightLeg",  Vector3.new(1,2,1),    CFrame.new( 0.5,1,   0),   pants)
+    bp("LeftLeg",   Vector3.new(1,2,1),    CFrame.new(-0.5,1,   0),   pants)
+    bp("RightShoe", Vector3.new(1,0.4,1.2),CFrame.new( 0.5,-0.1,0),  shoe)
+    bp("LeftShoe",  Vector3.new(1,0.4,1.2),CFrame.new(-0.5,-0.1,0),  shoe)
+    bp("REye", Vector3.new(0.3,0.3,0.15),  CFrame.new( 0.35,4.55,-0.44), Color3.fromRGB(10,5,20))
+    bp("LEye", Vector3.new(0.3,0.3,0.15),  CFrame.new(-0.35,4.55,-0.44), Color3.fromRGB(10,5,20))
 
-    return root, hrpPart
+    return m, root
 end
 
+-- Flicker ESP on all visible parts of model
 local function applyFakerESP(model)
-    -- Flickering distorted Highlight on each part
-    local hls={}
-    for _,p in ipairs(model:GetDescendants()) do
-        if p:IsA("BasePart") and p.Transparency<0.9 then
-            local hl=Instance.new("Highlight"); hl.Adornee=p
-            hl.OutlineColor=Color3.fromRGB(60,160,255)
-            hl.OutlineTransparency=0
-            hl.FillColor=Color3.fromRGB(30,80,200)
-            hl.FillTransparency=0.4
-            hl.DepthMode=Enum.HighlightDepthMode.AlwaysOnTop
-            hl.Parent=p; table.insert(hls,hl)
+    local hls = {}
+    for _, p in ipairs(model:GetDescendants()) do
+        if p:IsA("BasePart") and p.Transparency < 0.9 then
+            local hl = Instance.new("Highlight")
+            hl.Adornee             = p
+            hl.OutlineColor        = Color3.fromRGB(60,160,255)
+            hl.OutlineTransparency = 0
+            hl.FillColor           = Color3.fromRGB(30,80,200)
+            hl.FillTransparency    = 0.4
+            hl.DepthMode           = Enum.HighlightDepthMode.AlwaysOnTop
+            hl.Parent              = p
+            table.insert(hls, hl)
         end
     end
-    -- Flicker connection
-    local flickT=0
-    local flickConn=RunService.Heartbeat:Connect(function(dt)
-        flickT+=dt
-        -- Irregular flicker: random rapid toggling
-        local visible = math.sin(flickT*47+math.sin(flickT*13)*8) > (math.random()*0.6-0.3)
-        for _,hl in ipairs(hls) do
+
+    local t = 0
+    local conn = RunService.Heartbeat:Connect(function(dt)
+        t += dt
+        -- chaotic flicker: multiple sine waves at coprime frequencies
+        local vis = math.sin(t*53) + math.sin(t*17)*0.6 + math.sin(t*7)*0.3 > (math.random()*0.8 - 0.1)
+        for _, hl in ipairs(hls) do
             if hl and hl.Parent then
-                hl.OutlineTransparency = visible and 0 or 1
-                hl.FillTransparency   = visible and (0.3+math.random()*0.4) or 1
+                hl.OutlineTransparency = vis and 0 or 0.92
+                hl.FillTransparency   = vis and (0.25 + math.random()*0.45) or 1
             end
         end
     end)
-    return flickConn
+    return conn
 end
 
-local function spawnFaker(existingFk)
+-- Move the entire model so Root is at newPos
+local function setFakerPos(model, root, newPos)
+    if not model.Parent then return end
+    local offset = newPos - root.CFrame.Position
+    for _, p in ipairs(model:GetDescendants()) do
+        if p:IsA("BasePart") then
+            p.CFrame = p.CFrame + offset
+        end
+    end
+end
+
+-- Spawn the blue ghost afterimage at player's current position
+local function leaveGhost()
+    local char = player.Character
+    if not char then return end
+    for _, obj in ipairs(char:GetDescendants()) do
+        if obj:IsA("BasePart") and obj.Transparency < 0.95 then
+            local g = Instance.new("Part")
+            g.Size          = obj.Size
+            g.CFrame        = obj.CFrame
+            g.Anchored      = true
+            g.CanCollide    = false
+            g.Material      = Enum.Material.Neon
+            g.Color         = Color3.fromRGB(40, 120, 255)
+            g.Transparency  = 0.45
+            g.CastShadow    = false
+            g.Name          = "FakerGhost"
+            g.Parent        = workspace
+            -- Hover: tiny upward float so it never sinks below ground
+            local lv = Instance.new("BodyPosition")
+            lv.Position  = g.Position + Vector3.new(0, 0.5, 0)
+            lv.MaxForce  = Vector3.new(0, 4000, 0)
+            lv.P         = 3000; lv.D = 200
+            lv.Parent    = g
+            g.Anchored   = false  -- let BodyPosition hold it
+            -- blue highlight
+            local hl = Instance.new("Highlight")
+            hl.Adornee             = g
+            hl.OutlineColor        = Color3.fromRGB(80,160,255)
+            hl.OutlineTransparency = 0
+            hl.FillColor           = Color3.fromRGB(40,100,255)
+            hl.FillTransparency    = 0.55
+            hl.DepthMode           = Enum.HighlightDepthMode.AlwaysOnTop
+            hl.Parent              = g
+        end
+    end
+end
+
+-- Text-spam-then-die sequence
+local function doFakerKill()
+    local spamGui = Instance.new("ScreenGui")
+    spamGui.Name = "FakerSpam"; spamGui.ResetOnSpawn = false
+    spamGui.IgnoreGuiInset = true; spamGui.Parent = player.PlayerGui
+
+    local spawned = 0; local MAX = 65
+    local spamConn
+    spamConn = RunService.Heartbeat:Connect(function()
+        if spawned >= MAX then return end
+        spawned += 1
+        local lbl  = Instance.new("TextLabel")
+        lbl.Size   = UDim2.new(0, math.random(160,280), 0, math.random(22,36))
+        lbl.Position = UDim2.new(math.random()*0.82, 0, math.random()*0.88, 0)
+        lbl.BackgroundTransparency = 1
+        lbl.Text   = FAKER_MSGS[math.random(1, #FAKER_MSGS)]
+        lbl.TextColor3 = Color3.fromRGB(math.random(160,255), math.random(0,60), math.random(0,60))
+        lbl.Font   = Enum.Font.GothamBold; lbl.TextScaled = true
+        lbl.Parent = spamGui
+
+        if spawned >= MAX then
+            pcall(function() spamConn:Disconnect() end)
+            task.delay(0.3, function()
+                leaveGhost()
+                task.delay(0.1, function()
+                    local hum = getHumanoid(); if hum then hum.Health = 0 end
+                end)
+                task.delay(1, function()
+                    if spamGui and spamGui.Parent then spamGui:Destroy() end
+                end)
+            end)
+        end
+    end)
+end
+
+-- Spawn one Faker; respects 5-faker cap
+local function spawnFaker()
     if #fakerList >= 5 then return end
 
     if not fakerFolder then
-        fakerFolder=Instance.new("Folder"); fakerFolder.Name="FakerFolder"; fakerFolder.Parent=workspace
+        fakerFolder = Instance.new("Folder")
+        fakerFolder.Name   = "FakerFolder"
+        fakerFolder.Parent = workspace
     end
 
-    local model, hrpPart = buildFakerModel(fakerFolder)
-    local flickConn = applyFakerESP(model)
+    local model, root = buildFakerModel(fakerFolder)
+    local flickConn   = applyFakerESP(model)
 
-    -- Start near player but offset
-    local hrp=getHRP()
-    local startPos = hrp and (hrp.Position+Vector3.new(math.random(-20,-10)*math.random(-1,1),0,math.random(-20,-10)*math.random(-1,1))) or Vector3.new(MAZE_ORIGIN.X,2,MAZE_ORIGIN.Z)
+    -- Place it offset from player
+    local hrp = getHRP()
+    local angles = {0, math.pi/2, math.pi, 3*math.pi/2}
+    local ang    = angles[math.random(1,4)]
+    local dist   = math.random(25, 40)
+    local startPos = hrp
+        and (hrp.Position + Vector3.new(math.cos(ang)*dist, 0, math.sin(ang)*dist))
+        or  (MAZE_ORIGIN  + Vector3.new(0, 2, 0))
+    setFakerPos(model, root, startPos + Vector3.new(0, 2, 0))
 
-    -- Move all parts to startPos
-    local function setFakerPos(pos)
-        if not model.Parent then return end
-        for _,p in ipairs(model:GetDescendants()) do
-            if p:IsA("BasePart") then
-                local offset=p.CFrame.Position-hrpPart.CFrame.Position
-                p.CFrame=CFrame.new(pos+offset)
-            end
-        end
-    end
-    setFakerPos(startPos+Vector3.new(0,2,0))
-
-    local fk = {part=hrpPart, model=model, hbConn=nil, flickConn=flickConn,
-                speed=0, accelT=0, knockedBack=false}
+    local fk = {
+        model      = model,
+        root       = root,
+        hbConn     = nil,
+        flickConn  = flickConn,
+        speed      = 0,
+        accelT     = 0,
+        knockedBack= false,
+        dead       = false,
+    }
     table.insert(fakerList, fk)
 
-    local ACCEL_TIME = modDontLeave and 5 or 10  -- 0→100 studs/s
+    local ACCEL_TIME = modDontLeave and 5 or 10
 
     fk.hbConn = RunService.Heartbeat:Connect(function(dt)
-        if not gameActive then return end
+        if fk.dead or not gameActive then return end
         if not model.Parent then return end
-        local h=getHRP(); if not h then return end
 
-        -- Accelerate
+        local h = getHRP(); if not h then return end
+
+        -- Accelerate only when not knocked back
         if not fk.knockedBack then
             fk.accelT = math.min(fk.accelT + dt, ACCEL_TIME)
             fk.speed  = (fk.accelT / ACCEL_TIME) * 100
         end
 
-        -- Move toward player (noclip, Y locked to player height so it never falls)
-        local curPos = hrpPart.CFrame.Position
-        local targetY = h.Position.Y + 2  -- hover at player torso height
-        local target = Vector3.new(h.Position.X, targetY, h.Position.Z)
-        -- Smoothly snap Y each frame regardless of speed
-        local levPos = Vector3.new(curPos.X, targetY, curPos.Z)
-        local diff   = target - levPos
-        local dist   = diff.Magnitude
+        -- Position: noclip + Y locked to player height (levitate)
+        local cur    = root.CFrame.Position
+        local targetY = h.Position.Y + 2
+        local flatCur = Vector3.new(cur.X, targetY, cur.Z)
+        local target  = Vector3.new(h.Position.X, targetY, h.Position.Z)
+        local diff    = target - flatCur
+        local dist2   = diff.Magnitude
 
-        if dist > 0.5 then
-            local move = diff.Unit * math.min(fk.speed * dt, dist)
-            setFakerPos(levPos + move)
-        else
-            -- Already at target XZ, just keep Y locked
-            setFakerPos(Vector3.new(curPos.X, targetY, curPos.Z))
+        if not fk.knockedBack then
+            if dist2 > 0.4 then
+                local step = diff.Unit * math.min(fk.speed * dt, dist2)
+                setFakerPos(model, root, flatCur + step)
+            end
         end
 
-        -- Touch check
-        if dist < 3.2 then
+        -- Keep Y locked always (prevent falling)
+        if math.abs(root.CFrame.Position.Y - targetY) > 0.5 then
+            setFakerPos(model, root, Vector3.new(root.CFrame.Position.X, targetY, root.CFrame.Position.Z))
+        end
+
+        -- Touch detection
+        if dist2 < 3.5 then
             if isParrying then
-                -- Knock back
+                -- Knockback 100 studs away
                 fk.knockedBack = true
                 fk.speed       = 0
                 fk.accelT      = 0
-                local away = (curPos - h.Position)
-                local kbDir = away.Magnitude>0.1 and away.Unit or Vector3.new(1,0,0)
-                -- Tween knockback
-                local kbTarget = curPos + kbDir * 100
-                local steps = 20; local stepDt = 0.35/steps; local stepI = 0
+
+                local away = (flatCur - target)
+                local kbDir = away.Magnitude > 0.1 and away.Unit or Vector3.new(1,0,0)
+                local kbEnd = flatCur + kbDir * 100
+
                 task.spawn(function()
-                    while stepI < steps and model.Parent do
-                        stepI+=1
-                        local t = stepI/steps
-                        setFakerPos(curPos:Lerp(kbTarget+Vector3.new(0,2,0), t))
-                        task.wait(stepDt)
+                    local steps = 22; local traveled = 0
+                    for i = 1, steps do
+                        if not model.Parent then break end
+                        local t = i / steps
+                        local np = flatCur:Lerp(kbEnd, t)
+                        setFakerPos(model, root, np)
+                        traveled += 1
+                        task.wait(0.35 / steps)
                     end
                     fk.knockedBack = false
-                end)
-                -- 10% chance spawn extra faker
-                if math.random() < 0.10 then
-                    task.delay(1, function() spawnFaker(fk) end)
-                end
-            else
-                -- Player caught — spam text then die
-                if fk.hbConn then fk.hbConn:Disconnect(); fk.hbConn=nil end
-
-                -- Text spam GUI
-                local spamGui=Instance.new("ScreenGui"); spamGui.Name="FakerSpam"
-                spamGui.ResetOnSpawn=false; spamGui.IgnoreGuiInset=true; spamGui.Parent=player.PlayerGui
-
-                local spamConn; local spawnCount=0; local maxSpawn=60
-                spamConn=RunService.Heartbeat:Connect(function()
-                    if spawnCount>=maxSpawn then return end
-                    spawnCount+=1
-                    local lbl=Instance.new("TextLabel"); lbl.Size=UDim2.new(0,200,0,28)
-                    lbl.Position=UDim2.new(math.random()*0.85,0,math.random()*0.88,0)
-                    lbl.BackgroundTransparency=1
-                    lbl.Text=FAKER_MSGS[math.random(1,#FAKER_MSGS)]
-                    lbl.TextColor3=Color3.fromRGB(math.random(150,255),math.random(0,80),math.random(0,80))
-                    lbl.Font=Enum.Font.GothamBold; lbl.TextScaled=true; lbl.Parent=spamGui
-                    if spawnCount>=maxSpawn then
-                        pcall(function() spamConn:Disconnect() end)
-                        task.delay(0.4,function()
-                            -- Leave blue ghost
-                            local char=player.Character
-                            if char then
-                                for _,obj in ipairs(char:GetDescendants()) do
-                                    if obj:IsA("BasePart") then
-                                        local ghost=obj:Clone()
-                                        ghost.Anchored=true; ghost.CanCollide=false
-                                        ghost.Material=Enum.Material.Neon
-                                        ghost.Color=Color3.fromRGB(40,120,255)
-                                        ghost.Transparency=0.45
-                                        ghost.CastShadow=false
-                                        -- Remove any scripts/GUIs from ghost
-                                        for _,c in ipairs(ghost:GetDescendants()) do
-                                            if c:IsA("Script") or c:IsA("LocalScript") or c:IsA("BillboardGui") then c:Destroy() end
-                                        end
-                                        ghost.Parent=workspace
-                                        -- Clear any Highlight from ghost
-                                        for _,c in ipairs(ghost:GetDescendants()) do
-                                            if c:IsA("Highlight") then c:Destroy() end
-                                        end
-                                        -- Add blue Highlight
-                                        local ghl=Instance.new("Highlight"); ghl.Adornee=ghost
-                                        ghl.OutlineColor=Color3.fromRGB(80,160,255); ghl.OutlineTransparency=0
-                                        ghl.FillColor=Color3.fromRGB(40,100,255); ghl.FillTransparency=0.5
-                                        ghl.DepthMode=Enum.HighlightDepthMode.AlwaysOnTop; ghl.Parent=ghost
-                                    end
-                                end
-                            end
-                            -- Kill
-                            local hum2=getHumanoid(); if hum2 then hum2.Health=0 end
-                            task.delay(1,function() if spamGui and spamGui.Parent then spamGui:Destroy() end end)
-                        end)
+                    -- 10% chance: spawn an extra Faker
+                    if math.random() < 0.10 then
+                        task.delay(0.5, spawnFaker)
                     end
                 end)
+            else
+                -- Caught: disable this faker, do kill sequence
+                fk.dead = true
+                fk.hbConn:Disconnect(); fk.hbConn = nil
+                doFakerKill()
             end
         end
     end)
+end
+
+local function startFakerIfNeeded()
+    if not modFalsehood then return end
+    if #fakerList > 0 then return end  -- already running
+    spawnFaker()
 end
 
 -- Saferoom
@@ -3019,6 +3076,7 @@ startRound = function()
     despairPuddles={}
     if ecneulfniLoop then ecneulfniLoop:Disconnect(); ecneulfniLoop=nil end
     ecneulfniActive=false
+    clearAllFakers()
     if vortexLoop then vortexLoop:Disconnect(); vortexLoop=nil end
     vortexActive=false
     accentBar.BackgroundColor3=C.shard
@@ -3046,6 +3104,9 @@ startRound = function()
     if modInexplicable then
         prisonerRage=0; prisonerHeadless=false; prisonerChasing=false
         task.delay(0.5,function() startPrisonerLoop() end)
+    end
+    if modFalsehood then
+        task.delay(0.5, startFakerIfNeeded)
     end
     if modFalsehood then
         task.delay(0.5, function() spawnFaker() end)
