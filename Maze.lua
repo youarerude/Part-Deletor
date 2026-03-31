@@ -2817,15 +2817,21 @@ local function spawnFaker(existingFk)
             fk.speed  = (fk.accelT / ACCEL_TIME) * 100
         end
 
-        -- Move toward player (noclip = no collision, just lerp)
+        -- Move toward player (noclip, Y locked to player height so it never falls)
         local curPos = hrpPart.CFrame.Position
-        local target = h.Position
-        local diff   = target - curPos
+        local targetY = h.Position.Y + 2  -- hover at player torso height
+        local target = Vector3.new(h.Position.X, targetY, h.Position.Z)
+        -- Smoothly snap Y each frame regardless of speed
+        local levPos = Vector3.new(curPos.X, targetY, curPos.Z)
+        local diff   = target - levPos
         local dist   = diff.Magnitude
 
         if dist > 0.5 then
             local move = diff.Unit * math.min(fk.speed * dt, dist)
-            setFakerPos(curPos + move + Vector3.new(0,2,0))
+            setFakerPos(levPos + move)
+        else
+            -- Already at target XZ, just keep Y locked
+            setFakerPos(Vector3.new(curPos.X, targetY, curPos.Z))
         end
 
         -- Touch check
