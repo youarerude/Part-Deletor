@@ -63,6 +63,13 @@ local modDontLeave     = false
 local modKoushinn      = false   -- 行進
 local modMvulbal       = false   -- מבלבל
 local modYourSavior    = false   -- Your Savior
+local modHellClock     = false   -- Hell Clock
+-- Demon state
+local demonActive      = false
+local demonPart        = nil
+local demonHBConn      = nil
+local demonTimerGui    = nil
+local demonTimerConn   = nil
 -- Faker state
 local fakerList        = {}   -- array of faker instances
 local fakerFolder      = nil
@@ -221,6 +228,14 @@ local ALL_MODIFIERS = {
          modYourSavior=true
          local hum=getHumanoid()
          if hum then hum.WalkSpeed=math.min(hum.WalkSpeed*2.5, 80) end
+     end},
+    {id="HellClock",     name="Hell Clock",         col=Color3.fromRGB(255,60,10),
+     desc="Demon appears. A countdown timer decides when.",
+     perk="[+50% shard magnetize range. Magnetize active from round 1]",
+     chainOf=nil,
+     onApply=function()
+         modHellClock=true
+         startDemonTimer()
      end},
 }
 
@@ -401,12 +416,12 @@ local function spawnShard(wp,folder)
         if p and p.Parent then ang+=dt*1.6; p.CFrame=CFrame.new(p.Position.X,baseY+math.sin(ang*1.2)*0.3,p.Position.Z)*CFrame.Angles(0,ang,0) end
     end); table.insert(animConns,ac)
     -- R3+: magnet — pull toward player within 10 studs
-    if currentRound>=3 then
+    if currentRound>=3 or modHellClock then
         local mc=RunService.Heartbeat:Connect(function(dt)
             if not p or not p.Parent then return end
             local hrp=getHRP(); if not hrp then return end
             local diff=hrp.Position-p.Position
-            if diff.Magnitude<=(modInexplicable and 12 or 10) and diff.Magnitude>0.5 then
+            if diff.Magnitude<=(modInexplicable and 12 or (modHellClock and 15 or 10)) and diff.Magnitude>0.5 then
                 p.CFrame=CFrame.new(p.Position+diff.Unit*math.min(18*dt,diff.Magnitude))
             end
         end)
@@ -2119,11 +2134,24 @@ local function runVortexEvent()
         if sd.conn then sd.conn:Disconnect(); sd.conn=nil end
     end
 
+    -- Freeze player during suck + rebuild
+    local frozenHRP = getHRP()
+    local frozenCF  = frozenHRP and frozenHRP.CFrame
+    local freezeConn = RunService.Heartbeat:Connect(function()
+        local h = getHRP()
+        if h and frozenCF then h.CFrame = frozenCF end
+        local hum = getHumanoid()
+        if hum then hum.WalkSpeed = 0; hum.JumpPower = 0 end
+    end)
+
     task.wait(3)
     if not gameActive then
-        pcall(function() spinConn:Disconnect() end)
+        pcall(function() spinConn:Disconnect(); freezeConn:Disconnect() end)
         if vGui and vGui.Parent then vGui:Destroy() end
         if mazeFolder and mazeFolder.Parent then mazeFolder:Destroy(); mazeFolder=nil end
+        -- Restore movement
+        local hum = getHumanoid()
+        if hum then hum.WalkSpeed = modFixation and 32 or 16; hum.JumpPower = 50 end
         vortexActive=false; return
     end
 
@@ -2181,6 +2209,13 @@ local function runVortexEvent()
     end
 
     task.wait(0.4)
+    pcall(function() freezeConn:Disconnect() end)
+    -- Restore movement
+    local unfreezeHum = getHumanoid()
+    if unfreezeHum then
+        unfreezeHum.WalkSpeed = modFixation and 32 or (modYourSavior and 40 or 16)
+        unfreezeHum.JumpPower = 50
+    end
     if vGui and vGui.Parent then vGui:Destroy() end
 
     -- Restore entity flags
@@ -2265,9 +2300,9 @@ local function startPrisonerLoop()
     if prisonerPart then prisonerPart:Destroy(); prisonerPart=nil end
     if prisonerRageGui then prisonerRageGui:Destroy(); prisonerRageGui=nil end
 
-    -- Create part
-    local p=Instance.new("Part"); p.Name="Prisoner"; p.Size=Vector3.new(1,1,1)
-    p.Anchored=true; p.CanCollide=false; p.Transparency=1; p.CastShadow=false
+    -- Create part (slightly non-zero transparency so BillboardGui always renders)
+    local p=Instance.new("Part"); p.Name="Prisoner"; p.Size=Vector3.new(0.1,0.1,0.1)
+    p.Anchored=true; p.CanCollide=false; p.Transparency=0.999; p.CastShadow=false
     p.Parent=workspace; prisonerPart=p
     buildPrisonerFace(p)
 
@@ -3047,6 +3082,268 @@ local function startFakerIfNeeded()
     spawnFaker()
 end
 
+
+-- ── Demon (Hell Clock modifier) ────────────────────────────
+local DEMON_DEATH_MAX_HP_PENALTY = 10
+
+local function buildDemonModel(parent)
+    local m = Instance.new("Model"); m.Name = "Demon"; m.Parent = parent
+
+    local function dp(name, sz, cf, col, mat, trans)
+        local p = Instance.new("Part"); p.Name=name; p.Size=sz; p.CFrame=cf
+        p.Anchored=true; p.CanCollide=false
+        p.Color=col; p.Material=mat or Enum.Material.Neon
+        p.Transparency=trans or 0; p.CastShadow=false; p.Parent=m
+        return p
+    end
+
+    local red    = Color3.fromRGB(180, 20, 10)
+    local dark   = Color3.fromRGB(60,  5,  5)
+    local horn   = Color3.fromRGB(120, 10, 5)
+    local eye    = Color3.fromRGB(255, 200, 0)
+
+    -- Body parts
+    local root = dp("Root",     Vector3.new(2,2,1),   CFrame.new(0,5,0),   dark, Enum.Material.SmoothPlastic, 1)
+    dp("Torso",   Vector3.new(2.5,3,1.2), CFrame.new(0,5,0),   red)
+    dp("Head",    Vector3.new(2.2,2,1.2), CFrame.new(0,7.1,0), red)
+    -- Horns
+    dp("HornL",   Vector3.new(0.4,1.8,0.4), CFrame.new(-0.6,8.5,0)*CFrame.Angles(0,0, 0.35), horn)
+    dp("HornR",   Vector3.new(0.4,1.8,0.4), CFrame.new( 0.6,8.5,0)*CFrame.Angles(0,0,-0.35), horn)
+    -- Eyes
+    dp("EyeL",    Vector3.new(0.5,0.5,0.3), CFrame.new(-0.5,7.3,-0.56), eye)
+    dp("EyeR",    Vector3.new(0.5,0.5,0.3), CFrame.new( 0.5,7.3,-0.56), eye)
+    -- Arms (wide, menacing)
+    dp("ArmL",    Vector3.new(1.2,3,1.2), CFrame.new(-1.85,5,0)*CFrame.Angles(0,0, 0.15), dark)
+    dp("ArmR",    Vector3.new(1.2,3,1.2), CFrame.new( 1.85,5,0)*CFrame.Angles(0,0,-0.15), dark)
+    -- Claws
+    for i=-1,1,2 do
+        dp("ClawL"..i, Vector3.new(0.25,1.2,0.25), CFrame.new(-1.85+i*0.3,2.8,-0.1)*CFrame.Angles(0.3,0,0), horn)
+        dp("ClawR"..i, Vector3.new(0.25,1.2,0.25), CFrame.new( 1.85+i*0.3,2.8,-0.1)*CFrame.Angles(0.3,0,0), horn)
+    end
+    -- Legs
+    dp("LegL",    Vector3.new(1.1,2.5,1.1), CFrame.new(-0.6,2.25,0), dark)
+    dp("LegR",    Vector3.new(1.1,2.5,1.1), CFrame.new( 0.6,2.25,0), dark)
+    -- Wings (flat planes, dark neon)
+    dp("WingL",   Vector3.new(0.15,3.5,5), CFrame.new(-3,6,0)*CFrame.Angles(0,0, 0.45), Color3.fromRGB(30,5,5))
+    dp("WingR",   Vector3.new(0.15,3.5,5), CFrame.new( 3,6,0)*CFrame.Angles(0,0,-0.45), Color3.fromRGB(30,5,5))
+    -- Aura glow
+    local pl = Instance.new("PointLight"); pl.Brightness=12; pl.Range=30
+    pl.Color=Color3.fromRGB(255,40,0); pl.Parent=root
+
+    -- Red ESP
+    setESP(root, Color3.fromRGB(255,30,0), Color3.fromRGB(255,50,0), 0.2)
+
+    return m, root
+end
+
+local function setDemonPos(model, root, newPos)
+    if not model.Parent then return end
+    local offset = newPos - root.CFrame.Position
+    for _, p in ipairs(model:GetDescendants()) do
+        if p:IsA("BasePart") then p.CFrame = p.CFrame + offset end
+    end
+end
+
+local function demonFacePlayer(model, root)
+    local h = getHRP(); if not h then return end
+    local tgt = Vector3.new(h.Position.X, root.CFrame.Position.Y, h.Position.Z)
+    if (tgt - root.CFrame.Position).Magnitude < 0.3 then return end
+    local faceCF = CFrame.new(root.CFrame.Position, tgt)
+    local newYaw = math.atan2(-faceCF.LookVector.X, -faceCF.LookVector.Z)
+    local curYaw = math.atan2(-root.CFrame.LookVector.X, -root.CFrame.LookVector.Z)
+    local dy = ((newYaw - curYaw + math.pi) % (2*math.pi)) - math.pi
+    if math.abs(dy) < 0.01 then return end
+    local c2, s2 = math.cos(dy), math.sin(dy)
+    local origin = root.CFrame.Position
+    for _, p in ipairs(model:GetDescendants()) do
+        if p:IsA("BasePart") then
+            local lp = p.CFrame.Position - origin
+            local rx = lp.X*c2 - lp.Z*s2
+            local rz = lp.X*s2 + lp.Z*c2
+            p.CFrame = CFrame.new(origin + Vector3.new(rx, lp.Y, rz)) * CFrame.Angles(0, dy, 0)
+        end
+    end
+end
+
+-- Burn body part sequence on death
+local function burnBodyParts()
+    local char = player.Character; if not char then return end
+
+    -- Red screen overlay
+    local burnGui = Instance.new("ScreenGui"); burnGui.Name="DemonDeath"
+    burnGui.ResetOnSpawn=false; burnGui.Parent=player.PlayerGui
+    local overlay = Instance.new("Frame"); overlay.Size=UDim2.new(1,0,1,0)
+    overlay.BackgroundColor3=Color3.fromRGB(180,10,0); overlay.BackgroundTransparency=0.4
+    overlay.BorderSizePixel=0; overlay.Parent=burnGui
+    TweenService:Create(overlay,TweenInfo.new(3),{BackgroundTransparency=0.8}):Play()
+
+    local sequence = {"LeftLeg","RightLeg","LeftArm","RightArm","Torso","Head"}
+    local function burnPart(name)
+        local part = char:FindFirstChild(name)
+        if not part or not part:IsA("BasePart") then return end
+        -- Fire particle
+        local fire = Instance.new("Fire")
+        fire.Size  = 3; fire.Heat = 8
+        fire.Color = Color3.fromRGB(255,60,0)
+        fire.SecondaryColor = Color3.fromRGB(255,180,0)
+        fire.Parent = part
+        task.delay(0.6, function()
+            TweenService:Create(part, TweenInfo.new(0.4), {Transparency=1}):Play()
+            task.delay(0.5, function() if fire and fire.Parent then fire:Destroy() end end)
+        end)
+    end
+
+    -- Kill humanoid first, then burn sequentially
+    local hum = getHumanoid(); if hum then hum.Health=0 end
+
+    for i, partName in ipairs(sequence) do
+        task.delay(i * 0.55, function() burnPart(partName) end)
+    end
+
+    -- Reduce max health permanently by 10
+    task.delay(3.5, function()
+        local hum2 = getHumanoid()
+        if hum2 then
+            hum2.MaxHealth = math.max(10, hum2.MaxHealth - DEMON_DEATH_MAX_HP_PENALTY)
+            hum2.Health    = math.min(hum2.Health, hum2.MaxHealth)
+        end
+        if burnGui and burnGui.Parent then burnGui:Destroy() end
+    end)
+end
+
+local function runDemonChase()
+    if demonActive then return end
+    demonActive = true
+
+    local demonFolder = Instance.new("Folder"); demonFolder.Name="DemonFolder"; demonFolder.Parent=workspace
+    local model, root = buildDemonModel(demonFolder)
+
+    -- Spawn far from player
+    local hrp = getHRP()
+    local spawnPos = hrp and (hrp.Position + Vector3.new(math.random(-80,80), 0, math.random(-80,80))) or MAZE_ORIGIN
+    setDemonPos(model, root, spawnPos + Vector3.new(0, 5, 0))
+
+    local DEMON_SPEED = 85  -- very fast
+    local suckRadius  = 20
+    local caughtPlayer = false
+
+    -- Red screen tint while Demon is alive
+    local redGui = Instance.new("ScreenGui"); redGui.Name="DemonRed"
+    redGui.ResetOnSpawn=false; redGui.Parent=player.PlayerGui
+    local redFrame = Instance.new("Frame"); redFrame.Size=UDim2.new(1,0,1,0)
+    redFrame.BackgroundColor3=Color3.fromRGB(160,0,0); redFrame.BackgroundTransparency=0.65
+    redFrame.BorderSizePixel=0; redFrame.Parent=redGui
+    -- Pulse
+    local redConn = RunService.Heartbeat:Connect(function()
+        if redFrame and redFrame.Parent then
+            redFrame.BackgroundTransparency=0.6+0.1*math.sin(tick()*4)
+        end
+    end)
+
+    demonHBConn = RunService.Heartbeat:Connect(function(dt)
+        if caughtPlayer then return end
+        if not model.Parent then return end
+        local h = getHRP(); if not h then return end
+
+        -- Levitate: Y tracks player Y + offset
+        local targetY = h.Position.Y + 4
+        local cur = root.CFrame.Position
+        local flatCur = Vector3.new(cur.X, targetY, cur.Z)
+        local target  = Vector3.new(h.Position.X, targetY, h.Position.Z)
+        local diff    = target - flatCur
+        local dist    = diff.Magnitude
+
+        if dist > 0.5 then
+            setDemonPos(model, root, flatCur + diff.Unit * math.min(DEMON_SPEED * dt, dist))
+        end
+        demonFacePlayer(model, root)
+
+        -- Suck nearby parts toward demon (blackhole effect)
+        local demonPos = root.CFrame.Position
+        for _, obj in ipairs(workspace:GetDescendants()) do
+            if obj:IsA("BasePart") and not obj.Anchored then
+                local d = (obj.Position - demonPos).Magnitude
+                if d < suckRadius and d > 0.5 then
+                    local pull = (demonPos - obj.Position).Unit * (1 - d/suckRadius) * 80
+                    obj.Velocity = obj.Velocity + pull * dt
+                end
+            end
+        end
+        -- Also suck maze wall/floor parts visually
+        if mazeFolder then
+            for _, obj in ipairs(mazeFolder:GetDescendants()) do
+                if obj:IsA("BasePart") then
+                    local d = (obj.Position - demonPos).Magnitude
+                    if d < suckRadius then
+                        local pull = demonPos - obj.Position
+                        if pull.Magnitude > 0.1 then
+                            obj.Anchored = false
+                            obj.Velocity = (obj.Velocity or Vector3.new()) + pull.Unit * (1 - d/suckRadius) * 60 * dt
+                        end
+                    end
+                end
+            end
+        end
+
+        -- Touch player
+        if dist < 4 then
+            caughtPlayer = true
+            if demonHBConn then demonHBConn:Disconnect(); demonHBConn=nil end
+            pcall(function() redConn:Disconnect() end)
+            if redGui and redGui.Parent then redGui:Destroy() end
+            if demonFolder and demonFolder.Parent then demonFolder:Destroy() end
+            demonPart = nil; demonActive = false
+            -- Restart timer for next demon
+            task.delay(2, function() if modHellClock and gameActive then startDemonTimer() end end)
+            burnBodyParts()
+        end
+    end)
+
+    demonPart = root
+end
+
+local function startDemonTimer()
+    -- Stop existing timer
+    if demonTimerConn then demonTimerConn:Disconnect(); demonTimerConn=nil end
+    if demonTimerGui  and demonTimerGui.Parent then demonTimerGui:Destroy(); demonTimerGui=nil end
+
+    local countdownSecs = math.random(5*60, 10*60)  -- 5-10 minutes
+
+    -- Timer GUI top-center
+    demonTimerGui = Instance.new("ScreenGui"); demonTimerGui.Name="DemonTimer"
+    demonTimerGui.ResetOnSpawn=false; demonTimerGui.Parent=player.PlayerGui
+
+    local tFrame = Instance.new("Frame"); tFrame.Size=UDim2.new(0,160,0,36)
+    tFrame.Position=UDim2.new(0.5,-80,0,8); tFrame.BackgroundColor3=Color3.fromRGB(15,5,5)
+    tFrame.BackgroundTransparency=0.15; tFrame.BorderSizePixel=0; tFrame.Parent=demonTimerGui
+    Instance.new("UICorner",tFrame).CornerRadius=UDim.new(0,8)
+    local tStroke=Instance.new("UIStroke"); tStroke.Color=Color3.fromRGB(180,20,0)
+    tStroke.Thickness=2; tStroke.Parent=tFrame
+
+    local tLbl=Instance.new("TextLabel"); tLbl.Size=UDim2.new(1,0,1,0)
+    tLbl.BackgroundTransparency=1; tLbl.TextColor3=Color3.fromRGB(255,60,20)
+    tLbl.Font=Enum.Font.GothamBold; tLbl.TextScaled=true; tLbl.Parent=tFrame
+
+    local elapsed = 0
+    demonTimerConn = RunService.Heartbeat:Connect(function(dt)
+        if not gameActive then return end
+        elapsed += dt
+        local rem = math.max(0, countdownSecs - elapsed)
+        local mins = math.floor(rem / 60)
+        local secs = math.floor(rem % 60)
+        tLbl.Text = string.format("👿 %d:%02d", mins, secs)
+        -- Pulse red when under 30s
+        if rem <= 30 then
+            tLbl.TextColor3 = Color3.fromRGB(255, math.floor(30 * (rem/30)), 0)
+        end
+        if rem <= 0 then
+            demonTimerConn:Disconnect(); demonTimerConn=nil
+            if demonTimerGui and demonTimerGui.Parent then demonTimerGui:Destroy(); demonTimerGui=nil end
+            if gameActive then runDemonChase() end
+        end
+    end)
+end
+
 -- Saferoom
 local function buildSaferoom()
     local f=Instance.new("Folder"); f.Name="Saferoom"; f.Parent=workspace
@@ -3137,6 +3434,10 @@ startRound = function()
     clearAllFakers()
     if vortexLoop then vortexLoop:Disconnect(); vortexLoop=nil end
     vortexActive=false
+    if demonHBConn then demonHBConn:Disconnect(); demonHBConn=nil end
+    if demonPart and demonPart.Parent then demonPart.Parent.Parent:Destroy() end
+    demonActive=false
+    if demonTimerConn then demonTimerConn:Disconnect(); demonTimerConn=nil end
     accentBar.BackgroundColor3=C.shard
     local gW,gH,st=getRound(currentRound); refreshHUD("Generating Round "..currentRound.."…",C.white)
     math.randomseed(os.clock()*100000+currentRound*997)
@@ -3174,6 +3475,9 @@ startRound = function()
     if modYourSavior then
         local hum2=getHumanoid()
         if hum2 then hum2.WalkSpeed=math.max(hum2.WalkSpeed, math.min(hum2.WalkSpeed*2.5,80)) end
+    end
+    if modHellClock and not demonActive then
+        startDemonTimer()
     end
     task.wait(0.15); local hrp=getHRP(); if hrp then hrp.CFrame=CFrame.new(sp) end
 end
