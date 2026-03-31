@@ -2877,7 +2877,7 @@ local function doFakerKill()
 end
 
 -- Spawn one Faker; respects 5-faker cap
-local function spawnFaker()
+local function spawnFaker(spawnOrigin)
     if #fakerList >= 5 then return end
 
     if not fakerFolder then
@@ -2889,14 +2889,11 @@ local function spawnFaker()
     local model, root = buildFakerModel(fakerFolder)
     local flickConn   = applyFakerESP(model)
 
-    -- Place it offset from player
-    local hrp = getHRP()
-    local angles = {0, math.pi/2, math.pi, 3*math.pi/2}
-    local ang    = angles[math.random(1,4)]
-    local dist   = math.random(25, 40)
-    local startPos = hrp
-        and (hrp.Position + Vector3.new(math.cos(ang)*dist, 0, math.sin(ang)*dist))
-        or  (MAZE_ORIGIN  + Vector3.new(0, 2, 0))
+    -- spawnOrigin = position of original faker (or player if first spawn)
+    local origin = spawnOrigin or (getHRP() and getHRP().Position) or MAZE_ORIGIN
+    local ang  = math.random() * math.pi * 2
+    local dist = math.random(18, 30)
+    local startPos = origin + Vector3.new(math.cos(ang)*dist, 0, math.sin(ang)*dist)
     setFakerPos(model, root, startPos + Vector3.new(0, 2, 0))
 
     local fk = {
@@ -2940,6 +2937,30 @@ local function spawnFaker()
             end
         end
 
+        -- Face the player: rotate all parts so model looks toward player
+        if dist2 > 0.5 then
+            local lookTarget = Vector3.new(target.X, root.CFrame.Position.Y, target.Z)
+            local faceCF = CFrame.new(root.CFrame.Position, lookTarget)
+            -- Compute yaw-only delta from root forward to player direction
+            local modelYaw = math.atan2(-faceCF.LookVector.X, -faceCF.LookVector.Z)
+            local offset = root.CFrame.Position
+            for _, p in ipairs(model:GetDescendants()) do
+                if p:IsA("BasePart") then
+                    local localPos = p.CFrame.Position - offset
+                    -- Rotate localPos around Y by modelYaw relative to current root facing
+                    local curYaw = math.atan2(-root.CFrame.LookVector.X, -root.CFrame.LookVector.Z)
+                    local deltaYaw = modelYaw - curYaw
+                    if math.abs(deltaYaw) > 0.01 then
+                        local cos, sin = math.cos(deltaYaw), math.sin(deltaYaw)
+                        local rx = localPos.X*cos - localPos.Z*sin
+                        local rz = localPos.X*sin + localPos.Z*cos
+                        p.CFrame = CFrame.new(offset + Vector3.new(rx, localPos.Y, rz))
+                            * CFrame.Angles(0, deltaYaw, 0)
+                    end
+                end
+            end
+        end
+
         -- Keep Y locked always (prevent falling)
         if math.abs(root.CFrame.Position.Y - targetY) > 0.5 then
             setFakerPos(model, root, Vector3.new(root.CFrame.Position.X, targetY, root.CFrame.Position.Z))
@@ -2968,9 +2989,10 @@ local function spawnFaker()
                         task.wait(0.35 / steps)
                     end
                     fk.knockedBack = false
-                    -- 10% chance: spawn an extra Faker
-                    if math.random() < 0.10 then
-                        task.delay(0.5, spawnFaker)
+                    -- 2% chance: spawn extra Faker at THIS faker's position
+                    if math.random() < 0.02 then
+                        local spawnPos = root.CFrame.Position
+                        task.delay(0.5, function() spawnFaker(spawnPos) end)
                     end
                 end)
             else
