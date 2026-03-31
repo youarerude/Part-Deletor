@@ -60,6 +60,9 @@ local modUnforgiving   = false
 local modGreedMaze     = false
 local modFalsehood     = false
 local modDontLeave     = false
+local modKoushinn      = false   -- 行進
+local modMvulbal       = false   -- מבלבל
+local modYourSavior    = false   -- Your Savior
 -- Faker state
 local fakerList        = {}   -- array of faker instances
 local fakerFolder      = nil
@@ -192,6 +195,32 @@ local ALL_MODIFIERS = {
      chainOf="Falsehood",
      onApply=function()
          modDontLeave=true
+     end},
+    {id="Koushinn",      name="行進",              col=Color3.fromRGB(130,180,220),
+     desc="Despair passively spawns regardless of round and attacks twice.",
+     perk="[Grey puddle no longer spawns after Despair]",
+     chainOf=nil,
+     onApply=function()
+         modKoushinn=true
+         -- start despair loop if not already running
+         if gameActive then startDespairLoop() end
+     end},
+    {id="Mvulbal",       name="מבלבל",             col=Color3.fromRGB(100,220,180),
+     desc="Vortex passively spawns regardless of round. Chance is now 50%.",
+     perk="[90% entity damage reduction]",
+     chainOf=nil,
+     onApply=function()
+         modMvulbal=true
+         if gameActive then startVortexLoop() end
+     end},
+    {id="YourSavior",    name="Your Savior",       col=Color3.fromRGB(255,240,100),
+     desc="Saint forces you to look faster than normal.",
+     perk="[+150% Speed boost]",
+     chainOf=nil,
+     onApply=function()
+         modYourSavior=true
+         local hum=getHumanoid()
+         if hum then hum.WalkSpeed=math.min(hum.WalkSpeed*2.5, 80) end
      end},
 }
 
@@ -339,6 +368,7 @@ local function entityDamage(hum, amount)
     local mult = 1
     if modWatchoutKiddo then mult = mult * 0.85 end
     if modFalsehood     then mult = mult * 0.50 end
+    if modMvulbal       then mult = mult * 0.10 end
     hum.Health = math.max(0.1, hum.Health - amount * mult)
 end
 
@@ -1078,7 +1108,7 @@ local function runSaintEvent()
     local camYaw   = math.atan2(-cf0.LookVector.X, -cf0.LookVector.Z)
     local camPitch = math.asin(math.clamp(cf0.LookVector.Y, -1, 1))
 
-    local PULL        = 0.028  -- lerp strength per frame
+    local PULL        = modYourSavior and 0.065 or 0.028  -- lerp strength per frame
     local SENSITIVITY = 0.0028 -- mouse resistance sensitivity
     local gazeTime    = 0      -- accumulated time fully looking (for death)
     local vigAlpha    = 0
@@ -1601,13 +1631,19 @@ local function runDespairEvent()
         end)
         pcall(function() rainConn:Disconnect() end)
 
-        -- Spawn grey puddle at player feet
+        -- Spawn grey puddle at player feet (skipped if 行進 active)
         local hrp = getHRP()
-        if hrp then
+        if hrp and not modKoushinn then
             spawnPuddle(hrp.Position)
             startPuddleSlowLoop()
         end
         despairActive = false
+        -- 行進: second attack after 5s
+        if modKoushinn then
+            task.delay(5, function()
+                if gameActive then runDespairEvent() end
+            end)
+        end
         return
     end
 
@@ -2167,7 +2203,7 @@ local function startVortexLoop()
             if not gameActive then return end
             el += dt; if el < 60 then return end
             vortexLoop:Disconnect(); vortexLoop=nil
-            if math.random() <= 0.10 then
+            if math.random() <= (modMvulbal and 0.50 or 0.10) then
                 runVortexEvent()
             end
             if gameActive then schedule() end
@@ -3122,6 +3158,8 @@ startRound = function()
     if currentRound>=2 then createDasherPart(mazeFolder); startDasherLoop(0.50,10); createPinpointPart(mazeFolder); startPinpointLoop(); startSaintLoop() end
     if currentRound>=3 then startUnlivelLoop() end
     if currentRound>=4 then startDespairLoop(); startEcneulfniLoop() end
+    if modKoushinn and currentRound<4 then startDespairLoop() end
+    if modMvulbal  and currentRound<5 then startVortexLoop()  end
     if currentRound>=5 then startVortexLoop() end
     if modInexplicable then
         prisonerRage=0; prisonerHeadless=false; prisonerChasing=false
@@ -3130,11 +3168,12 @@ startRound = function()
     if modFalsehood then
         task.delay(0.5, startFakerIfNeeded)
     end
-    if modFalsehood then
-        task.delay(0.5, function() spawnFaker() end)
-    end
     if modFixation then
         local hum2=getHumanoid(); if hum2 then hum2.WalkSpeed=32 end
+    end
+    if modYourSavior then
+        local hum2=getHumanoid()
+        if hum2 then hum2.WalkSpeed=math.max(hum2.WalkSpeed, math.min(hum2.WalkSpeed*2.5,80)) end
     end
     task.wait(0.15); local hrp=getHRP(); if hrp then hrp.CFrame=CFrame.new(sp) end
 end
