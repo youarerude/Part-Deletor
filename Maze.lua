@@ -59,9 +59,13 @@ local modFixation      = false
 local modUnforgiving   = false
 local modGreedMaze     = false
 local modFalsehood     = false
+local modDontLeave     = false
 -- Faker state
 local fakerList        = {}   -- array of faker instances
 local fakerFolder      = nil
+-- Forward declarations (used before definition in closures)
+local startRound
+local clearAllFakers
 -- shard multiplier (multiplicative)
 local shardCollectMult = 1
 -- greed state
@@ -180,6 +184,13 @@ local ALL_MODIFIERS = {
      chainOf=nil,
      onApply=function()
          modFalsehood=true
+     end},
+    {id="DontLeaveMe",   name="Don't Leave Me.",  col=Color3.fromRGB(120,200,255),
+     desc="Faker takes 5s to reach full speed instead of 10s.",
+     perk="[Dasher & Pinpoint lines are ESP see-through]",
+     chainOf="Falsehood",
+     onApply=function()
+         modDontLeave=true
      end},
 }
 
@@ -524,8 +535,9 @@ local function drawDasherPath(wps,folder)
         local len=(pA-pB).Magnitude; if len>0.1 then
             local s=Instance.new("Part"); s.Size=Vector3.new(0.85,0.85,len)
             s.CFrame=CFrame.new((pA+pB)/2,pB); s.Anchored=true; s.CanCollide=false
-            s.Material=Enum.Material.Neon; s.Color=C.dasherPath; s.Transparency=0.05
-            s.CastShadow=false; s.Parent=pf
+            s.Material=Enum.Material.Neon; s.Color=C.dasherPath
+            s.Transparency=modDontLeave and 0.9 or 0.05; s.CastShadow=false; s.Parent=pf
+            if modDontLeave then setESP(s,C.dasherPath,C.dasherPath,0.35) end
         end
     end
     for i,wp in ipairs(wps) do
@@ -658,7 +670,8 @@ local function drawPinpointPath(wps,folder)
             local s=Instance.new("Part"); s.Size=Vector3.new(0.75,0.75,len)
             s.CFrame=CFrame.new((pA+pB)/2,pB); s.Anchored=true; s.CanCollide=false
             s.Material=Enum.Material.Neon; s.Color=C.pinLine
-            s.Transparency=0.05; s.CastShadow=false; s.Parent=pf
+            s.Transparency=modDontLeave and 0.9 or 0.05; s.CastShadow=false; s.Parent=pf
+            if modDontLeave then setESP(s,C.pinLine,C.pinLine,0.35) end
         end
     end
     for i,wp in ipairs(wps) do
@@ -2694,7 +2707,7 @@ local FAKER_MSGS = {
     "Stop...", "Don't go...",
 }
 
-local function clearAllFakers()
+clearAllFakers = function()
     for _, fk in ipairs(fakerList) do
         if fk.part and fk.part.Parent then fk.part:Destroy() end
         if fk.hbConn then pcall(function() fk.hbConn:Disconnect() end) end
@@ -2804,7 +2817,7 @@ local function spawnFaker(existingFk)
                 speed=0, accelT=0, knockedBack=false}
     table.insert(fakerList, fk)
 
-    local ACCEL_TIME = 10  -- 0→100 studs/s in 10s
+    local ACCEL_TIME = modDontLeave and 5 or 10  -- 0→100 studs/s
 
     fk.hbConn = RunService.Heartbeat:Connect(function(dt)
         if not gameActive then return end
@@ -2980,7 +2993,7 @@ local function buildSaferoom()
 end
 
 -- Start round
-local function startRound()
+startRound = function()
     if gameActive then return end
     gameActive=true; espActive=false; dasherActive=false; pinpointSpawned=false; pinpointChasing=false; shardList={}; collected=0
     cleanAnimConns()
@@ -3053,7 +3066,7 @@ player.CharacterAdded:Connect(function(c)
     if h then
         if not gameActive then
             h.CFrame=CFrame.new(safeSpawnPos)
-            if modFixation then task.delay(0.5,function() local hm=getHumanoid(); if hm then hm.WalkSpeed=32 end end) end
+            if modFixation then task.delay(0.5,function() local hm2=getHumanoid(); if hm2 then hm2.WalkSpeed=32 end end) end
             if modInexplicable and not prisonerHBConn then task.delay(1,function() startPrisonerLoop() end) end
         else
             gameActive=false; pinpointChasing=false; cleanAnimConns()
@@ -3075,7 +3088,7 @@ player.CharacterAdded:Connect(function(c)
             if puddleSlowConn then puddleSlowConn:Disconnect(); puddleSlowConn=nil end
             accentBar.BackgroundColor3=C.shard
             h.CFrame=CFrame.new(safeSpawnPos)
-            if modFixation then h.WalkSpeed=32 end
+            if modFixation then local hm=c:FindFirstChildOfClass("Humanoid"); if hm then hm.WalkSpeed=32 end end
             if modInexplicable then task.delay(1,function() startPrisonerLoop() end) end
             clearAllFakers()
             if modFalsehood then task.delay(1.5, function() spawnFaker() end) end
