@@ -24,7 +24,7 @@ local ROUND_TABLE = {
 local function getRound(r)
     if r<=#ROUND_TABLE then return ROUND_TABLE[r][1],ROUND_TABLE[r][2],ROUND_TABLE[r][3] end
     local ex=r-#ROUND_TABLE; local w=61+ex*8; local h=61+ex*8
-    if w%2==0 then w+=1 end; if h%2==0 then h+=1 end
+    if w%2==0 then w = w + (1 end); if h%2==0 then h = h + (1 end)
     return w,h,900+ex*200
 end
 
@@ -63,6 +63,14 @@ local modDontLeave     = false
 local modKoushinn      = false   -- 行進
 local modMvulbal       = false   -- מבלבל
 local modYourSavior    = false   -- Your Savior
+local modHellClock     = false   -- Hell Clock
+local modCruelty       = false   -- crueltyoftheworld
+-- Demon state
+local demonActive      = false
+local demonPart        = nil
+local demonHBConn      = nil
+local demonTimerGui    = nil
+local demonTimerConn   = nil
 -- Faker state
 local fakerList        = {}   -- array of faker instances
 local fakerFolder      = nil
@@ -130,7 +138,7 @@ local function refreshHUD(s,c) lblRound.Text="Round "..currentRound; lblShards.T
 
 -- Parry button
 local pg=Instance.new("ScreenGui"); pg.Name="ParryGui"; pg.ResetOnSpawn=false; pg.Parent=player.PlayerGui
-local pb=Instance.new("TextButton"); pb.Size=UDim2.new(0,110,0,110); pb.Position=UDim2.new(1,-130,1,-140)
+local pb=Instance.new("TextButton"); pb.Size=UDim2.new(0,100,0,100); pb.Position=UDim2.new(1,-115,1,-185)
 pb.BackgroundColor3=C.parry; pb.Text="PARRY"; pb.Font=Enum.Font.GothamBold; pb.TextSize=22
 pb.TextColor3=Color3.new(0,0,0); pb.BorderSizePixel=0; pb.Parent=pg
 Instance.new("UICorner",pb).CornerRadius=UDim.new(1,0)
@@ -222,6 +230,22 @@ local ALL_MODIFIERS = {
          local hum=getHumanoid()
          if hum then hum.WalkSpeed=math.min(hum.WalkSpeed*2.5, 80) end
      end},
+    {id="HellClock",     name="Hell Clock",         col=Color3.fromRGB(255,60,10),
+     desc="Demon appears. A countdown timer decides when.",
+     perk="[+50% shard magnetize range. Magnetize active from round 1]",
+     chainOf=nil,
+     onApply=function()
+         modHellClock=true
+         startDemonTimer()
+     end},
+    {id="Cruelty",       name="crueltyoftheworld",  col=Color3.fromRGB(180,80,200),
+     desc="Vision Appears.",
+     perk="[ESP nearest shard within 20 studs]",
+     chainOf=nil,
+     onApply=function()
+         modCruelty=true
+         task.delay(0.2, spawnVisionEntity)
+     end},
 }
 
 -- ── Modifier GUI ──
@@ -263,15 +287,10 @@ end)
 local function getAvailableMods()
     local pool={}
     for _,m in ipairs(ALL_MODIFIERS) do
-        if appliedMods[m.id] then continue end
-        -- chain modifiers only show if their parent was applied
-        if m.chainOf and not appliedMods[m.chainOf] then continue end
-        -- non-chain modifiers only show if no chain requirement
-        if not m.chainOf then
-            table.insert(pool, m)
-        else
-            -- chain mod: force it to appear if parent is applied and not yet applied
-            table.insert(pool, m)
+        if not appliedMods[m.id] then
+            if not m.chainOf or appliedMods[m.chainOf] then
+                table.insert(pool, m)
+            end
         end
     end
     -- shuffle
@@ -375,7 +394,7 @@ end
 -- ESP threshold
 local function checkESP()
     if espActive then return end
-    local rem=0; for _,sd in ipairs(shardList) do if sd.part and sd.part.Parent then rem+=1 end end
+    local rem=0; for _,sd in ipairs(shardList) do if sd.part and sd.part.Parent then rem = rem + (1 end end)
     if rem==0 then return end
     if rem<=math.max(1,math.ceil(totalShards*ESP_PCT)) then
         espActive=true; accentBar.BackgroundColor3=C.gold
@@ -398,15 +417,46 @@ local function spawnShard(wp,folder)
     local light=Instance.new("PointLight"); light.Brightness=2; light.Range=8; light.Color=C.shard; light.Parent=p
     local baseY=p.Position.Y; local ang=math.random()*math.pi*2
     local ac=RunService.Heartbeat:Connect(function(dt)
-        if p and p.Parent then ang+=dt*1.6; p.CFrame=CFrame.new(p.Position.X,baseY+math.sin(ang*1.2)*0.3,p.Position.Z)*CFrame.Angles(0,ang,0) end
+        if not (p and p.Parent) then return end
+        ang = ang + (dt*1.6); p.CFrame=CFrame.new(p.Position.X,baseY+math.sin(ang*1.2)*0.3,p.Position.Z)*CFrame.Angles(0,ang,0)
     end); table.insert(animConns,ac)
+    -- crueltyoftheworld: ESP shard if it's the nearest within 20 studs
+    local crueltyConn = RunService.Heartbeat:Connect(function()
+        if not (p and p.Parent) then return end
+        if not modCruelty then return end
+        local hrp = getHRP(); if not hrp then return end
+        local dist = (p.Position - hrp.Position).Magnitude
+        if dist <= 20 then
+            -- find if this is the nearest shard
+            local nearest = nil; local nearestD = math.huge
+            for _, sd2 in ipairs(shardList) do
+                if sd2.part and sd2.part.Parent then
+                    local d2 = (sd2.part.Position - hrp.Position).Magnitude
+                    if d2 < nearestD then nearestD=d2; nearest=sd2.part end
+                end
+            end
+            local isNearest = (nearest == p)
+            local hl = p:FindFirstChild("CrueltyHL")
+            if isNearest and not hl then
+                hl = Instance.new("Highlight"); hl.Name="CrueltyHL"
+                hl.Adornee=p; hl.OutlineColor=Color3.fromRGB(220,100,255)
+                hl.OutlineTransparency=0; hl.FillColor=Color3.fromRGB(180,60,220)
+                hl.FillTransparency=0.4; hl.DepthMode=Enum.HighlightDepthMode.AlwaysOnTop
+                hl.Parent=p
+            elseif not isNearest and hl then
+                hl:Destroy()
+            end
+        else
+            local hl = p:FindFirstChild("CrueltyHL"); if hl then hl:Destroy() end
+        end
+    end); table.insert(animConns, crueltyConn)
     -- R3+: magnet — pull toward player within 10 studs
-    if currentRound>=3 then
+    if currentRound>=3 or modHellClock then
         local mc=RunService.Heartbeat:Connect(function(dt)
             if not p or not p.Parent then return end
             local hrp=getHRP(); if not hrp then return end
             local diff=hrp.Position-p.Position
-            if diff.Magnitude<=(modInexplicable and 12 or 10) and diff.Magnitude>0.5 then
+            if diff.Magnitude<=(modInexplicable and 12 or (modHellClock and 15 or 10)) and diff.Magnitude>0.5 then
                 p.CFrame=CFrame.new(p.Position+diff.Unit*math.min(18*dt,diff.Magnitude))
             end
         end)
@@ -436,7 +486,7 @@ local function onShardTouched(sd)
     -- Apply shard multiplier (GreedMaze curse, Unforgiving perk etc.)
     local mult = math.floor(shardCollectMult + 0.5)
     if mult < 1 then mult = 1 end
-    collected += mult; refreshHUD(); checkESP()
+    collected = collected + (mult); refreshHUD(); checkESP()
     -- Prisoner rage decrease (unless Unforgiving blocks it)
     if modInexplicable and not modUnforgiving then
         prisonerRage = math.max(0, prisonerRage - 2)
@@ -451,14 +501,14 @@ local function onShardTouched(sd)
             end
         end
     end
-    local rem=0; for _,s in ipairs(shardList) do if s.part and s.part.Parent then rem+=1 end end
+    local rem=0; for _,s in ipairs(shardList) do if s.part and s.part.Parent then rem = rem + (1 end end)
     if rem==0 then
         accentBar.BackgroundColor3=C.beam; refreshHUD("All shards! Reach the EXIT!",C.beam)
         local eb=spawnExitBeam(exitCellPos,mazeFolder); local bc
         bc=eb.Touched:Connect(function(hit)
             if hit.Parent~=player.Character then return end; bc:Disconnect(); gameActive=false
             local h=getHRP(); if h then h.CFrame=CFrame.new(safeSpawnPos) end
-            currentRound+=1; cleanAnimConns()
+            currentRound = currentRound + (1); cleanAnimConns()
             if mazeFolder then mazeFolder:Destroy(); mazeFolder=nil end
             if dasherPart then dasherPart:Destroy(); dasherPart=nil end
             if dasherLoop then dasherLoop:Disconnect(); dasherLoop=nil end
@@ -586,7 +636,7 @@ local function moveDasherAlong(wps,onDone)
     local SPEED=modWatchoutKiddo and 165 or 55; local idx=1
     local function nxt()
         if not dasherPart or not dasherPart.Parent then if onDone then onDone() end; return end
-        idx+=1; if idx>#wps then if onDone then onDone() end; return end
+        idx = idx + (1); if idx>#wps then if onDone then onDone() end; return end
         local tgt=cellToWorld(wps[idx][1],wps[idx][2])+Vector3.new(0,3,0)
         local tw=TweenService:Create(dasherPart,TweenInfo.new((tgt-dasherPart.Position).Magnitude/SPEED,Enum.EasingStyle.Linear),{Position=tgt})
         tw:Play(); tw.Completed:Connect(nxt)
@@ -612,7 +662,7 @@ end
 local function startDasherLoop(chance,numTurns)
     if dasherLoop then dasherLoop:Disconnect(); dasherLoop=nil end; local el=0
     dasherLoop=RunService.Heartbeat:Connect(function(dt)
-        if not gameActive or not currentGrid then return end; el+=dt; if el<10 then return end; el=0
+        if not gameActive or not currentGrid then return end; el = el + (dt); if el<10 then return end; el=0
         if dasherActive then return end; if math.random()>chance then return end; dasherActive=true
 
         local hrp=getHRP(); if not hrp then dasherActive=false; return end
@@ -624,7 +674,7 @@ local function startDasherLoop(chance,numTurns)
         local pf=drawDasherPath(wps,mazeFolder)
         local fT=0
         local fC=RunService.Heartbeat:Connect(function(fd)
-            fT+=fd
+            fT = fT + (fd)
             for _,s in ipairs(pf:GetDescendants()) do if s:IsA("BasePart") then s.Transparency=0.05+0.5*math.abs(math.sin(fT*8)) end end
         end)
 
@@ -815,7 +865,7 @@ local function startPinpointChase(scx, scy)
             local wp=pts[ptIdx]
             local d=(wp-cur).Magnitude
             if d<1.5 then
-                ptIdx+=1  -- reached this waypoint, move to next
+                ptIdx = ptIdx + (1)  -- reached this waypoint, move to next
             else
                 -- Move toward current waypoint
                 local dir=(wp-cur).Unit
@@ -834,7 +884,7 @@ local function startPinpointLoop()
     if pinpointLoop then pinpointLoop:Disconnect(); pinpointLoop=nil end; local el=0
     pinpointLoop=RunService.Heartbeat:Connect(function(dt)
         if not gameActive or not currentGrid then return end
-        if pinpointSpawned then return end; el+=dt; if el<8 then return end; el=0
+        if pinpointSpawned then return end; el = el + (dt); if el<8 then return end; el=0
         if math.random()>0.50 then return end; pinpointSpawned=true
 
         -- Pick random spawn cell
@@ -856,7 +906,7 @@ local function startPinpointLoop()
         -- Flash pulse while player reads it
         local fT=0
         local fC=RunService.Heartbeat:Connect(function(fd)
-            fT+=fd
+            fT = fT + (fd)
             for _,s in ipairs(pathFolder:GetDescendants()) do
                 if s:IsA("BasePart") then s.Transparency=0.05+0.5*math.abs(math.sin(fT*9)) end
             end
@@ -1116,7 +1166,7 @@ local function runSaintEvent()
     -- Pupil animate while open
     local pAng = 0
     breathConn = RunService.Heartbeat:Connect(function(dt)
-        pAng += dt * 2
+        pAng = pAng + (dt * 2)
         if eyeParts.iris and eyeParts.iris.Parent then
             local s = 62 + math.sin(pAng)*6
             eyeParts.iris.Size = UDim2.new(0,s,0,s)
@@ -1148,7 +1198,7 @@ local function runSaintEvent()
             -- Fade vignette out
             local fadeT = 0
             local fadeConn = RunService.Heartbeat:Connect(function(fd)
-                fadeT += fd
+                fadeT = fadeT + (fd)
                 local a = math.max(0, vigAlpha * (1 - fadeT/0.5))
                 setVigAlpha(a)
                 if fadeT >= 0.5 then
@@ -1220,7 +1270,7 @@ local function runSaintEvent()
             if dot > 0.82 then
                 -- Looking at saint → drain health
                 entityDamage(hum, 8 * dt)
-                gazeTime += dt
+                gazeTime = gazeTime + (dt)
                 if gazeTime >= 2.2 then
                     -- Fully captured → die
                     hum.Health = 0
@@ -1385,7 +1435,7 @@ local function runUnlivelEvent()
         if isParrying and not prevParry then
             if not parryDebounce then
                 parryDebounce=true
-                parryCount+=1
+                parryCount = parryCount + (1)
                 if parryCount<5 then
                     applyWither(parryCount)
                 else
@@ -1402,7 +1452,7 @@ local function runUnlivelEvent()
 
         -- Timer
         if not finished then
-            elapsed+=dt
+            elapsed = elapsed + (dt)
             -- Slowly turn red
             local t=math.min(elapsed/TIMER,1)
             local rc=math.floor(60+t*160); local gc=math.floor(200-t*170); local bc=math.floor(80-t*70)
@@ -1430,7 +1480,7 @@ local function startUnlivelLoop()
     unlivelLoop=RunService.Heartbeat:Connect(function(dt)
         if not gameActive then return end
         if unlivelActive then return end
-        el+=dt; if el<20 then return end; el=0
+        el = el + (dt); if el<20 then return end; el=0
         if math.random()>0.25 then return end
         runUnlivelEvent()
     end)
@@ -1442,7 +1492,7 @@ local function startSaintLoop()
     saintLoop=RunService.Heartbeat:Connect(function(dt)
         if not gameActive then return end
         if saintActive then return end
-        el+=dt; if el<20 then return end; el=0
+        el = el + (dt); if el<20 then return end; el=0
         if math.random()>0.30 then return end
         runSaintEvent()
     end)
@@ -1476,7 +1526,7 @@ local function startPuddleSlowLoop()
         if inPuddle then
             hum.WalkSpeed = math.max(4, hum.WalkSpeed - 0.5)
         else
-            hum.WalkSpeed = math.min(16, hum.WalkSpeed + 2)
+            hum.WalkSpeed = math.min(modFixation and 32 or 30, hum.WalkSpeed + 2)
         end
     end)
 end
@@ -1503,20 +1553,22 @@ local function spawnPuddle(pos)
     task.spawn(function()
         while pd and pd.Parent and gameActive do
             task.wait(1)
-            local hrp = getHRP(); if not hrp then continue end
-            local diff = (hrp.Position - pd.Position)
-            diff = Vector3.new(diff.X, 0, diff.Z)
-            if diff.Magnitude < pd.Size.X * 0.5 then
-                local hum = getHumanoid()
-                if hum and hum.Health > 0 then
-                    hum.Health = math.max(0.1, hum.Health - 10)
+            local hrp2 = getHRP()
+            if hrp2 then
+                local diff = (hrp2.Position - pd.Position)
+                diff = Vector3.new(diff.X, 0, diff.Z)
+                if diff.Magnitude < pd.Size.X * 0.5 then
+                    local hum = getHumanoid()
+                    if hum and hum.Health > 0 then
+                        hum.Health = math.max(0.1, hum.Health - 10)
+                    end
                 end
             end
         end
     end)
 end
 
-local function runDespairEvent()
+local function runDespairEvent(isSecondAttack)
     if despairActive or not gameActive then return end
     despairActive = true
 
@@ -1590,7 +1642,7 @@ local function runDespairEvent()
     local holdConn = RunService.Heartbeat:Connect(function(dt)
         if not gameActive then return end
         if isParrying then
-            holdTime += dt
+            holdTime = holdTime + (dt)
             if holdTime >= HOLD_NEEDED then
                 survived = true
             end
@@ -1603,7 +1655,7 @@ local function runDespairEvent()
     local elapsed = 0
     local waitConn
     waitConn = RunService.Heartbeat:Connect(function(dt)
-        elapsed += dt
+        elapsed = elapsed + (dt)
         if survived or elapsed >= HOLD_NEEDED + 2 then
             waitConn:Disconnect()
         end
@@ -1638,10 +1690,12 @@ local function runDespairEvent()
             startPuddleSlowLoop()
         end
         despairActive = false
-        -- 行進: second attack after 5s
-        if modKoushinn then
+        -- 行進: second attack after 5s. Keep despairActive=true until second attack fires
+        if modKoushinn and not isSecondAttack then
+            despairActive = true   -- block loop scheduler during wait
             task.delay(5, function()
-                if gameActive then runDespairEvent() end
+                despairActive = false
+                if gameActive then runDespairEvent(true) end
             end)
         end
         return
@@ -1697,11 +1751,12 @@ local function startDespairLoop()
         local el = 0
         despairLoop = RunService.Heartbeat:Connect(function(dt)
             if not gameActive then return end
-            el += dt
+            el = el + (dt)
             if el < interval then return end
+            if despairActive then return end  -- wait until any attack (including 2nd) fully finishes
             despairLoop:Disconnect(); despairLoop = nil
             if math.random() <= 0.25 then
-                runDespairEvent()
+                runDespairEvent(false)
             end
             if gameActive then scheduleNext() end
         end)
@@ -1840,7 +1895,7 @@ local function runEcneulfniEvent()
                 local py = padY * row
                 local isBlood = bloodEye and (placed == 0)
                 table.insert(lids, makeEye(px, py, eyeSz, isBlood))
-                placed += 1
+                placed = placed + (1)
             end
         end
     end
@@ -1885,13 +1940,13 @@ local function runEcneulfniEvent()
 
     if jumpTarget > 0 then
         jumpConn = RunService.Heartbeat:Connect(function(dt)
-            elapsed += dt
+            elapsed = elapsed + (dt)
             local h2 = getHRP(); if not h2 then return end
             local hum = getHumanoid(); if not hum then return end
             -- Detect jump (left ground)
             local grounded = (hum.FloorMaterial ~= Enum.Material.Air)
             if lastGrounded and not grounded then
-                jumpsDone += 1
+                jumpsDone = jumpsDone + (1)
                 if jumpsDone >= jumpTarget then success = true end
             end
             lastGrounded = grounded
@@ -1900,7 +1955,7 @@ local function runEcneulfniEvent()
     else
         -- 0 jumps: player must NOT jump
         jumpConn = RunService.Heartbeat:Connect(function(dt)
-            elapsed += dt
+            elapsed = elapsed + (dt)
             local hum = getHumanoid(); if not hum then return end
             local grounded = (hum.FloorMaterial ~= Enum.Material.Air)
             if lastGrounded and not grounded then
@@ -1986,7 +2041,7 @@ local function startEcneulfniLoop()
     ecneulfniLoop = RunService.Heartbeat:Connect(function(dt)
         if not gameActive then return end
         if ecneulfniActive then return end
-        el += dt; if el < 15 then return end; el = 0
+        el = el + (dt); if el < 15 then return end; el = 0
         if math.random() > 0.23 then return end
         runEcneulfniEvent()
     end)
@@ -2119,11 +2174,24 @@ local function runVortexEvent()
         if sd.conn then sd.conn:Disconnect(); sd.conn=nil end
     end
 
+    -- Freeze player during suck + rebuild
+    local frozenHRP = getHRP()
+    local frozenCF  = frozenHRP and frozenHRP.CFrame
+    local freezeConn = RunService.Heartbeat:Connect(function()
+        local h = getHRP()
+        if h and frozenCF then h.CFrame = frozenCF end
+        local hum = getHumanoid()
+        if hum then hum.WalkSpeed = 0; hum.JumpPower = 0 end
+    end)
+
     task.wait(3)
     if not gameActive then
-        pcall(function() spinConn:Disconnect() end)
+        pcall(function() spinConn:Disconnect(); freezeConn:Disconnect() end)
         if vGui and vGui.Parent then vGui:Destroy() end
         if mazeFolder and mazeFolder.Parent then mazeFolder:Destroy(); mazeFolder=nil end
+        -- Restore movement
+        local hum = getHumanoid()
+        if hum then hum.WalkSpeed = modFixation and 32 or 30; hum.JumpPower = 50 end
         vortexActive=false; return
     end
 
@@ -2181,6 +2249,13 @@ local function runVortexEvent()
     end
 
     task.wait(0.4)
+    pcall(function() freezeConn:Disconnect() end)
+    -- Restore movement
+    local unfreezeHum = getHumanoid()
+    if unfreezeHum then
+        unfreezeHum.WalkSpeed = modFixation and 32 or (modYourSavior and 40 or 30)
+        unfreezeHum.JumpPower = 50
+    end
     if vGui and vGui.Parent then vGui:Destroy() end
 
     -- Restore entity flags
@@ -2201,7 +2276,7 @@ local function startVortexLoop()
         local el = 0
         vortexLoop = RunService.Heartbeat:Connect(function(dt)
             if not gameActive then return end
-            el += dt; if el < 60 then return end
+            el = el + (dt); if el < 60 then return end
             vortexLoop:Disconnect(); vortexLoop=nil
             if math.random() <= (modMvulbal and 0.50 or 0.10) then
                 runVortexEvent()
@@ -2265,9 +2340,9 @@ local function startPrisonerLoop()
     if prisonerPart then prisonerPart:Destroy(); prisonerPart=nil end
     if prisonerRageGui then prisonerRageGui:Destroy(); prisonerRageGui=nil end
 
-    -- Create part
-    local p=Instance.new("Part"); p.Name="Prisoner"; p.Size=Vector3.new(1,1,1)
-    p.Anchored=true; p.CanCollide=false; p.Transparency=1; p.CastShadow=false
+    -- Create part (slightly non-zero transparency so BillboardGui always renders)
+    local p=Instance.new("Part"); p.Name="Prisoner"; p.Size=Vector3.new(0.1,0.1,0.1)
+    p.Anchored=true; p.CanCollide=false; p.Transparency=0.999; p.CastShadow=false
     p.Parent=workspace; prisonerPart=p
     buildPrisonerFace(p)
 
@@ -2304,10 +2379,10 @@ local function startPrisonerLoop()
         if not prisonerChasing then
             -- Orbit
             local spd=1.0*(prisonerBoosted and 1.5 or 1.0)
-            prisonerAngle+=dt*spd*prisonerDir
+            prisonerAngle = prisonerAngle + (dt*spd*prisonerDir)
 
             if prisonerBoosted then
-                prisonerBoostT-=dt
+                prisonerBoostT = prisonerBoostT - (dt)
                 if prisonerBoostT<=0 then prisonerBoosted=false end
             end
 
@@ -2321,7 +2396,7 @@ local function startPrisonerLoop()
 
             if inVision then
                 -- Rage tick every 0.1s
-                rageTickT+=dt
+                rageTickT = rageTickT + (dt)
                 if rageTickT>=0.1 then
                     rageTickT=0
                     prisonerRage=math.min(100,prisonerRage+1)
@@ -2447,7 +2522,7 @@ local function spawnGreedShard(pos, folder)
     light.Color=Color3.fromRGB(255,200,30); light.Parent=p
     local ang=math.random()*math.pi*2; local baseY=p.Position.Y
     local ac=RunService.Heartbeat:Connect(function(dt)
-        if p and p.Parent then ang+=dt*2.2
+        if p and p.Parent then ang = ang + (dt*2.2)
             p.CFrame=CFrame.new(p.Position.X,baseY+math.sin(ang)*0.3,p.Position.Z)*CFrame.Angles(0,ang,0)
         end
     end); table.insert(animConns,ac)
@@ -2458,7 +2533,7 @@ local function spawnGreedShard(pos, folder)
         p:Destroy()
         -- Gold shards give 3x
         local amt=math.max(1,math.floor(3*shardCollectMult+0.5))
-        collected+=amt; refreshHUD(); checkESP()
+        collected = collected + (amt); refreshHUD(); checkESP()
         if modInexplicable and not modUnforgiving then
             prisonerRage=math.max(0,prisonerRage-2)
         end
@@ -2630,7 +2705,7 @@ local function buildGreedRoom()
         -- Rainbow colour + shake loop
         local hyT=0; local hyConn
         hyConn=RunService.Heartbeat:Connect(function(dt)
-            hyT+=dt
+            hyT = hyT + (dt)
             if hyT>=3 then
                 pcall(function() hyConn:Disconnect() end)
                 TweenService:Create(hyLbl,TweenInfo.new(0.4),{TextTransparency=1}):Play()
@@ -2650,7 +2725,7 @@ local function buildGreedRoom()
 
         timerConn=RunService.Heartbeat:Connect(function(dt)
             if not greedActive then timerConn:Disconnect(); return end
-            timer-=dt; if timer<0 then timer=0 end
+            timer = timer - (dt); if timer<0 then timer=0 end
             cdLbl.Text=string.format("GREEDMAZE  %.1fs",timer)
             -- Colour shift: gold→orange→red
             if timer<=5 then
@@ -2816,7 +2891,7 @@ local function applyFakerESP(model)
 
     local t = 0
     local conn = RunService.Heartbeat:Connect(function(dt)
-        t += dt
+        t = t + (dt)
         -- chaotic flicker: multiple sine waves at coprime frequencies
         local vis = math.sin(t*53) + math.sin(t*17)*0.6 + math.sin(t*7)*0.3 > (math.random()*0.8 - 0.1)
         for _, hl in ipairs(hls) do
@@ -2887,7 +2962,7 @@ local function doFakerKill()
     local spamConn
     spamConn = RunService.Heartbeat:Connect(function()
         if spawned >= MAX then return end
-        spawned += 1
+        spawned = spawned + (1)
         local lbl  = Instance.new("TextLabel")
         lbl.Size   = UDim2.new(0, math.random(160,280), 0, math.random(22,36))
         lbl.Position = UDim2.new(math.random()*0.82, 0, math.random()*0.88, 0)
@@ -3021,7 +3096,7 @@ local function spawnFaker(spawnOrigin)
                         local t = i / steps
                         local np = flatCur:Lerp(kbEnd, t)
                         setFakerPos(model, root, np)
-                        traveled += 1
+                        traveled = traveled + (1)
                         task.wait(0.35 / steps)
                     end
                     fk.knockedBack = false
@@ -3045,6 +3120,640 @@ local function startFakerIfNeeded()
     if not modFalsehood then return end
     if #fakerList > 0 then return end  -- already running
     spawnFaker()
+end
+
+
+-- ── Demon (Hell Clock modifier) ────────────────────────────
+local DEMON_DEATH_MAX_HP_PENALTY = 10
+
+local function buildDemonModel(parent)
+    local m = Instance.new("Model"); m.Name = "Demon"; m.Parent = parent
+
+    local function dp(name, sz, cf, col, mat, trans)
+        local p = Instance.new("Part"); p.Name=name; p.Size=sz; p.CFrame=cf
+        p.Anchored=true; p.CanCollide=false
+        p.Color=col; p.Material=mat or Enum.Material.Neon
+        p.Transparency=trans or 0; p.CastShadow=false; p.Parent=m
+        return p
+    end
+
+    local red    = Color3.fromRGB(180, 20, 10)
+    local dark   = Color3.fromRGB(60,  5,  5)
+    local horn   = Color3.fromRGB(120, 10, 5)
+    local eye    = Color3.fromRGB(255, 200, 0)
+
+    -- Body parts
+    local root = dp("Root",     Vector3.new(2,2,1),   CFrame.new(0,5,0),   dark, Enum.Material.SmoothPlastic, 1)
+    dp("Torso",   Vector3.new(2.5,3,1.2), CFrame.new(0,5,0),   red)
+    dp("Head",    Vector3.new(2.2,2,1.2), CFrame.new(0,7.1,0), red)
+    -- Horns
+    dp("HornL",   Vector3.new(0.4,1.8,0.4), CFrame.new(-0.6,8.5,0)*CFrame.Angles(0,0, 0.35), horn)
+    dp("HornR",   Vector3.new(0.4,1.8,0.4), CFrame.new( 0.6,8.5,0)*CFrame.Angles(0,0,-0.35), horn)
+    -- Eyes
+    dp("EyeL",    Vector3.new(0.5,0.5,0.3), CFrame.new(-0.5,7.3,-0.56), eye)
+    dp("EyeR",    Vector3.new(0.5,0.5,0.3), CFrame.new( 0.5,7.3,-0.56), eye)
+    -- Arms (wide, menacing)
+    dp("ArmL",    Vector3.new(1.2,3,1.2), CFrame.new(-1.85,5,0)*CFrame.Angles(0,0, 0.15), dark)
+    dp("ArmR",    Vector3.new(1.2,3,1.2), CFrame.new( 1.85,5,0)*CFrame.Angles(0,0,-0.15), dark)
+    -- Claws
+    for i=-1,1,2 do
+        dp("ClawL"..i, Vector3.new(0.25,1.2,0.25), CFrame.new(-1.85+i*0.3,2.8,-0.1)*CFrame.Angles(0.3,0,0), horn)
+        dp("ClawR"..i, Vector3.new(0.25,1.2,0.25), CFrame.new( 1.85+i*0.3,2.8,-0.1)*CFrame.Angles(0.3,0,0), horn)
+    end
+    -- Legs
+    dp("LegL",    Vector3.new(1.1,2.5,1.1), CFrame.new(-0.6,2.25,0), dark)
+    dp("LegR",    Vector3.new(1.1,2.5,1.1), CFrame.new( 0.6,2.25,0), dark)
+    -- Wings (flat planes, dark neon)
+    dp("WingL",   Vector3.new(0.15,3.5,5), CFrame.new(-3,6,0)*CFrame.Angles(0,0, 0.45), Color3.fromRGB(30,5,5))
+    dp("WingR",   Vector3.new(0.15,3.5,5), CFrame.new( 3,6,0)*CFrame.Angles(0,0,-0.45), Color3.fromRGB(30,5,5))
+    -- Aura glow
+    local pl = Instance.new("PointLight"); pl.Brightness=12; pl.Range=30
+    pl.Color=Color3.fromRGB(255,40,0); pl.Parent=root
+
+    -- Red ESP
+    setESP(root, Color3.fromRGB(255,30,0), Color3.fromRGB(255,50,0), 0.2)
+
+    return m, root
+end
+
+local function setDemonPos(model, root, newPos)
+    if not model.Parent then return end
+    local offset = newPos - root.CFrame.Position
+    for _, p in ipairs(model:GetDescendants()) do
+        if p:IsA("BasePart") then p.CFrame = p.CFrame + offset end
+    end
+end
+
+local function demonFacePlayer(model, root)
+    local h = getHRP(); if not h then return end
+    local tgt = Vector3.new(h.Position.X, root.CFrame.Position.Y, h.Position.Z)
+    if (tgt - root.CFrame.Position).Magnitude < 0.3 then return end
+    local faceCF = CFrame.new(root.CFrame.Position, tgt)
+    local newYaw = math.atan2(-faceCF.LookVector.X, -faceCF.LookVector.Z)
+    local curYaw = math.atan2(-root.CFrame.LookVector.X, -root.CFrame.LookVector.Z)
+    local dy = ((newYaw - curYaw + math.pi) % (2*math.pi)) - math.pi
+    if math.abs(dy) < 0.01 then return end
+    local c2, s2 = math.cos(dy), math.sin(dy)
+    local origin = root.CFrame.Position
+    for _, p in ipairs(model:GetDescendants()) do
+        if p:IsA("BasePart") then
+            local lp = p.CFrame.Position - origin
+            local rx = lp.X*c2 - lp.Z*s2
+            local rz = lp.X*s2 + lp.Z*c2
+            p.CFrame = CFrame.new(origin + Vector3.new(rx, lp.Y, rz)) * CFrame.Angles(0, dy, 0)
+        end
+    end
+end
+
+-- Burn body part sequence on death
+local function burnBodyParts()
+    local char = player.Character; if not char then return end
+
+    -- Red screen overlay
+    local burnGui = Instance.new("ScreenGui"); burnGui.Name="DemonDeath"
+    burnGui.ResetOnSpawn=false; burnGui.Parent=player.PlayerGui
+    local overlay = Instance.new("Frame"); overlay.Size=UDim2.new(1,0,1,0)
+    overlay.BackgroundColor3=Color3.fromRGB(180,10,0); overlay.BackgroundTransparency=0.4
+    overlay.BorderSizePixel=0; overlay.Parent=burnGui
+    TweenService:Create(overlay,TweenInfo.new(3),{BackgroundTransparency=0.8}):Play()
+
+    local sequence = {"LeftLeg","RightLeg","LeftArm","RightArm","Torso","Head"}
+    local function burnPart(name)
+        local part = char:FindFirstChild(name)
+        if not part or not part:IsA("BasePart") then return end
+        -- Fire particle
+        local fire = Instance.new("Fire")
+        fire.Size  = 3; fire.Heat = 8
+        fire.Color = Color3.fromRGB(255,60,0)
+        fire.SecondaryColor = Color3.fromRGB(255,180,0)
+        fire.Parent = part
+        task.delay(0.6, function()
+            TweenService:Create(part, TweenInfo.new(0.4), {Transparency=1}):Play()
+            task.delay(0.5, function() if fire and fire.Parent then fire:Destroy() end end)
+        end)
+    end
+
+    -- Kill humanoid first, then burn sequentially
+    local hum = getHumanoid(); if hum then hum.Health=0 end
+
+    for i, partName in ipairs(sequence) do
+        task.delay(i * 0.55, function() burnPart(partName) end)
+    end
+
+    -- Reduce max health permanently by 10
+    task.delay(3.5, function()
+        local hum2 = getHumanoid()
+        if hum2 then
+            hum2.MaxHealth = math.max(10, hum2.MaxHealth - DEMON_DEATH_MAX_HP_PENALTY)
+            hum2.Health    = math.min(hum2.Health, hum2.MaxHealth)
+        end
+        if burnGui and burnGui.Parent then burnGui:Destroy() end
+    end)
+end
+
+local function runDemonChase()
+    if demonActive then return end
+    demonActive = true
+
+    local demonFolder = Instance.new("Folder"); demonFolder.Name="DemonFolder"; demonFolder.Parent=workspace
+    local model, root = buildDemonModel(demonFolder)
+
+    -- Spawn far from player
+    local hrp = getHRP()
+    local spawnPos = hrp and (hrp.Position + Vector3.new(math.random(-80,80), 0, math.random(-80,80))) or MAZE_ORIGIN
+    setDemonPos(model, root, spawnPos + Vector3.new(0, 5, 0))
+
+    local DEMON_SPEED = 85  -- very fast
+    local suckRadius  = 20
+    local caughtPlayer = false
+
+    -- Red screen tint while Demon is alive
+    local redGui = Instance.new("ScreenGui"); redGui.Name="DemonRed"
+    redGui.ResetOnSpawn=false; redGui.Parent=player.PlayerGui
+    local redFrame = Instance.new("Frame"); redFrame.Size=UDim2.new(1,0,1,0)
+    redFrame.BackgroundColor3=Color3.fromRGB(160,0,0); redFrame.BackgroundTransparency=0.65
+    redFrame.BorderSizePixel=0; redFrame.Parent=redGui
+    -- Pulse
+    local redConn = RunService.Heartbeat:Connect(function()
+        if redFrame and redFrame.Parent then
+            redFrame.BackgroundTransparency=0.6+0.1*math.sin(tick()*4)
+        end
+    end)
+
+    demonHBConn = RunService.Heartbeat:Connect(function(dt)
+        if caughtPlayer then return end
+        if not model.Parent then return end
+        local h = getHRP(); if not h then return end
+
+        -- Levitate: Y tracks player Y + offset
+        local targetY = h.Position.Y + 4
+        local cur = root.CFrame.Position
+        local flatCur = Vector3.new(cur.X, targetY, cur.Z)
+        local target  = Vector3.new(h.Position.X, targetY, h.Position.Z)
+        local diff    = target - flatCur
+        local dist    = diff.Magnitude
+
+        if dist > 0.5 then
+            setDemonPos(model, root, flatCur + diff.Unit * math.min(DEMON_SPEED * dt, dist))
+        end
+        demonFacePlayer(model, root)
+
+        -- Suck nearby parts toward demon (blackhole effect)
+        local demonPos = root.CFrame.Position
+        for _, obj in ipairs(workspace:GetDescendants()) do
+            if obj:IsA("BasePart") and not obj.Anchored then
+                local d = (obj.Position - demonPos).Magnitude
+                if d < suckRadius and d > 0.5 then
+                    local pull = (demonPos - obj.Position).Unit * (1 - d/suckRadius) * 80
+                    obj.Velocity = obj.Velocity + pull * dt
+                end
+            end
+        end
+        -- Also suck maze wall/floor parts visually
+        if mazeFolder then
+            for _, obj in ipairs(mazeFolder:GetDescendants()) do
+                if obj:IsA("BasePart") then
+                    local d = (obj.Position - demonPos).Magnitude
+                    if d < suckRadius then
+                        local pull = demonPos - obj.Position
+                        if pull.Magnitude > 0.1 then
+                            obj.Anchored = false
+                            obj.Velocity = (obj.Velocity or Vector3.new()) + pull.Unit * (1 - d/suckRadius) * 60 * dt
+                        end
+                    end
+                end
+            end
+        end
+
+        -- Touch player
+        if dist < 4 then
+            caughtPlayer = true
+            if demonHBConn then demonHBConn:Disconnect(); demonHBConn=nil end
+            pcall(function() redConn:Disconnect() end)
+            if redGui and redGui.Parent then redGui:Destroy() end
+            if demonFolder and demonFolder.Parent then demonFolder:Destroy() end
+            demonPart = nil; demonActive = false
+            -- Restart timer for next demon
+            task.delay(2, function() if modHellClock and gameActive then startDemonTimer() end end)
+            burnBodyParts()
+        end
+    end)
+
+    demonPart = root
+end
+
+local function startDemonTimer()
+    -- Stop existing timer
+    if demonTimerConn then demonTimerConn:Disconnect(); demonTimerConn=nil end
+    if demonTimerGui  and demonTimerGui.Parent then demonTimerGui:Destroy(); demonTimerGui=nil end
+
+    local countdownSecs = math.random(5*60, 10*60)  -- 5-10 minutes
+
+    -- Timer GUI top-center
+    demonTimerGui = Instance.new("ScreenGui"); demonTimerGui.Name="DemonTimer"
+    demonTimerGui.ResetOnSpawn=false; demonTimerGui.Parent=player.PlayerGui
+
+    local tFrame = Instance.new("Frame"); tFrame.Size=UDim2.new(0,160,0,36)
+    tFrame.Position=UDim2.new(0.5,-80,0,8); tFrame.BackgroundColor3=Color3.fromRGB(15,5,5)
+    tFrame.BackgroundTransparency=0.15; tFrame.BorderSizePixel=0; tFrame.Parent=demonTimerGui
+    Instance.new("UICorner",tFrame).CornerRadius=UDim.new(0,8)
+    local tStroke=Instance.new("UIStroke"); tStroke.Color=Color3.fromRGB(180,20,0)
+    tStroke.Thickness=2; tStroke.Parent=tFrame
+
+    local tLbl=Instance.new("TextLabel"); tLbl.Size=UDim2.new(1,0,1,0)
+    tLbl.BackgroundTransparency=1; tLbl.TextColor3=Color3.fromRGB(255,60,20)
+    tLbl.Font=Enum.Font.GothamBold; tLbl.TextScaled=true; tLbl.Parent=tFrame
+
+    local elapsed = 0
+    demonTimerConn = RunService.Heartbeat:Connect(function(dt)
+        if not gameActive then return end
+        elapsed = elapsed + (dt)
+        local rem = math.max(0, countdownSecs - elapsed)
+        local mins = math.floor(rem / 60)
+        local secs = math.floor(rem % 60)
+        tLbl.Text = string.format("👿 %d:%02d", mins, secs)
+        -- Pulse red when under 30s
+        if rem <= 30 then
+            tLbl.TextColor3 = Color3.fromRGB(255, math.floor(30 * (rem/30)), 0)
+        end
+        if rem <= 0 then
+            demonTimerConn:Disconnect(); demonTimerConn=nil
+            if demonTimerGui and demonTimerGui.Parent then demonTimerGui:Destroy(); demonTimerGui=nil end
+            if gameActive then runDemonChase() end
+        end
+    end)
+end
+
+
+-- ── Vision (crueltyoftheworld modifier) ────────────────────
+--
+-- MECHANICS:
+--  • T-A-B-L-E-T button bottom-left (also Q key / L1 gamepad)
+--  • Holding tablet  → screen inverts, Vision visible, Vision slows to 10 spd
+--  • Releasing tablet → normal vision, Vision invisible, Vision runs at 30 spd
+--  • Hold tablet > 5 sec without releasing → intensifying shake → explosion
+--      on explode: 90 dmg, forced unequip, 2s recharge before usable again
+--  • Vision INVISIBLE and not holding → kills on touch
+--  • Vision VISIBLE (holding)         → safe to see, but it can still touch you
+--  • Vision is R6-shaped, fully noclip, levitates at player Y+2
+--  • ESP highlight on Vision always (distorted flicker)
+-- ─────────────────────────────────────────────────────────────
+
+-- ── State ──────────────────────────────────────────────────
+local visionActive      = false
+local visionHBConn      = nil
+local visionModel       = nil
+local visionRootPart    = nil   -- invisible anchor part
+local tabletEquipped    = false
+local tabletHoldTime    = 0
+local tabletCharging    = false  -- true during 2s recharge after explosion
+local tabletVisible     = false  -- is GUI shown
+
+-- ── Screen invert (ColorCorrectionEffect trick) ─────────────
+local invertCC = Instance.new("ColorCorrectionEffect")
+invertCC.Name            = "VisionInvert"
+invertCC.Enabled         = false
+invertCC.Saturation      = -1
+invertCC.Contrast        = 2
+invertCC.Brightness      = -0.6
+invertCC.TintColor       = Color3.fromRGB(255, 255, 255)
+invertCC.Parent          = game:GetService("Lighting")
+
+-- ── Tablet GUI ──────────────────────────────────────────────
+local tabGui = Instance.new("ScreenGui")
+tabGui.Name = "TabletGui"; tabGui.ResetOnSpawn = false
+tabGui.IgnoreGuiInset = true; tabGui.Parent = player.PlayerGui
+tabGui.Enabled = false   -- shown only when cruelty modifier active
+
+local tabFrame = Instance.new("Frame")
+tabFrame.Size              = UDim2.new(0, 150, 0, 52)
+tabFrame.Position          = UDim2.new(0, 14, 1, -185)
+tabFrame.BackgroundColor3  = Color3.fromRGB(12, 12, 22)
+tabFrame.BackgroundTransparency = 0.12
+tabFrame.BorderSizePixel   = 0
+tabFrame.Parent            = tabGui
+Instance.new("UICorner", tabFrame).CornerRadius = UDim.new(0, 10)
+local tabStroke = Instance.new("UIStroke")
+tabStroke.Color = Color3.fromRGB(80, 160, 255); tabStroke.Thickness = 2
+tabStroke.Parent = tabFrame
+
+local tabBtn = Instance.new("TextButton")
+tabBtn.Size                = UDim2.new(1, 0, 1, 0)
+tabBtn.BackgroundTransparency = 1
+tabBtn.Text                = "📱  T-A-B-L-E-T"
+tabBtn.TextColor3          = Color3.fromRGB(110, 190, 255)
+tabBtn.Font                = Enum.Font.GothamBold
+tabBtn.TextSize            = 15
+tabBtn.BorderSizePixel     = 0
+tabBtn.Parent              = tabFrame
+
+-- Hold bar under button
+local holdBarBG = Instance.new("Frame")
+holdBarBG.Size             = UDim2.new(1, 0, 0, 5)
+holdBarBG.Position         = UDim2.new(0, 0, 1, 2)
+holdBarBG.BackgroundColor3 = Color3.fromRGB(20, 20, 40)
+holdBarBG.BorderSizePixel  = 0; holdBarBG.Parent = tabFrame
+Instance.new("UICorner", holdBarBG).CornerRadius = UDim.new(0.5, 0)
+
+local holdBarFill = Instance.new("Frame")
+holdBarFill.Size             = UDim2.new(0, 0, 1, 0)
+holdBarFill.BackgroundColor3 = Color3.fromRGB(80, 200, 255)
+holdBarFill.BorderSizePixel  = 0; holdBarFill.Parent = holdBarBG
+Instance.new("UICorner", holdBarFill).CornerRadius = UDim.new(0.5, 0)
+
+local function setTabletEquip(equip)
+    if tabletCharging then return end   -- can't use during recharge
+    tabletEquipped = equip
+    invertCC.Enabled = equip
+    if equip then
+        tabBtn.TextColor3 = Color3.fromRGB(255, 80, 80)
+        tabStroke.Color   = Color3.fromRGB(255, 60, 60)
+    else
+        tabBtn.TextColor3 = Color3.fromRGB(110, 190, 255)
+        tabStroke.Color   = Color3.fromRGB(80, 160, 255)
+        tabletHoldTime    = 0
+        holdBarFill.Size  = UDim2.new(0, 0, 1, 0)
+    end
+end
+
+tabBtn.MouseButton1Down:Connect(function() setTabletEquip(true)  end)
+tabBtn.MouseButton1Up:Connect  (function() setTabletEquip(false) end)
+tabBtn.MouseLeave:Connect      (function() setTabletEquip(false) end)
+
+UIS.InputBegan:Connect(function(inp, gpe)
+    if gpe then return end
+    if inp.KeyCode == Enum.KeyCode.T or inp.KeyCode == Enum.KeyCode.ButtonL1 then
+        setTabletEquip(true)
+    end
+end)
+UIS.InputEnded:Connect(function(inp)
+    if inp.KeyCode == Enum.KeyCode.T or inp.KeyCode == Enum.KeyCode.ButtonL1 then
+        setTabletEquip(false)
+    end
+end)
+
+-- ── Vision model (R6) ───────────────────────────────────────
+local function buildVisionModel(parent)
+    local m = Instance.new("Model"); m.Name = "Vision"; m.Parent = parent
+
+    local function vp(name, sz, cf, col, trans)
+        local p = Instance.new("Part"); p.Name = name; p.Size = sz; p.CFrame = cf
+        p.Anchored = true; p.CanCollide = false
+        p.Color = col; p.Transparency = trans or 0
+        p.Material = Enum.Material.SmoothPlastic
+        p.CastShadow = false; p.Parent = m
+        return p
+    end
+
+    -- Colour palette: pale grey-blue, unnerving
+    local body  = Color3.fromRGB(170, 175, 200)
+    local dark  = Color3.fromRGB(60,  65,  90)
+    local eyes  = Color3.fromRGB(200, 220, 255)
+
+    -- Invisible anchor root (0.1 size so it doesn't block camera)
+    local root = vp("Root", Vector3.new(0.1,0.1,0.1), CFrame.new(0,5,0), Color3.new(0,0,0), 0.999)
+
+    vp("Torso",    Vector3.new(2,2,1),     CFrame.new(0,5,0),     body)
+    vp("Head",     Vector3.new(2,1,1),     CFrame.new(0,6.5,0),   body)
+    vp("LeftArm",  Vector3.new(1,2,1),     CFrame.new(-1.5,5,0),  dark)
+    vp("RightArm", Vector3.new(1,2,1),     CFrame.new( 1.5,5,0),  dark)
+    vp("LeftLeg",  Vector3.new(1,2,1),     CFrame.new(-0.5,3,0),  dark)
+    vp("RightLeg", Vector3.new(1,2,1),     CFrame.new( 0.5,3,0),  dark)
+    vp("LEye",     Vector3.new(0.32,0.32,0.15), CFrame.new(-0.45,6.6,-0.44), eyes)
+    vp("REye",     Vector3.new(0.32,0.32,0.15), CFrame.new( 0.45,6.6,-0.44), eyes)
+
+    return m, root
+end
+
+-- Move all model parts by offset so root is at newPos
+local function setVisionPos(model, root, newPos)
+    if not model or not model.Parent then return end
+    local off = newPos - root.CFrame.Position
+    for _, p in ipairs(model:GetDescendants()) do
+        if p:IsA("BasePart") then p.CFrame = p.CFrame + off end
+    end
+end
+
+-- Show/hide Vision + toggle ESP highlight flicker
+local function setVisionVisible(model, visible)
+    if not model or not model.Parent then return end
+    for _, p in ipairs(model:GetDescendants()) do
+        if p:IsA("BasePart") and p.Name ~= "Root" then
+            p.Transparency = visible and 0 or 1
+        end
+    end
+    -- Manage highlight per-part
+    local root = model:FindFirstChild("Root")
+    local hl   = root and root:FindFirstChildOfClass("Highlight")
+    if not hl and root then
+        hl = Instance.new("Highlight")
+        hl.Name                = "VisionHL"
+        hl.Adornee             = root
+        hl.OutlineColor        = Color3.fromRGB(110, 190, 255)
+        hl.OutlineTransparency = 0
+        hl.FillColor           = Color3.fromRGB(60, 120, 255)
+        hl.FillTransparency    = 0.35
+        hl.DepthMode           = Enum.HighlightDepthMode.AlwaysOnTop
+        hl.Parent              = root
+    end
+    if hl then hl.Enabled = visible end
+end
+
+-- Flicker the ESP highlight (runs always, only visible when tablet equipped)
+local function startVisionFlicker(root)
+    local t = 0
+    local conn = RunService.Heartbeat:Connect(function(dt)
+        if not root or not root.Parent then return end
+        t += dt
+        local hl = root:FindFirstChildOfClass("Highlight")
+        if hl then
+            local show = math.sin(t*49)*0.7 + math.sin(t*11)*0.3 + (math.random()*0.4-0.2) > 0.1
+            hl.OutlineTransparency = show and 0 or 0.9
+            hl.FillTransparency    = show and (0.2 + math.random()*0.45) or 1
+        end
+    end)
+    return conn
+end
+
+-- Face player (yaw only)
+local function visionFace(model, root)
+    local h = getHRP(); if not h then return end
+    local tgt = Vector3.new(h.Position.X, root.CFrame.Position.Y, h.Position.Z)
+    if (tgt - root.CFrame.Position).Magnitude < 0.3 then return end
+    local faceCF = CFrame.new(root.CFrame.Position, tgt)
+    local ny = math.atan2(-faceCF.LookVector.X, -faceCF.LookVector.Z)
+    local cy = math.atan2(-root.CFrame.LookVector.X, -root.CFrame.LookVector.Z)
+    local dy = ((ny - cy + math.pi) % (math.pi*2)) - math.pi
+    if math.abs(dy) < 0.01 then return end
+    local c2, s2 = math.cos(dy), math.sin(dy)
+    local origin = root.CFrame.Position
+    for _, p in ipairs(model:GetDescendants()) do
+        if p:IsA("BasePart") then
+            local lp = p.CFrame.Position - origin
+            local rx = lp.X*c2 - lp.Z*s2
+            local rz = lp.X*s2 + lp.Z*c2
+            p.CFrame = CFrame.new(origin + Vector3.new(rx, lp.Y, rz)) * CFrame.Angles(0, dy, 0)
+        end
+    end
+end
+
+-- ── Main Vision loop ─────────────────────────────────────────
+local function spawnVisionEntity()
+    if visionActive then return end
+    visionActive = true
+
+    local folder = Instance.new("Folder"); folder.Name = "VisionFolder"; folder.Parent = workspace
+    local model, root = buildVisionModel(folder)
+    visionModel    = model
+    visionRootPart = root
+
+    -- Enable tablet GUI
+    tabGui.Enabled = true
+    tabletEquipped = false; tabletHoldTime = 0; tabletCharging = false
+    invertCC.Enabled = false
+
+    -- Start ESP flicker
+    local flickConn = startVisionFlicker(root)
+
+    -- Spawn offset from player
+    local hrp = getHRP()
+    local ang  = math.random() * math.pi * 2
+    local spawnPos = (hrp and hrp.Position or MAZE_ORIGIN)
+                   + Vector3.new(math.cos(ang)*35, 0, math.sin(ang)*35)
+    setVisionPos(model, root, spawnPos + Vector3.new(0, 2, 0))
+    setVisionVisible(model, false)  -- starts invisible
+
+    local function killVision()
+        visionActive = false
+        pcall(function() flickConn:Disconnect() end)
+        if visionHBConn then visionHBConn:Disconnect(); visionHBConn = nil end
+        tabletEquipped = false; invertCC.Enabled = false
+        tabGui.Enabled = false
+        if folder and folder.Parent then folder:Destroy() end
+        visionModel = nil; visionRootPart = nil
+    end
+
+    local function doVisionKill()
+        -- Vision caught the player while invisible
+        killVision()
+        -- Death screen flicker
+        local dGui = Instance.new("ScreenGui"); dGui.Name="VisionDeath"
+        dGui.ResetOnSpawn=false; dGui.Parent=player.PlayerGui
+        local df = Instance.new("Frame"); df.Size=UDim2.new(1,0,1,0)
+        df.BackgroundColor3=Color3.fromRGB(30,30,60); df.BackgroundTransparency=0
+        df.BorderSizePixel=0; df.Parent=dGui
+        TweenService:Create(df, TweenInfo.new(0.6), {BackgroundTransparency=1}):Play()
+        task.delay(0.65, function() if dGui and dGui.Parent then dGui:Destroy() end end)
+        local hum = getHumanoid(); if hum then hum.Health = 0 end
+    end
+
+    visionHBConn = RunService.Heartbeat:Connect(function(dt)
+        if not visionActive then return end
+        if not model or not model.Parent then return end
+        local h = getHRP(); if not h then return end
+
+        -- Show/hide based on tablet
+        setVisionVisible(model, tabletEquipped)
+
+        -- Speed: 30 normal, 10 when tablet out
+        local SPEED = tabletEquipped and 10 or 30
+
+        -- Move toward player (noclip, Y locked)
+        local cur     = root.CFrame.Position
+        local targY   = h.Position.Y + 2
+        local flatCur = Vector3.new(cur.X, targY, cur.Z)
+        local target  = Vector3.new(h.Position.X, targY, h.Position.Z)
+        local diff    = target - flatCur
+        local dist    = diff.Magnitude
+
+        if dist > 0.4 then
+            setVisionPos(model, root, flatCur + diff.Unit * math.min(SPEED * dt, dist))
+        end
+        -- Y lock anti-fall
+        if math.abs(root.CFrame.Position.Y - targY) > 0.5 then
+            setVisionPos(model, root, Vector3.new(root.CFrame.Position.X, targY, root.CFrame.Position.Z))
+        end
+        visionFace(model, root)
+
+        -- ── Tablet hold logic ──────────────────────────────
+        if tabletEquipped and not tabletCharging then
+            tabletHoldTime += dt
+            local progress = math.min(tabletHoldTime / 5, 1)
+            holdBarFill.Size = UDim2.new(progress, 0, 1, 0)
+            -- Colour shift yellow→red as it fills
+            holdBarFill.BackgroundColor3 = Color3.fromRGB(
+                math.floor(80  + progress * 175),
+                math.floor(200 - progress * 200),
+                math.floor(255 - progress * 255)
+            )
+
+            -- Intensifying shake
+            local shk = progress * 0.6
+            local cam = workspace.CurrentCamera
+            if cam and cam.CameraType ~= Enum.CameraType.Scriptable then
+                cam.CFrame = cam.CFrame * CFrame.new(
+                    (math.random()-0.5)*shk,
+                    (math.random()-0.5)*shk*0.65, 0)
+            end
+
+            -- 5s: explode
+            if tabletHoldTime >= 5 then
+                tabletEquipped   = false
+                invertCC.Enabled = false
+                tabletHoldTime   = 0
+                holdBarFill.Size = UDim2.new(0, 0, 1, 0)
+                tabletCharging   = true
+
+                -- Explosion flash + damage
+                local expGui = Instance.new("ScreenGui"); expGui.Name="TabletExplode"
+                expGui.ResetOnSpawn=false; expGui.Parent=player.PlayerGui
+                local ef = Instance.new("Frame"); ef.Size=UDim2.new(1,0,1,0)
+                ef.BackgroundColor3=Color3.fromRGB(255,80,0); ef.BackgroundTransparency=0.05
+                ef.BorderSizePixel=0; ef.Parent=expGui
+                TweenService:Create(ef, TweenInfo.new(0.5), {BackgroundTransparency=1}):Play()
+                task.delay(0.55, function() if expGui and expGui.Parent then expGui:Destroy() end end)
+
+                -- Extra shake burst
+                local burstT = 0
+                local burstConn; burstConn = RunService.Heartbeat:Connect(function(bdt)
+                    burstT += bdt
+                    local cam2 = workspace.CurrentCamera
+                    if cam2 and cam2.CameraType ~= Enum.CameraType.Scriptable then
+                        cam2.CFrame = cam2.CFrame * CFrame.new(
+                            (math.random()-0.5)*0.9, (math.random()-0.5)*0.6, 0)
+                    end
+                    if burstT > 0.7 then pcall(function() burstConn:Disconnect() end) end
+                end)
+
+                entityDamage(getHumanoid(), 90)
+
+                -- Button shows recharging
+                tabBtn.TextColor3 = Color3.fromRGB(150, 80, 80)
+                tabBtn.Text       = "💥  RECHARGING..."
+
+                task.delay(2, function()
+                    tabletCharging   = false
+                    tabBtn.Text      = "📱  T-A-B-L-E-T"
+                    tabBtn.TextColor3= Color3.fromRGB(110, 190, 255)
+                    tabStroke.Color  = Color3.fromRGB(80, 160, 255)
+                end)
+            end
+        else
+            if not tabletCharging then
+                tabletHoldTime = 0
+                holdBarFill.Size = UDim2.new(0, 0, 1, 0)
+            end
+        end
+
+        -- ── Kill check ─────────────────────────────────────
+        if dist < 3.5 then
+            if not tabletEquipped then
+                -- Invisible touch = death
+                doVisionKill()
+            end
+            -- Visible touch = nothing (player sees it and must avoid)
+        end
+    end)
 end
 
 -- Saferoom
@@ -3137,6 +3846,14 @@ startRound = function()
     clearAllFakers()
     if vortexLoop then vortexLoop:Disconnect(); vortexLoop=nil end
     vortexActive=false
+    if demonHBConn then demonHBConn:Disconnect(); demonHBConn=nil end
+    if demonPart and demonPart.Parent then demonPart.Parent.Parent:Destroy() end
+    demonActive=false
+    if visionHBConn then visionHBConn:Disconnect(); visionHBConn=nil end
+    if visionFolder and visionFolder.Parent then visionFolder:Destroy(); visionFolder=nil end
+    visionActive=false; tabletEquipped=false; invertEffect.Enabled=false
+    tabletGui.Enabled=modCruelty
+    if demonTimerConn then demonTimerConn:Disconnect(); demonTimerConn=nil end
     accentBar.BackgroundColor3=C.shard
     local gW,gH,st=getRound(currentRound); refreshHUD("Generating Round "..currentRound.."…",C.white)
     math.randomseed(os.clock()*100000+currentRound*997)
@@ -3175,12 +3892,20 @@ startRound = function()
         local hum2=getHumanoid()
         if hum2 then hum2.WalkSpeed=math.max(hum2.WalkSpeed, math.min(hum2.WalkSpeed*2.5,80)) end
     end
+    if modHellClock and not demonActive then
+        startDemonTimer()
+    end
+    if modCruelty and not visionActive then
+        task.delay(0.5, spawnVisionEntity)
+    end
     task.wait(0.15); local hrp=getHRP(); if hrp then hrp.CFrame=CFrame.new(sp) end
 end
 
 -- Init
 local _sf,initDoor=buildSaferoom()
 task.wait(1.2); local hrp=getHRP(); if hrp then hrp.CFrame=CFrame.new(safeSpawnPos) end
+local function setBaseSpeed() local hm=getHumanoid(); if hm then hm.WalkSpeed=30 end end
+setBaseSpeed()
 refreshHUD("Enter the door to start",C.door)
 initDoor.Touched:Connect(function(hit) if hit.Parent==player.Character and not gameActive then startRound() end end)
 player.CharacterAdded:Connect(function(c)
