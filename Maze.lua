@@ -50,6 +50,8 @@ local pinpointPart=nil; local pinpointLinePart=nil
 local pinpointSpawned=false; local pinpointChasing=false
 local pinpointLoop=nil; local pinpointHBConn=nil; local pinpointConn=nil
 local isParrying=false
+local parryCooldown=false
+local parryCooldownT=0
 
 -- Modifier system
 local appliedMods    = {}  -- set: mod id -> true
@@ -64,7 +66,12 @@ local modKoushinn      = false   -- 行進
 local modMvulbal       = false   -- מבלבל
 local modYourSavior    = false   -- Your Savior
 local modHellClock     = false   -- Hell Clock
-local modCruelty       = false   -- crueltyoftheworld
+local modHateYourself  = false   -- hateyourself
+-- "You" entity state
+local youActive        = false
+local youPart          = nil
+local youHBConn        = nil
+local youLoop          = nil
 -- Demon state
 local demonActive      = false
 local demonPart        = nil
@@ -144,7 +151,7 @@ pb.TextColor3=Color3.new(0,0,0); pb.BorderSizePixel=0; pb.Parent=pg
 Instance.new("UICorner",pb).CornerRadius=UDim.new(1,0)
 local pstroke=Instance.new("UIStroke"); pstroke.Color=Color3.new(1,1,1); pstroke.Thickness=3
 pstroke.ApplyStrokeMode=Enum.ApplyStrokeMode.Border; pstroke.Parent=pb
-local function holdParry() isParrying=true; TweenService:Create(pb,TweenInfo.new(0.08),{BackgroundColor3=Color3.new(1,1,1),Size=UDim2.new(0,122,0,122)}):Play() end
+local function holdParry() if parryCooldown then return end; isParrying=true; TweenService:Create(pb,TweenInfo.new(0.08),{BackgroundColor3=Color3.new(1,1,1),Size=UDim2.new(0,122,0,122)}):Play() end
 local function releaseParry() isParrying=false; TweenService:Create(pb,TweenInfo.new(0.12),{BackgroundColor3=C.parry,Size=UDim2.new(0,110,0,110)}):Play() end
 pb.MouseButton1Down:Connect(holdParry); pb.MouseButton1Up:Connect(releaseParry); pb.MouseLeave:Connect(releaseParry)
 local UIS=game:GetService("UserInputService")
@@ -238,13 +245,12 @@ local ALL_MODIFIERS = {
          modHellClock=true
          startDemonTimer()
      end},
-    {id="Cruelty",       name="crueltyoftheworld",  col=Color3.fromRGB(180,80,200),
-     desc="Vision Appears.",
-     perk="[ESP nearest shard within 20 studs]",
+    {id="HateYourself",  name="hateyourself",      col=Color3.fromRGB(100,100,120),
+     desc='\"you\" Appears.',
+     perk="[1s parry cooldown instead of 2s]",
      chainOf=nil,
      onApply=function()
-         modCruelty=true
-         task.delay(0.2, spawnVisionEntity)
+         modHateYourself=true
      end},
 }
 
@@ -381,6 +387,20 @@ modToggleBtn.MouseButton1Click:Connect(function()
     if modPanelOpen then rebuildModPanel() end
 end)
 
+-- Parry cooldown trigger (call after a successful entity parry)
+local function triggerParryCooldown()
+    local cd = modHateYourself and 1 or 2
+    parryCooldown = true; isParrying = false
+    local t = 0
+    local conn; conn = RunService.Heartbeat:Connect(function(dt)
+        t += dt
+        if t >= cd then
+            parryCooldown = false
+            conn:Disconnect()
+        end
+    end)
+end
+
 -- entityDamage helper (respects WatchoutKiddo 15% + Falsehood 50% reduction)
 local function entityDamage(hum, amount)
     if not hum or hum.Health<=0 then return end
@@ -420,36 +440,6 @@ local function spawnShard(wp,folder)
         if not (p and p.Parent) then return end
         ang = ang + (dt*1.6); p.CFrame=CFrame.new(p.Position.X,baseY+math.sin(ang*1.2)*0.3,p.Position.Z)*CFrame.Angles(0,ang,0)
     end); table.insert(animConns,ac)
-    -- crueltyoftheworld: ESP shard if it's the nearest within 20 studs
-    local crueltyConn = RunService.Heartbeat:Connect(function()
-        if not (p and p.Parent) then return end
-        if not modCruelty then return end
-        local hrp = getHRP(); if not hrp then return end
-        local dist = (p.Position - hrp.Position).Magnitude
-        if dist <= 20 then
-            -- find if this is the nearest shard
-            local nearest = nil; local nearestD = math.huge
-            for _, sd2 in ipairs(shardList) do
-                if sd2.part and sd2.part.Parent then
-                    local d2 = (sd2.part.Position - hrp.Position).Magnitude
-                    if d2 < nearestD then nearestD=d2; nearest=sd2.part end
-                end
-            end
-            local isNearest = (nearest == p)
-            local hl = p:FindFirstChild("CrueltyHL")
-            if isNearest and not hl then
-                hl = Instance.new("Highlight"); hl.Name="CrueltyHL"
-                hl.Adornee=p; hl.OutlineColor=Color3.fromRGB(220,100,255)
-                hl.OutlineTransparency=0; hl.FillColor=Color3.fromRGB(180,60,220)
-                hl.FillTransparency=0.4; hl.DepthMode=Enum.HighlightDepthMode.AlwaysOnTop
-                hl.Parent=p
-            elseif not isNearest and hl then
-                hl:Destroy()
-            end
-        else
-            local hl = p:FindFirstChild("CrueltyHL"); if hl then hl:Destroy() end
-        end
-    end); table.insert(animConns, crueltyConn)
     -- R3+: magnet — pull toward player within 10 studs
     if currentRound>=3 or modHellClock then
         local mc=RunService.Heartbeat:Connect(function(dt)
@@ -786,6 +776,7 @@ end
 -- Pinpoint contact handlers (parry / kill)
 local function onPinpointContact(rechaseFunc)
     if isParrying then
+        triggerParryCooldown()
         pinpointChasing=false; pinpointSpawned=false
         if pinpointHBConn then pinpointHBConn:Disconnect(); pinpointHBConn=nil end
         TweenService:Create(pinpointPart,TweenInfo.new(0.2),{Transparency=1}):Play()
@@ -1676,6 +1667,7 @@ local function runDespairEvent(isSecondAttack)
 
     -- ── Phase 3a: survived → fade out rain, leave puddle ──
     if survived then
+        triggerParryCooldown()
         TweenService:Create(fog, TweenInfo.new(1.5), {BackgroundTransparency = 1}):Play()
         task.delay(1.5, function()
             if atmosphere and atmosphere.Parent then atmosphere:Destroy() end
@@ -3385,373 +3377,315 @@ local function startDemonTimer()
 end
 
 
--- ── Vision (crueltyoftheworld modifier) ────────────────────
---
--- MECHANICS:
---  • T-A-B-L-E-T button bottom-left (also Q key / L1 gamepad)
---  • Holding tablet  → screen inverts, Vision visible, Vision slows to 10 spd
---  • Releasing tablet → normal vision, Vision invisible, Vision runs at 30 spd
---  • Hold tablet > 5 sec without releasing → intensifying shake → explosion
---      on explode: 90 dmg, forced unequip, 2s recharge before usable again
---  • Vision INVISIBLE and not holding → kills on touch
---  • Vision VISIBLE (holding)         → safe to see, but it can still touch you
---  • Vision is R6-shaped, fully noclip, levitates at player Y+2
---  • ESP highlight on Vision always (distorted flicker)
--- ─────────────────────────────────────────────────────────────
 
--- ── State ──────────────────────────────────────────────────
-local visionActive      = false
-local visionHBConn      = nil
-local visionModel       = nil
-local visionRootPart    = nil   -- invisible anchor part
-local tabletEquipped    = false
-local tabletHoldTime    = 0
-local tabletCharging    = false  -- true during 2s recharge after explosion
-local tabletVisible     = false  -- is GUI shown
 
--- ── Screen invert (ColorCorrectionEffect trick) ─────────────
-local invertCC = Instance.new("ColorCorrectionEffect")
-invertCC.Name            = "VisionInvert"
-invertCC.Enabled         = false
-invertCC.Saturation      = -1
-invertCC.Contrast        = 2
-invertCC.Brightness      = -0.6
-invertCC.TintColor       = Color3.fromRGB(255, 255, 255)
-invertCC.Parent          = game:GetService("Lighting")
+-- ── "You" (hateyourself modifier) ─────────────────────────
+-- Doppel-inspired: records player's CFrame history and replays with 1s delay.
+-- Max 1 instance. 40s lifespan, then 20s cooldown (50% chance each tick).
+-- Parry = frozen 2s. Touch = 30 dmg + reversed movement 3s.
 
--- ── Tablet GUI ──────────────────────────────────────────────
-local tabGui = Instance.new("ScreenGui")
-tabGui.Name = "TabletGui"; tabGui.ResetOnSpawn = false
-tabGui.IgnoreGuiInset = true; tabGui.Parent = player.PlayerGui
-tabGui.Enabled = false   -- shown only when cruelty modifier active
+local YOU_DELAY        = 1.0   -- seconds of movement delay
+local YOU_RECORD_RATE  = 0.05  -- record position every 50ms
+local YOU_LIFE         = 40    -- disappears after 40s
+local YOU_COOLDOWN     = 20    -- then waits 20s, then 50% chance
+local YOU_FROZEN_DUR   = 2
 
-local tabFrame = Instance.new("Frame")
-tabFrame.Size              = UDim2.new(0, 150, 0, 52)
-tabFrame.Position          = UDim2.new(0, 14, 1, -185)
-tabFrame.BackgroundColor3  = Color3.fromRGB(12, 12, 22)
-tabFrame.BackgroundTransparency = 0.12
-tabFrame.BorderSizePixel   = 0
-tabFrame.Parent            = tabGui
-Instance.new("UICorner", tabFrame).CornerRadius = UDim.new(0, 10)
-local tabStroke = Instance.new("UIStroke")
-tabStroke.Color = Color3.fromRGB(80, 160, 255); tabStroke.Thickness = 2
-tabStroke.Parent = tabFrame
+local youFrozen        = false
+local youFrozenTimer   = 0
+local youLifeTimer     = 0
+local youReversed      = false
+local youReversedTimer = 0
+local youReversedConn  = nil
 
-local tabBtn = Instance.new("TextButton")
-tabBtn.Size                = UDim2.new(1, 0, 1, 0)
-tabBtn.BackgroundTransparency = 1
-tabBtn.Text                = "📱  T-A-B-L-E-T"
-tabBtn.TextColor3          = Color3.fromRGB(110, 190, 255)
-tabBtn.Font                = Enum.Font.GothamBold
-tabBtn.TextSize            = 15
-tabBtn.BorderSizePixel     = 0
-tabBtn.Parent              = tabFrame
+-- Circular buffer of recorded CFrames
+local youHistory       = {}     -- {time, cf}
+local youRecordConn    = nil
 
--- Hold bar under button
-local holdBarBG = Instance.new("Frame")
-holdBarBG.Size             = UDim2.new(1, 0, 0, 5)
-holdBarBG.Position         = UDim2.new(0, 0, 1, 2)
-holdBarBG.BackgroundColor3 = Color3.fromRGB(20, 20, 40)
-holdBarBG.BorderSizePixel  = 0; holdBarBG.Parent = tabFrame
-Instance.new("UICorner", holdBarBG).CornerRadius = UDim.new(0.5, 0)
-
-local holdBarFill = Instance.new("Frame")
-holdBarFill.Size             = UDim2.new(0, 0, 1, 0)
-holdBarFill.BackgroundColor3 = Color3.fromRGB(80, 200, 255)
-holdBarFill.BorderSizePixel  = 0; holdBarFill.Parent = holdBarBG
-Instance.new("UICorner", holdBarFill).CornerRadius = UDim.new(0.5, 0)
-
-local function setTabletEquip(equip)
-    if tabletCharging then return end   -- can't use during recharge
-    tabletEquipped = equip
-    invertCC.Enabled = equip
-    if equip then
-        tabBtn.TextColor3 = Color3.fromRGB(255, 80, 80)
-        tabStroke.Color   = Color3.fromRGB(255, 60, 60)
-    else
-        tabBtn.TextColor3 = Color3.fromRGB(110, 190, 255)
-        tabStroke.Color   = Color3.fromRGB(80, 160, 255)
-        tabletHoldTime    = 0
-        holdBarFill.Size  = UDim2.new(0, 0, 1, 0)
-    end
+local function clearYou()
+    youActive  = false; youFrozen = false
+    if youHBConn      then youHBConn:Disconnect();      youHBConn      = nil end
+    if youRecordConn  then youRecordConn:Disconnect();  youRecordConn  = nil end
+    if youPart and youPart.Parent then youPart:Destroy(); youPart = nil end
+    youHistory = {}
 end
 
-tabBtn.MouseButton1Down:Connect(function() setTabletEquip(true)  end)
-tabBtn.MouseButton1Up:Connect  (function() setTabletEquip(false) end)
-tabBtn.MouseLeave:Connect      (function() setTabletEquip(false) end)
+local function buildYouModel()
+    -- R6-shaped "You": left half monochrome, right half saturated pale colour
+    local m = Instance.new("Model"); m.Name = "You"; m.Parent = workspace
 
-UIS.InputBegan:Connect(function(inp, gpe)
-    if gpe then return end
-    if inp.KeyCode == Enum.KeyCode.T or inp.KeyCode == Enum.KeyCode.ButtonL1 then
-        setTabletEquip(true)
-    end
-end)
-UIS.InputEnded:Connect(function(inp)
-    if inp.KeyCode == Enum.KeyCode.T or inp.KeyCode == Enum.KeyCode.ButtonL1 then
-        setTabletEquip(false)
-    end
-end)
-
--- ── Vision model (R6) ───────────────────────────────────────
-local function buildVisionModel(parent)
-    local m = Instance.new("Model"); m.Name = "Vision"; m.Parent = parent
-
-    local function vp(name, sz, cf, col, trans)
+    local function yp(name, sz, cf, col, trans)
         local p = Instance.new("Part"); p.Name = name; p.Size = sz; p.CFrame = cf
         p.Anchored = true; p.CanCollide = false
         p.Color = col; p.Transparency = trans or 0
-        p.Material = Enum.Material.SmoothPlastic
-        p.CastShadow = false; p.Parent = m
+        p.Material = Enum.Material.SmoothPlastic; p.CastShadow = false; p.Parent = m
         return p
     end
 
-    -- Colour palette: pale grey-blue, unnerving
-    local body  = Color3.fromRGB(170, 175, 200)
-    local dark  = Color3.fromRGB(60,  65,  90)
-    local eyes  = Color3.fromRGB(200, 220, 255)
+    local mono   = Color3.fromRGB(30, 30, 35)
+    local bright = Color3.fromRGB(160, 210, 255)
+    local mid    = Color3.fromRGB(90, 130, 200)
 
-    -- Invisible anchor root (0.1 size so it doesn't block camera)
-    local root = vp("Root", Vector3.new(0.1,0.1,0.1), CFrame.new(0,5,0), Color3.new(0,0,0), 0.999)
+    local root = yp("Root", Vector3.new(0.1,0.1,0.1), CFrame.new(0,5,0), Color3.new(0,0,0), 0.999)
+    -- Left side = mono, right side = bright
+    yp("Torso",    Vector3.new(2,2,1),    CFrame.new(0,5,0),     mid)
+    yp("Head",     Vector3.new(2,1,1),    CFrame.new(0,6.5,0),   bright)
+    yp("LeftArm",  Vector3.new(1,2,1),    CFrame.new(-1.5,5,0),  mono)
+    yp("RightArm", Vector3.new(1,2,1),    CFrame.new( 1.5,5,0),  bright)
+    yp("LeftLeg",  Vector3.new(1,2,1),    CFrame.new(-0.5,3,0),  mono)
+    yp("RightLeg", Vector3.new(1,2,1),    CFrame.new( 0.5,3,0),  bright)
+    -- Eyes: left is white (mono side), right is bright blue
+    yp("LEye", Vector3.new(0.3,0.38,0.15), CFrame.new(-0.38,6.6,-0.44), Color3.new(1,1,1))
+    yp("REye", Vector3.new(0.3,0.38,0.15), CFrame.new( 0.38,6.6,-0.44), Color3.fromRGB(50,100,255))
 
-    vp("Torso",    Vector3.new(2,2,1),     CFrame.new(0,5,0),     body)
-    vp("Head",     Vector3.new(2,1,1),     CFrame.new(0,6.5,0),   body)
-    vp("LeftArm",  Vector3.new(1,2,1),     CFrame.new(-1.5,5,0),  dark)
-    vp("RightArm", Vector3.new(1,2,1),     CFrame.new( 1.5,5,0),  dark)
-    vp("LeftLeg",  Vector3.new(1,2,1),     CFrame.new(-0.5,3,0),  dark)
-    vp("RightLeg", Vector3.new(1,2,1),     CFrame.new( 0.5,3,0),  dark)
-    vp("LEye",     Vector3.new(0.32,0.32,0.15), CFrame.new(-0.45,6.6,-0.44), eyes)
-    vp("REye",     Vector3.new(0.32,0.32,0.15), CFrame.new( 0.45,6.6,-0.44), eyes)
+    -- ESP: distorted flicker highlight
+    local hl = Instance.new("Highlight"); hl.Adornee = root
+    hl.OutlineColor = Color3.fromRGB(80,130,255); hl.OutlineTransparency = 0
+    hl.FillColor = Color3.fromRGB(40,80,200); hl.FillTransparency = 0.45
+    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop; hl.Parent = root
+
+    -- Flicker
+    local flickT = 0
+    local fc = RunService.Heartbeat:Connect(function(dt)
+        flickT += dt
+        local v = math.sin(flickT*43)*0.6 + math.sin(flickT*13)*0.4 + (math.random()*0.3-0.15) > 0.05
+        hl.OutlineTransparency = v and 0 or 0.88
+        hl.FillTransparency    = v and (0.25+math.random()*0.4) or 1
+    end)
+    -- store flicker conn in model attribute hack
+    m:SetAttribute("FlickerConnId", tostring(math.random(1e9)))
+    -- Keep conn alive in closure; cleanup via clearYou destroying model
+    m.Destroying:Connect(function() pcall(function() fc:Disconnect() end) end)
 
     return m, root
 end
 
--- Move all model parts by offset so root is at newPos
-local function setVisionPos(model, root, newPos)
+-- Move all parts so root is at newCF
+local function setYouCF(model, root, newCF)
     if not model or not model.Parent then return end
-    local off = newPos - root.CFrame.Position
-    for _, p in ipairs(model:GetDescendants()) do
-        if p:IsA("BasePart") then p.CFrame = p.CFrame + off end
-    end
-end
-
--- Show/hide Vision + toggle ESP highlight flicker
-local function setVisionVisible(model, visible)
-    if not model or not model.Parent then return end
-    for _, p in ipairs(model:GetDescendants()) do
-        if p:IsA("BasePart") and p.Name ~= "Root" then
-            p.Transparency = visible and 0 or 1
-        end
-    end
-    -- Manage highlight per-part
-    local root = model:FindFirstChild("Root")
-    local hl   = root and root:FindFirstChildOfClass("Highlight")
-    if not hl and root then
-        hl = Instance.new("Highlight")
-        hl.Name                = "VisionHL"
-        hl.Adornee             = root
-        hl.OutlineColor        = Color3.fromRGB(110, 190, 255)
-        hl.OutlineTransparency = 0
-        hl.FillColor           = Color3.fromRGB(60, 120, 255)
-        hl.FillTransparency    = 0.35
-        hl.DepthMode           = Enum.HighlightDepthMode.AlwaysOnTop
-        hl.Parent              = root
-    end
-    if hl then hl.Enabled = visible end
-end
-
--- Flicker the ESP highlight (runs always, only visible when tablet equipped)
-local function startVisionFlicker(root)
-    local t = 0
-    local conn = RunService.Heartbeat:Connect(function(dt)
-        if not root or not root.Parent then return end
-        t += dt
-        local hl = root:FindFirstChildOfClass("Highlight")
-        if hl then
-            local show = math.sin(t*49)*0.7 + math.sin(t*11)*0.3 + (math.random()*0.4-0.2) > 0.1
-            hl.OutlineTransparency = show and 0 or 0.9
-            hl.FillTransparency    = show and (0.2 + math.random()*0.45) or 1
-        end
-    end)
-    return conn
-end
-
--- Face player (yaw only)
-local function visionFace(model, root)
-    local h = getHRP(); if not h then return end
-    local tgt = Vector3.new(h.Position.X, root.CFrame.Position.Y, h.Position.Z)
-    if (tgt - root.CFrame.Position).Magnitude < 0.3 then return end
-    local faceCF = CFrame.new(root.CFrame.Position, tgt)
-    local ny = math.atan2(-faceCF.LookVector.X, -faceCF.LookVector.Z)
-    local cy = math.atan2(-root.CFrame.LookVector.X, -root.CFrame.LookVector.Z)
-    local dy = ((ny - cy + math.pi) % (math.pi*2)) - math.pi
-    if math.abs(dy) < 0.01 then return end
-    local c2, s2 = math.cos(dy), math.sin(dy)
-    local origin = root.CFrame.Position
+    local off = newCF.Position - root.CFrame.Position
+    local rotDelta = newCF * root.CFrame:Inverse()
     for _, p in ipairs(model:GetDescendants()) do
         if p:IsA("BasePart") then
-            local lp = p.CFrame.Position - origin
-            local rx = lp.X*c2 - lp.Z*s2
-            local rz = lp.X*s2 + lp.Z*c2
-            p.CFrame = CFrame.new(origin + Vector3.new(rx, lp.Y, rz)) * CFrame.Angles(0, dy, 0)
+            p.CFrame = rotDelta * p.CFrame + off
         end
     end
 end
 
--- ── Main Vision loop ─────────────────────────────────────────
-local function spawnVisionEntity()
-    if visionActive then return end
-    visionActive = true
+-- Spawn the "Wrong Move" text GUI
+local function showWrongMoveText()
+    local gui = Instance.new("ScreenGui"); gui.Name="YouText"
+    gui.ResetOnSpawn=false; gui.Parent=player.PlayerGui
 
-    local folder = Instance.new("Folder"); folder.Name = "VisionFolder"; folder.Parent = workspace
-    local model, root = buildVisionModel(folder)
-    visionModel    = model
-    visionRootPart = root
+    local msg = 'Wrong Move ' .. player.Name
+    local letters = #msg
 
-    -- Enable tablet GUI
-    tabGui.Enabled = true
-    tabletEquipped = false; tabletHoldTime = 0; tabletCharging = false
-    invertCC.Enabled = false
+    local container = Instance.new("Frame")
+    container.Size = UDim2.new(0, letters*22+20, 0, 60)
+    container.Position = UDim2.new(0.5, -math.floor(letters*11+10), 0.22, 0)
+    container.BackgroundTransparency = 1; container.BorderSizePixel = 0
+    container.Parent = gui
 
-    -- Start ESP flicker
-    local flickConn = startVisionFlicker(root)
-
-    -- Spawn offset from player
-    local hrp = getHRP()
-    local ang  = math.random() * math.pi * 2
-    local spawnPos = (hrp and hrp.Position or MAZE_ORIGIN)
-                   + Vector3.new(math.cos(ang)*35, 0, math.sin(ang)*35)
-    setVisionPos(model, root, spawnPos + Vector3.new(0, 2, 0))
-    setVisionVisible(model, false)  -- starts invisible
-
-    local function killVision()
-        visionActive = false
-        pcall(function() flickConn:Disconnect() end)
-        if visionHBConn then visionHBConn:Disconnect(); visionHBConn = nil end
-        tabletEquipped = false; invertCC.Enabled = false
-        tabGui.Enabled = false
-        if folder and folder.Parent then folder:Destroy() end
-        visionModel = nil; visionRootPart = nil
+    -- Spawn one TextLabel per character, each shakes independently
+    local lbls = {}
+    for i = 1, letters do
+        local lbl = Instance.new("TextLabel")
+        lbl.Size = UDim2.new(0, 20, 1, 0)
+        lbl.Position = UDim2.new(0, (i-1)*22, 0, 0)
+        lbl.BackgroundTransparency = 1
+        lbl.Text = msg:sub(i,i)
+        lbl.TextColor3 = Color3.fromRGB(180, 80, 80)
+        lbl.Font = Enum.Font.GothamBold; lbl.TextScaled = true
+        lbl.Parent = container
+        table.insert(lbls, lbl)
     end
 
-    local function doVisionKill()
-        -- Vision caught the player while invisible
-        killVision()
-        -- Death screen flicker
-        local dGui = Instance.new("ScreenGui"); dGui.Name="VisionDeath"
-        dGui.ResetOnSpawn=false; dGui.Parent=player.PlayerGui
-        local df = Instance.new("Frame"); df.Size=UDim2.new(1,0,1,0)
-        df.BackgroundColor3=Color3.fromRGB(30,30,60); df.BackgroundTransparency=0
-        df.BorderSizePixel=0; df.Parent=dGui
-        TweenService:Create(df, TweenInfo.new(0.6), {BackgroundTransparency=1}):Play()
-        task.delay(0.65, function() if dGui and dGui.Parent then dGui:Destroy() end end)
-        local hum = getHumanoid(); if hum then hum.Health = 0 end
-    end
-
-    visionHBConn = RunService.Heartbeat:Connect(function(dt)
-        if not visionActive then return end
-        if not model or not model.Parent then return end
-        local h = getHRP(); if not h then return end
-
-        -- Show/hide based on tablet
-        setVisionVisible(model, tabletEquipped)
-
-        -- Speed: 30 normal, 10 when tablet out
-        local SPEED = tabletEquipped and 10 or 30
-
-        -- Move toward player (noclip, Y locked)
-        local cur     = root.CFrame.Position
-        local targY   = h.Position.Y + 2
-        local flatCur = Vector3.new(cur.X, targY, cur.Z)
-        local target  = Vector3.new(h.Position.X, targY, h.Position.Z)
-        local diff    = target - flatCur
-        local dist    = diff.Magnitude
-
-        if dist > 0.4 then
-            setVisionPos(model, root, flatCur + diff.Unit * math.min(SPEED * dt, dist))
+    -- Shake each letter independently
+    local t = 0; local shakeConn
+    shakeConn = RunService.Heartbeat:Connect(function(dt)
+        t += dt
+        local alpha = math.min(1, t / 2)
+        for i, lbl in ipairs(lbls) do
+            local ox = (math.random()-0.5) * 6 * (1-alpha*0.7)
+            local oy = (math.random()-0.5) * 6 * (1-alpha*0.7)
+            lbl.Position = UDim2.new(0, (i-1)*22+ox, 0, oy)
+            lbl.TextTransparency = alpha   -- fade out over 2s
         end
-        -- Y lock anti-fall
-        if math.abs(root.CFrame.Position.Y - targY) > 0.5 then
-            setVisionPos(model, root, Vector3.new(root.CFrame.Position.X, targY, root.CFrame.Position.Z))
+        if t >= 2 then
+            pcall(function() shakeConn:Disconnect() end)
+            if gui and gui.Parent then gui:Destroy() end
         end
-        visionFace(model, root)
+    end)
+end
 
-        -- ── Tablet hold logic ──────────────────────────────
-        if tabletEquipped and not tabletCharging then
-            tabletHoldTime += dt
-            local progress = math.min(tabletHoldTime / 5, 1)
-            holdBarFill.Size = UDim2.new(progress, 0, 1, 0)
-            -- Colour shift yellow→red as it fills
-            holdBarFill.BackgroundColor3 = Color3.fromRGB(
-                math.floor(80  + progress * 175),
-                math.floor(200 - progress * 200),
-                math.floor(255 - progress * 255)
-            )
+-- Apply reversed controls
+local function applyReversedMovement(duration)
+    if youReversed then return end
+    youReversed = true
 
-            -- Intensifying shake
-            local shk = progress * 0.6
+    -- Mono screen overlay
+    local revGui = Instance.new("ScreenGui"); revGui.Name="YouRev"
+    revGui.ResetOnSpawn=false; revGui.Parent=player.PlayerGui
+    local mf = Instance.new("Frame"); mf.Size=UDim2.new(1,0,1,0)
+    mf.BackgroundColor3=Color3.new(0,0,0); mf.BackgroundTransparency=0.45
+    mf.BorderSizePixel=0; mf.Parent=revGui
+    local revCC = Instance.new("ColorCorrectionEffect")
+    revCC.Saturation=-1; revCC.Parent=game:GetService("Lighting")
+
+    -- Hook into movement every frame by inverting walkDirection on humanoid
+    -- (We flip forward movement via WalkDirection manipulation)
+    local elapsed = 0
+    if youReversedConn then youReversedConn:Disconnect() end
+    youReversedConn = RunService.Heartbeat:Connect(function(dt)
+        elapsed += dt
+        -- Flickering near end
+        if elapsed >= duration - 0.5 then
+            mf.BackgroundTransparency = 0.3 + 0.25 * math.abs(math.sin(elapsed * 18))
+        end
+        -- Reverse: negate humanoid's MoveDirection by applying counter-force
+        local hum = getHumanoid()
+        if hum then
+            -- We flip forward/back by negating WalkSpeed sign on forward axis
             local cam = workspace.CurrentCamera
-            if cam and cam.CameraType ~= Enum.CameraType.Scriptable then
-                cam.CFrame = cam.CFrame * CFrame.new(
-                    (math.random()-0.5)*shk,
-                    (math.random()-0.5)*shk*0.65, 0)
+            local fwd = cam.CFrame.LookVector * Vector3.new(1,0,1)
+            if fwd.Magnitude > 0.1 then fwd = fwd.Unit end
+            local md = hum.MoveDirection
+            -- Compute forward projection and negate it
+            local fwdDot = md:Dot(fwd)
+            local rightVec = cam.CFrame.RightVector * Vector3.new(1,0,1)
+            local rightDot = md:Dot(rightVec.Unit)
+            -- Reassemble: keep strafe, reverse forward
+            -- We do this by teleporting on heartbeat is too aggressive
+            -- Instead flag for WalkDirection override (Roblox humanoid limitation)
+            -- Simple approach: set a tiny negative walk speed when moving forward
+        end
+        if elapsed >= duration then
+            youReversed = false
+            youReversedConn:Disconnect(); youReversedConn = nil
+            if revCC and revCC.Parent then revCC:Destroy() end
+            if revGui and revGui.Parent then revGui:Destroy() end
+        end
+    end)
+
+    -- Practical reversal: flip humanoid walkspeed negative temporarily
+    -- via WalkDirection negation on HRP velocity
+    local flipConn; flipConn = RunService.Heartbeat:Connect(function(dt)
+        if not youReversed then flipConn:Disconnect(); return end
+        local hrp = getHRP(); if not hrp then return end
+        local hum = getHumanoid(); if not hum then return end
+        local v = hrp.AssemblyLinearVelocity
+        -- Negate forward/backward component only
+        local cam = workspace.CurrentCamera
+        local fwd = (cam.CFrame.LookVector * Vector3.new(1,0,1))
+        if fwd.Magnitude < 0.01 then return end
+        fwd = fwd.Unit
+        local fDot = v:Dot(fwd)
+        if math.abs(fDot) > 0.5 then
+            hrp.AssemblyLinearVelocity = v - fwd * fDot * 2
+        end
+    end)
+end
+
+local function spawnYou()
+    if youActive then return end
+    youActive = true; youFrozen = false; youLifeTimer = 0; youHistory = {}
+
+    local model, root = buildYouModel()
+    youPart = root
+
+    -- Start recording player CFrame
+    youRecordConn = RunService.Heartbeat:Connect(function()
+        local hrp = getHRP(); if not hrp then return end
+        table.insert(youHistory, {t=tick(), cf=hrp.CFrame})
+        -- Trim old entries beyond delay + buffer
+        while #youHistory > 0 and tick() - youHistory[1].t > YOU_DELAY + 0.5 do
+            table.remove(youHistory, 1)
+        end
+    end)
+
+    -- Place at player position initially
+    local hrp = getHRP()
+    if hrp then
+        local cf = hrp.CFrame
+        for _, p in ipairs(model:GetDescendants()) do
+            if p:IsA("BasePart") then
+                p.CFrame = p.CFrame + (cf.Position - root.CFrame.Position)
             end
+        end
+    end
 
-            -- 5s: explode
-            if tabletHoldTime >= 5 then
-                tabletEquipped   = false
-                invertCC.Enabled = false
-                tabletHoldTime   = 0
-                holdBarFill.Size = UDim2.new(0, 0, 1, 0)
-                tabletCharging   = true
+    showWrongMoveText()
 
-                -- Explosion flash + damage
-                local expGui = Instance.new("ScreenGui"); expGui.Name="TabletExplode"
-                expGui.ResetOnSpawn=false; expGui.Parent=player.PlayerGui
-                local ef = Instance.new("Frame"); ef.Size=UDim2.new(1,0,1,0)
-                ef.BackgroundColor3=Color3.fromRGB(255,80,0); ef.BackgroundTransparency=0.05
-                ef.BorderSizePixel=0; ef.Parent=expGui
-                TweenService:Create(ef, TweenInfo.new(0.5), {BackgroundTransparency=1}):Play()
-                task.delay(0.55, function() if expGui and expGui.Parent then expGui:Destroy() end end)
+    youHBConn = RunService.Heartbeat:Connect(function(dt)
+        if not youActive then return end
+        if not model or not model.Parent then return end
 
-                -- Extra shake burst
-                local burstT = 0
-                local burstConn; burstConn = RunService.Heartbeat:Connect(function(bdt)
-                    burstT += bdt
-                    local cam2 = workspace.CurrentCamera
-                    if cam2 and cam2.CameraType ~= Enum.CameraType.Scriptable then
-                        cam2.CFrame = cam2.CFrame * CFrame.new(
-                            (math.random()-0.5)*0.9, (math.random()-0.5)*0.6, 0)
-                    end
-                    if burstT > 0.7 then pcall(function() burstConn:Disconnect() end) end
-                end)
+        -- Life timer
+        youLifeTimer += dt
+        if youLifeTimer >= YOU_LIFE then
+            clearYou(); return
+        end
 
-                entityDamage(getHumanoid(), 90)
+        -- Frozen timer
+        if youFrozen then
+            youFrozenTimer -= dt
+            if youFrozenTimer <= 0 then youFrozen = false end
+            return  -- don't move while frozen
+        end
 
-                -- Button shows recharging
-                tabBtn.TextColor3 = Color3.fromRGB(150, 80, 80)
-                tabBtn.Text       = "💥  RECHARGING..."
-
-                task.delay(2, function()
-                    tabletCharging   = false
-                    tabBtn.Text      = "📱  T-A-B-L-E-T"
-                    tabBtn.TextColor3= Color3.fromRGB(110, 190, 255)
-                    tabStroke.Color  = Color3.fromRGB(80, 160, 255)
-                end)
-            end
-        else
-            if not tabletCharging then
-                tabletHoldTime = 0
-                holdBarFill.Size = UDim2.new(0, 0, 1, 0)
+        -- Find the history entry closest to YOU_DELAY seconds ago
+        local now = tick()
+        local targetCF = nil
+        for i = #youHistory, 1, -1 do
+            if now - youHistory[i].t >= YOU_DELAY then
+                targetCF = youHistory[i].cf
+                break
             end
         end
 
-        -- ── Kill check ─────────────────────────────────────
-        if dist < 3.5 then
-            if not tabletEquipped then
-                -- Invisible touch = death
-                doVisionKill()
+        if targetCF then
+            setYouCF(model, root, targetCF)
+        end
+
+        -- "You" always looks at the player (head only via CFrame)
+        -- Already handled by CFrame replay
+
+        -- Touch check
+        local hrp = getHRP(); if not hrp then return end
+        local dist = (root.CFrame.Position - hrp.Position).Magnitude
+        if dist < 3.2 then
+            -- Check parry
+            if isParrying then
+                -- Freeze "You" for 2s. Keep delay at 1s (frozen doesn't count toward delay)
+                youFrozen      = true
+                youFrozenTimer = YOU_FROZEN_DUR
+                -- Don't trigger global cooldown, just freeze entity
+            else
+                -- 30 damage + reversed movement + despawn
+                local hum = getHumanoid()
+                if hum and hum.Health > 0 then
+                    entityDamage(hum, 30)
+                    applyReversedMovement(3)
+                end
+                clearYou()
             end
-            -- Visible touch = nothing (player sees it and must avoid)
+        end
+    end)
+end
+
+local function startYouLoop()
+    if youLoop then youLoop:Disconnect(); youLoop = nil end
+    local el = 0; local waiting = false
+
+    youLoop = RunService.Heartbeat:Connect(function(dt)
+        if not gameActive then return end
+        if youActive then return end  -- countdown frozen while "You" is out
+
+        el += dt
+        if el < YOU_COOLDOWN then return end
+        el = 0
+
+        if math.random() <= 0.50 then
+            spawnYou()
         end
     end)
 end
@@ -3852,7 +3786,6 @@ startRound = function()
     if visionHBConn then visionHBConn:Disconnect(); visionHBConn=nil end
     if visionFolder and visionFolder.Parent then visionFolder:Destroy(); visionFolder=nil end
     visionActive=false; tabletEquipped=false; invertEffect.Enabled=false
-    tabletGui.Enabled=modCruelty
     if demonTimerConn then demonTimerConn:Disconnect(); demonTimerConn=nil end
     accentBar.BackgroundColor3=C.shard
     local gW,gH,st=getRound(currentRound); refreshHUD("Generating Round "..currentRound.."…",C.white)
@@ -3895,8 +3828,8 @@ startRound = function()
     if modHellClock and not demonActive then
         startDemonTimer()
     end
-    if modCruelty and not visionActive then
-        task.delay(0.5, spawnVisionEntity)
+    if modHateYourself then
+        startYouLoop()
     end
     task.wait(0.15); local hrp=getHRP(); if hrp then hrp.CFrame=CFrame.new(sp) end
 end
