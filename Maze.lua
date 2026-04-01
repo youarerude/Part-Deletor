@@ -3398,52 +3398,135 @@ end
 
 
 -- ── Vision (crueltyoftheworld modifier) ────────────────────
+-- Inspired by Grace's S.N.A.P: an item-entity that is invisible
+-- without the tablet, dangerous when invisible, slow when visible.
+
+-- ── Global tablet + Vision state ──
+local tabletGui        = Instance.new("ScreenGui")
+tabletGui.Name         = "TabletGui"
+tabletGui.ResetOnSpawn = false
+tabletGui.Parent       = player.PlayerGui
+tabletGui.Enabled      = false   -- shown only when crueltyoftheworld active
+
+-- Tablet toggle button (bottom-left, above parry)
+local tabletBtn = Instance.new("TextButton")
+tabletBtn.Name               = "TabletBtn"
+tabletBtn.Size               = UDim2.new(0, 130, 0, 45)
+tabletBtn.Position           = UDim2.new(0, 14, 1, -185)
+tabletBtn.BackgroundColor3   = Color3.fromRGB(18, 18, 32)
+tabletBtn.BorderSizePixel    = 0
+tabletBtn.Text               = "📱  T-A-B-L-E-T"
+tabletBtn.Font               = Enum.Font.GothamBold
+tabletBtn.TextSize           = 14
+tabletBtn.TextColor3         = Color3.fromRGB(120, 200, 255)
+tabletBtn.Parent             = tabletGui
+Instance.new("UICorner", tabletBtn).CornerRadius = UDim.new(0, 10)
+local tbs = Instance.new("UIStroke"); tbs.Color = Color3.fromRGB(80,160,255)
+tbs.Thickness = 2; tbs.Parent = tabletBtn
+
+-- Invert overlay: bright white frame at low opacity, blendMode Multiply inverts colors
+-- We use UIColorCorrection in Lighting for a proper invert look
+local invertCC = Instance.new("ColorCorrectionEffect")
+invertCC.Name       = "VisionInvert"
+invertCC.Saturation = -1
+invertCC.Contrast   = 0.8
+invertCC.Brightness = -0.05
+invertCC.Enabled    = false
+invertCC.Parent     = game:GetService("Lighting")
+
+-- White flash overlay (visible when tablet is held)
+local tabletOverlay = Instance.new("Frame")
+tabletOverlay.Size                    = UDim2.new(1,0,1,0)
+tabletOverlay.BackgroundColor3        = Color3.new(1,1,1)
+tabletOverlay.BackgroundTransparency  = 1
+tabletOverlay.BorderSizePixel         = 0
+tabletOverlay.Parent                  = tabletGui
+
+-- Tablet ESP bar (battery / hold-time indicator)
+local holdBarBG = Instance.new("Frame")
+holdBarBG.Size              = UDim2.new(0, 130, 0, 6)
+holdBarBG.Position          = UDim2.new(0, 14, 1, -195)
+holdBarBG.BackgroundColor3  = Color3.fromRGB(20, 10, 30)
+holdBarBG.BorderSizePixel   = 0
+holdBarBG.Parent            = tabletGui
+Instance.new("UICorner", holdBarBG).CornerRadius = UDim.new(0.5, 0)
+local holdBarFill = Instance.new("Frame")
+holdBarFill.Size              = UDim2.new(0, 0, 1, 0)
+holdBarFill.BackgroundColor3  = Color3.fromRGB(100, 200, 255)
+holdBarFill.BorderSizePixel   = 0
+holdBarFill.Parent            = holdBarBG
+Instance.new("UICorner", holdBarFill).CornerRadius = UDim.new(0.5, 0)
+
+-- ── Vision entity state ──
+local visionModel   = nil
+local visionRoot    = nil
+local visionHBConn  = nil
+local visionFolder  = nil
+
+-- Build R6-ish Vision model
 local function buildVisionModel(parent)
-    local m = Instance.new("Model"); m.Name="Vision"; m.Parent=parent
-    local function vp(name,sz,cf,col)
-        local p=Instance.new("Part"); p.Name=name; p.Size=sz; p.CFrame=cf
-        p.Anchored=true; p.CanCollide=false; p.Color=col
-        p.Material=Enum.Material.SmoothPlastic; p.CastShadow=false
-        p.Transparency=1; p.Parent=m; return p  -- starts fully invisible
+    local m = Instance.new("Model"); m.Name = "Vision"; m.Parent = parent
+
+    local function vp(name, sz, cf, col)
+        local p = Instance.new("Part")
+        p.Name = name; p.Size = sz; p.CFrame = cf
+        p.Anchored = true; p.CanCollide = false
+        p.Color = col; p.Material = Enum.Material.SmoothPlastic
+        p.CastShadow = false; p.Parent = m
+        return p
     end
-    local skin=Color3.fromRGB(190,160,130); local dark=Color3.fromRGB(15,10,20)
-    local root=vp("Root",Vector3.new(2,2,1),CFrame.new(0,3,0),dark)
-    vp("Torso",    Vector3.new(2,2,1),    CFrame.new(0,  3,  0),  skin)
-    vp("Head",     Vector3.new(2,1,1),    CFrame.new(0,  4.5,0),  skin)
-    vp("RightArm", Vector3.new(1,2,1),    CFrame.new( 1.5,3,  0), skin)
-    vp("LeftArm",  Vector3.new(1,2,1),    CFrame.new(-1.5,3,  0), skin)
-    vp("RightLeg", Vector3.new(1,2,1),    CFrame.new( 0.5,1,  0), dark)
-    vp("LeftLeg",  Vector3.new(1,2,1),    CFrame.new(-0.5,1,  0), dark)
-    -- glowing eyes (white, visible even in normal vision)
-    vp("EyeL",Vector3.new(0.3,0.3,0.15),CFrame.new(-0.35,4.55,-0.45),Color3.fromRGB(255,255,255))
-    vp("EyeR",Vector3.new(0.3,0.3,0.15),CFrame.new( 0.35,4.55,-0.45),Color3.fromRGB(255,255,255))
+
+    local bodyCol  = Color3.fromRGB(50, 50, 70)
+    local headCol  = Color3.fromRGB(60, 55, 80)
+    local eyeCol   = Color3.fromRGB(80, 200, 255)
+
+    local root = vp("Root",     Vector3.new(2,2,1),    CFrame.new(0,3,0),    Color3.new(0,0,0))
+    root.Transparency = 1
+
+    vp("Torso",    Vector3.new(2,2,1),    CFrame.new(0,3,0),     bodyCol)
+    vp("Head",     Vector3.new(2,1,1),    CFrame.new(0,4.5,0),   headCol)
+    vp("RightArm", Vector3.new(1,2,1),    CFrame.new(1.5,3,0),   bodyCol)
+    vp("LeftArm",  Vector3.new(1,2,1),    CFrame.new(-1.5,3,0),  bodyCol)
+    vp("RightLeg", Vector3.new(1,2,1),    CFrame.new(0.5,1,0),   bodyCol)
+    vp("LeftLeg",  Vector3.new(1,2,1),    CFrame.new(-0.5,1,0),  bodyCol)
+    -- Eyes
+    vp("EyeR",     Vector3.new(0.35,0.35,0.2), CFrame.new(0.35,4.55,-0.45),  eyeCol)
+    vp("EyeL",     Vector3.new(0.35,0.35,0.2), CFrame.new(-0.35,4.55,-0.45), eyeCol)
+
     return m, root
 end
 
+-- Move all parts by offset
 local function setVisionPos(model, root, newPos)
-    if not model.Parent then return end
+    if not model or not model.Parent then return end
     local offset = newPos - root.CFrame.Position
     for _, p in ipairs(model:GetDescendants()) do
         if p:IsA("BasePart") then p.CFrame = p.CFrame + offset end
     end
 end
 
+-- Show/hide vision + apply ESP only when visible
 local function setVisionVisible(model, visible)
+    if not model or not model.Parent then return end
     for _, p in ipairs(model:GetDescendants()) do
         if p:IsA("BasePart") then
-            p.Transparency = visible and 0 or 1
+            p.Transparency = (visible and p.Name == "Root") and 1
+                or (visible and 0 or 1)
         end
     end
-    -- ESP only when tablet equipped
+    -- Highlight: only in tablet mode (visible)
     for _, p in ipairs(model:GetDescendants()) do
-        if p:IsA("BasePart") and p.Transparency < 0.5 then
+        if p:IsA("BasePart") and p.Name ~= "Root" then
             local hl = p:FindFirstChild("VisionHL")
             if visible and not hl then
-                hl = Instance.new("Highlight"); hl.Name="VisionHL"
-                hl.Adornee=p; hl.OutlineColor=Color3.fromRGB(120,220,255)
-                hl.OutlineTransparency=0; hl.FillColor=Color3.fromRGB(60,160,255)
-                hl.FillTransparency=0.35; hl.DepthMode=Enum.HighlightDepthMode.AlwaysOnTop
-                hl.Parent=p
+                hl = Instance.new("Highlight"); hl.Name = "VisionHL"
+                hl.Adornee             = p
+                hl.OutlineColor        = Color3.fromRGB(100, 210, 255)
+                hl.OutlineTransparency = 0
+                hl.FillColor           = Color3.fromRGB(50, 130, 200)
+                hl.FillTransparency    = 0.4
+                hl.DepthMode           = Enum.HighlightDepthMode.AlwaysOnTop
+                hl.Parent              = p
             elseif not visible and hl then
                 hl:Destroy()
             end
@@ -3451,188 +3534,224 @@ local function setVisionVisible(model, visible)
     end
 end
 
+-- Face player
 local function visionFacePlayer(model, root)
-    local h=getHRP(); if not h then return end
-    local cur=root.CFrame.Position
-    local tgt=Vector3.new(h.Position.X,cur.Y,h.Position.Z)
-    if (tgt-cur).Magnitude<0.3 then return end
-    local faceCF=CFrame.new(cur,tgt)
-    local newYaw=math.atan2(-faceCF.LookVector.X,-faceCF.LookVector.Z)
-    local curYaw=math.atan2(-root.CFrame.LookVector.X,-root.CFrame.LookVector.Z)
-    local dy=((newYaw-curYaw+math.pi)%(2*math.pi))-math.pi
-    if math.abs(dy)<0.01 then return end
-    local c2,s2=math.cos(dy),math.sin(dy)
-    local origin=root.CFrame.Position
-    for _,p in ipairs(model:GetDescendants()) do
+    local h = getHRP(); if not h then return end
+    local tgt = Vector3.new(h.Position.X, root.CFrame.Position.Y, h.Position.Z)
+    local diff = tgt - root.CFrame.Position
+    if diff.Magnitude < 0.3 then return end
+    local newYaw = math.atan2(-diff.Unit.X, -diff.Unit.Z)
+    local curYaw = math.atan2(-root.CFrame.LookVector.X, -root.CFrame.LookVector.Z)
+    local dy = ((newYaw - curYaw + math.pi) % (2*math.pi)) - math.pi
+    if math.abs(dy) < 0.01 then return end
+    local c2, s2 = math.cos(dy), math.sin(dy)
+    local origin = root.CFrame.Position
+    for _, p in ipairs(model:GetDescendants()) do
         if p:IsA("BasePart") then
-            local lp=p.CFrame.Position-origin
-            local rx=lp.X*c2-lp.Z*s2; local rz=lp.X*s2+lp.Z*c2
-            p.CFrame=CFrame.new(origin+Vector3.new(rx,lp.Y,rz))*CFrame.Angles(0,dy,0)
+            local lp = p.CFrame.Position - origin
+            local rx = lp.X*c2 - lp.Z*s2
+            local rz = lp.X*s2 + lp.Z*c2
+            p.CFrame = CFrame.new(origin + Vector3.new(rx, lp.Y, rz)) * CFrame.Angles(0, dy, 0)
         end
     end
 end
 
--- Tablet GUI
-local tabletGui = Instance.new("ScreenGui")
-tabletGui.Name="TabletGui"; tabletGui.ResetOnSpawn=false; tabletGui.Parent=player.PlayerGui
-tabletGui.Enabled = false  -- hidden until cruelty active
+-- Kill via Vision (invisible touch)
+local function visionKillPlayer()
+    local hum = getHumanoid(); if hum then hum.Health = 0 end
+    -- White flash
+    local kGui = Instance.new("ScreenGui"); kGui.ResetOnSpawn = false; kGui.Parent = player.PlayerGui
+    local kF = Instance.new("Frame"); kF.Size = UDim2.new(1,0,1,0)
+    kF.BackgroundColor3 = Color3.new(1,1,1); kF.BackgroundTransparency = 0
+    kF.BorderSizePixel = 0; kF.Parent = kGui
+    TweenService:Create(kF, TweenInfo.new(0.5), {BackgroundTransparency=1}):Play()
+    task.delay(0.6, function() if kGui and kGui.Parent then kGui:Destroy() end end)
+end
 
-local tabletBtn = Instance.new("TextButton")
-tabletBtn.Size=UDim2.new(0,130,0,45); tabletBtn.Position=UDim2.new(0,14,1,-180)
-tabletBtn.BackgroundColor3=Color3.fromRGB(20,20,35); tabletBtn.BorderSizePixel=0
-tabletBtn.Text="📱 T-A-B-L-E-T"; tabletBtn.Font=Enum.Font.GothamBold; tabletBtn.TextSize=14
-tabletBtn.TextColor3=Color3.fromRGB(120,200,255); tabletBtn.Parent=tabletGui
-Instance.new("UICorner",tabletBtn).CornerRadius=UDim.new(0,10)
-local tbs=Instance.new("UIStroke"); tbs.Color=Color3.fromRGB(80,160,255); tbs.Thickness=2; tbs.Parent=tabletBtn
+-- Tablet equip / unequip
+local function equipTablet()
+    if not tabletInInventory or tabletExploding then return end
+    tabletEquipped  = true
+    tabletHoldTime  = 0
+    invertCC.Enabled = true
+    tabletOverlay.BackgroundTransparency = 0.88
+    tabletBtn.BackgroundColor3 = Color3.fromRGB(60, 100, 160)
+    tabletBtn.Text = "📱  [HELD]"
+end
 
--- Reverse color overlay (inverted vision)
-local invertFrame=Instance.new("Frame"); invertFrame.Size=UDim2.new(1,0,1,0)
-invertFrame.BackgroundColor3=Color3.new(1,1,1); invertFrame.BackgroundTransparency=1
-invertFrame.BorderSizePixel=0; invertFrame.Parent=tabletGui
--- UIColorCorrectionEffect approach: use a white Neon overlay at low transparency with blend
-local invertEffect=Instance.new("ColorCorrectionEffect")
-invertEffect.Name="TabletInvert"; invertEffect.Enabled=false
-invertEffect.Saturation=-1; invertEffect.Contrast=1; invertEffect.Brightness=0.5
-invertEffect.Parent=game:GetService("Lighting")
+local function unequipTablet(forced)
+    tabletEquipped  = false
+    tabletHoldTime  = 0
+    invertCC.Enabled = false
+    tabletOverlay.BackgroundTransparency = 1
+    holdBarFill.Size = UDim2.new(0, 0, 1, 0)
+    tabletBtn.BackgroundColor3 = Color3.fromRGB(18, 18, 32)
+    tabletBtn.Text = "📱  T-A-B-L-E-T"
+    if forced then
+        tabletBtn.TextColor3 = Color3.fromRGB(255, 80, 80)
+        task.delay(1.5, function() tabletBtn.TextColor3 = Color3.fromRGB(120,200,255) end)
+    end
+end
 
--- Tablet shake overlay
-local shakeGui=Instance.new("ScreenGui"); shakeGui.Name="TabletShake"
-shakeGui.ResetOnSpawn=false; shakeGui.Parent=player.PlayerGui
+-- Button callbacks
+tabletBtn.MouseButton1Down:Connect(function()
+    if not tabletInInventory or tabletExploding then return end
+    if tabletEquipped then unequipTablet(false) else equipTablet() end
+end)
 
-local visionFolder = nil
-local visionModel  = nil
-local visionRoot   = nil
+-- Keyboard: E to toggle tablet
+UIS.InputBegan:Connect(function(inp, gpe)
+    if gpe then return end
+    if inp.KeyCode == Enum.KeyCode.E then
+        if not tabletInInventory or tabletExploding then return end
+        if tabletEquipped then unequipTablet(false) else equipTablet() end
+    end
+end)
 
+-- Main spawn function
 local function spawnVisionEntity()
     if visionActive then return end
-    visionActive=true
-    tabletGui.Enabled=true
-    tabletInInventory=true; tabletEquipped=false; tabletHoldTime=0; tabletExploding=false
+    visionActive    = true
+    tabletInInventory = true
+    tabletEquipped  = false
+    tabletHoldTime  = 0
+    tabletExploding = false
 
-    visionFolder=Instance.new("Folder"); visionFolder.Name="VisionFolder"; visionFolder.Parent=workspace
+    tabletGui.Enabled = true
+
+    if not visionFolder then
+        visionFolder = Instance.new("Folder")
+        visionFolder.Name = "VisionFolder"
+        visionFolder.Parent = workspace
+    end
+
+    -- Cleanup old model
+    if visionModel and visionModel.Parent then visionModel:Destroy() end
+    visionModel = nil; visionRoot = nil
+
     visionModel, visionRoot = buildVisionModel(visionFolder)
 
-    -- Place far from player
-    local hrp=getHRP()
-    local ang2=math.random()*math.pi*2
-    local spawnPos=(hrp and hrp.Position or MAZE_ORIGIN) + Vector3.new(math.cos(ang2)*50,0,math.sin(ang2)*50)
-    setVisionPos(visionModel, visionRoot, spawnPos+Vector3.new(0,3,0))
+    -- Spawn offset from player
+    local hrp = getHRP()
+    local ang  = math.random() * math.pi * 2
+    local dist = math.random(30, 50)
+    local spawnPos = hrp
+        and (hrp.Position + Vector3.new(math.cos(ang)*dist, 0, math.sin(ang)*dist))
+        or  (MAZE_ORIGIN + Vector3.new(0, 3, 0))
+    setVisionPos(visionModel, visionRoot, spawnPos + Vector3.new(0, 3, 0))
 
-    local shakeT=0; local shakeMag=0
+    -- Start invisible
+    setVisionVisible(visionModel, false)
 
-    visionHBConn=RunService.Heartbeat:Connect(function(dt)
+    local shakeMag = 0
+
+    if visionHBConn then visionHBConn:Disconnect(); visionHBConn = nil end
+
+    visionHBConn = RunService.Heartbeat:Connect(function(dt)
         if not visionActive then return end
         if not visionModel or not visionModel.Parent then return end
-        local h=getHRP(); if not h then return end
+        local h = getHRP(); if not h then return end
 
-        -- Tablet equip/unequip from button state (handled by button press)
-        -- Show/hide vision based on tablet
+        -- Show only when tablet is equipped
         setVisionVisible(visionModel, tabletEquipped)
 
-        -- Vision speed: 30 normal, 10 when tablet equipped
+        -- Speed: 30 normally, 10 when tablet equipped
         local VSPEED = tabletEquipped and 10 or 30
 
-        -- Move toward player (noclip, levitate)
-        local cur=visionRoot.CFrame.Position
-        local targetY=h.Position.Y+2
-        local flatCur=Vector3.new(cur.X,targetY,cur.Z)
-        local target=Vector3.new(h.Position.X,targetY,h.Position.Z)
-        local diff=target-flatCur; local dist=diff.Magnitude
-        if dist>0.5 then
-            setVisionPos(visionModel,visionRoot,flatCur+diff.Unit*math.min(VSPEED*dt,dist))
-        end
-        -- Keep Y locked
-        if math.abs(visionRoot.CFrame.Position.Y-targetY)>0.5 then
-            setVisionPos(visionModel,visionRoot,Vector3.new(visionRoot.CFrame.Position.X,targetY,visionRoot.CFrame.Position.Z))
-        end
-        visionFacePlayer(visionModel,visionRoot)
+        -- Move toward player, noclip, Y-locked
+        local cur     = visionRoot.CFrame.Position
+        local targetY = h.Position.Y + 2
+        local flatCur = Vector3.new(cur.X, targetY, cur.Z)
+        local target  = Vector3.new(h.Position.X, targetY, h.Position.Z)
+        local diff    = target - flatCur
+        local dist2   = diff.Magnitude
 
-        -- Tablet hold time + shake
+        if dist2 > 0.4 then
+            setVisionPos(visionModel, visionRoot, flatCur + diff.Unit * math.min(VSPEED * dt, dist2))
+        end
+        -- Y lock
+        if math.abs(visionRoot.CFrame.Position.Y - targetY) > 0.5 then
+            setVisionPos(visionModel, visionRoot, Vector3.new(visionRoot.CFrame.Position.X, targetY, visionRoot.CFrame.Position.Z))
+        end
+
+        visionFacePlayer(visionModel, visionRoot)
+
+        -- ── Tablet hold timer ──
         if tabletEquipped and not tabletExploding then
-            tabletHoldTime+=dt
-            if tabletHoldTime>=5 then
-                -- Explode
-                tabletExploding=true
-                tabletEquipped=false
-                tabletHoldTime=0
-                invertEffect.Enabled=false
-                -- Explosion damage
-                local hum=getHumanoid(); if hum then
-                    entityDamage(hum, 90)
-                end
-                -- Shake burst
-                local expT=0; local expConn
-                expConn=RunService.Heartbeat:Connect(function(edt)
-                    expT+=edt
-                    local cam=workspace.CurrentCamera
-                    if cam then
-                        cam.CFrame=cam.CFrame*CFrame.new(
-                            (math.random()-0.5)*0.8,(math.random()-0.5)*0.5,0)
-                    end
-                    if expT>0.7 then pcall(function() expConn:Disconnect() end) end
+            tabletHoldTime += dt
+            -- Update hold bar
+            local pct = math.min(tabletHoldTime / 5, 1)
+            holdBarFill.Size = UDim2.new(pct, 0, 1, 0)
+            -- Colour shifts yellow → red as it fills
+            local r = math.floor(100 + 155 * pct)
+            local g = math.floor(200 * (1 - pct))
+            holdBarFill.BackgroundColor3 = Color3.fromRGB(r, g, 40)
+
+            -- Shake intensifies
+            shakeMag = pct * 0.6
+            local cam = workspace.CurrentCamera
+            if cam and cam.CameraType ~= Enum.CameraType.Scriptable then
+                cam.CFrame = cam.CFrame * CFrame.new(
+                    (math.random()-0.5)*shakeMag,
+                    (math.random()-0.5)*shakeMag*0.6, 0)
+            end
+
+            -- Explode at 5s
+            if tabletHoldTime >= 5 then
+                tabletExploding = true
+                unequipTablet(true)
+
+                -- Explosion flash
+                local expGui = Instance.new("ScreenGui")
+                expGui.ResetOnSpawn = false; expGui.Parent = player.PlayerGui
+                local expF = Instance.new("Frame"); expF.Size = UDim2.new(1,0,1,0)
+                expF.BackgroundColor3 = Color3.fromRGB(255, 100, 30)
+                expF.BackgroundTransparency = 0.05; expF.BorderSizePixel = 0; expF.Parent = expGui
+                TweenService:Create(expF, TweenInfo.new(0.45), {BackgroundTransparency=1}):Play()
+                task.delay(0.5, function() if expGui and expGui.Parent then expGui:Destroy() end end)
+
+                -- Slam camera shake
+                local expT = 0; local expC
+                expC = RunService.Heartbeat:Connect(function(edt)
+                    expT += edt
+                    local cam2 = workspace.CurrentCamera
+                    if cam2 then cam2.CFrame = cam2.CFrame * CFrame.new(
+                        (math.random()-0.5)*0.9, (math.random()-0.5)*0.6, 0) end
+                    if expT > 0.65 then pcall(function() expC:Disconnect() end) end
                 end)
-                -- Red flash
-                local eGui=Instance.new("ScreenGui"); eGui.ResetOnSpawn=false; eGui.Parent=player.PlayerGui
-                local ef=Instance.new("Frame"); ef.Size=UDim2.new(1,0,1,0)
-                ef.BackgroundColor3=Color3.fromRGB(255,60,0); ef.BackgroundTransparency=0.1
-                ef.BorderSizePixel=0; ef.Parent=eGui
-                TweenService:Create(ef,TweenInfo.new(0.5),{BackgroundTransparency=1}):Play()
-                task.delay(0.6,function() if eGui and eGui.Parent then eGui:Destroy() end end)
-                task.delay(2,function() tabletExploding=false end)
-            else
-                -- Shake intensifies over 5s
-                shakeMag=tabletHoldTime/5
-                shakeT+=dt
-                local cam=workspace.CurrentCamera
-                if cam then
-                    cam.CFrame=cam.CFrame*CFrame.new(
-                        (math.random()-0.5)*shakeMag*0.55,
-                        (math.random()-0.5)*shakeMag*0.35, 0)
-                end
+
+                -- 90 damage
+                local hum2 = getHumanoid(); if hum2 then entityDamage(hum2, 90) end
+
+                -- Re-enable tablet after 2s cooldown
+                task.delay(2, function()
+                    tabletExploding = false
+                    holdBarFill.Size = UDim2.new(0, 0, 1, 0)
+                    holdBarFill.BackgroundColor3 = Color3.fromRGB(100, 200, 255)
+                end)
             end
         else
-            shakeMag=0; shakeT=0
+            shakeMag = 0
         end
 
-        -- Touch kill (only when NOT in tablet mode — invisible)
-        if not tabletEquipped then
-            if dist<3.5 then
-                visionActive=false
-                if visionHBConn then visionHBConn:Disconnect(); visionHBConn=nil end
-                local hum=getHumanoid(); if hum then hum.Health=0 end
+        -- ── Kill when invisible (not equipped) and close ──
+        if not tabletEquipped and not tabletExploding then
+            if dist2 < 3.5 then
+                visionActive = false
+                visionHBConn:Disconnect(); visionHBConn = nil
+                unequipTablet(false)
+                tabletGui.Enabled = false
+                tabletInInventory = false
+                setVisionVisible(visionModel, false)
+                visionKillPlayer()
+                -- Respawn Vision after 3s
+                task.delay(3, function()
+                    if modCruelty and gameActive then spawnVisionEntity() end
+                end)
             end
         end
     end)
 end
-
--- Tablet button interaction
-local tabletHeld=false
-tabletBtn.MouseButton1Down:Connect(function()
-    if not tabletInInventory or tabletExploding then return end
-    tabletEquipped=true; tabletHeld=true
-    invertEffect.Enabled=true
-    tabletBtn.BackgroundColor3=Color3.fromRGB(40,80,160)
-    tabletBtn.Text="📱 [HOLDING]"
-end)
-local function dropTablet()
-    tabletEquipped=false; tabletHeld=false
-    invertEffect.Enabled=false
-    tabletBtn.BackgroundColor3=Color3.fromRGB(20,20,35)
-    tabletBtn.Text="📱 T-A-B-L-E-T"
-end
-tabletBtn.MouseButton1Up:Connect(dropTablet)
-tabletBtn.MouseLeave:Connect(dropTablet)
--- Keyboard: hold E
-UIS.InputBegan:Connect(function(inp,gpe)
-    if gpe then return end
-    if inp.KeyCode==Enum.KeyCode.E and tabletInInventory and not tabletExploding then
-        tabletEquipped=true; invertEffect.Enabled=true
-        tabletBtn.BackgroundColor3=Color3.fromRGB(40,80,160); tabletBtn.Text="📱 [HOLDING]"
-    end
-end)
-UIS.InputEnded:Connect(function(inp)
-    if inp.KeyCode==Enum.KeyCode.E then dropTablet() end
-end)
 
 -- Saferoom
 local function buildSaferoom()
