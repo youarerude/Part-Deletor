@@ -64,6 +64,16 @@ local modKoushinn      = false   -- 行進
 local modMvulbal       = false   -- מבלבל
 local modYourSavior    = false   -- Your Savior
 local modHellClock     = false   -- Hell Clock
+local modCruelty       = false   -- crueltyoftheworld
+-- Vision state
+local visionActive     = false
+local visionLoop       = nil
+local visionPart       = nil
+local visionHBConn     = nil
+local tabletEquipped   = false
+local tabletHoldTime   = 0
+local tabletExploding  = false
+local tabletInInventory= true
 -- Demon state
 local demonActive      = false
 local demonPart        = nil
@@ -137,7 +147,7 @@ local function refreshHUD(s,c) lblRound.Text="Round "..currentRound; lblShards.T
 
 -- Parry button
 local pg=Instance.new("ScreenGui"); pg.Name="ParryGui"; pg.ResetOnSpawn=false; pg.Parent=player.PlayerGui
-local pb=Instance.new("TextButton"); pb.Size=UDim2.new(0,110,0,110); pb.Position=UDim2.new(1,-130,1,-140)
+local pb=Instance.new("TextButton"); pb.Size=UDim2.new(0,100,0,100); pb.Position=UDim2.new(1,-115,1,-185)
 pb.BackgroundColor3=C.parry; pb.Text="PARRY"; pb.Font=Enum.Font.GothamBold; pb.TextSize=22
 pb.TextColor3=Color3.new(0,0,0); pb.BorderSizePixel=0; pb.Parent=pg
 Instance.new("UICorner",pb).CornerRadius=UDim.new(1,0)
@@ -236,6 +246,14 @@ local ALL_MODIFIERS = {
      onApply=function()
          modHellClock=true
          startDemonTimer()
+     end},
+    {id="Cruelty",       name="crueltyoftheworld",  col=Color3.fromRGB(180,80,200),
+     desc="Vision Appears.",
+     perk="[ESP nearest shard within 20 studs]",
+     chainOf=nil,
+     onApply=function()
+         modCruelty=true
+         task.delay(0.2, spawnVisionEntity)
      end},
 }
 
@@ -413,8 +431,39 @@ local function spawnShard(wp,folder)
     local light=Instance.new("PointLight"); light.Brightness=2; light.Range=8; light.Color=C.shard; light.Parent=p
     local baseY=p.Position.Y; local ang=math.random()*math.pi*2
     local ac=RunService.Heartbeat:Connect(function(dt)
-        if p and p.Parent then ang+=dt*1.6; p.CFrame=CFrame.new(p.Position.X,baseY+math.sin(ang*1.2)*0.3,p.Position.Z)*CFrame.Angles(0,ang,0) end
+        if not (p and p.Parent) then return end
+        ang+=dt*1.6; p.CFrame=CFrame.new(p.Position.X,baseY+math.sin(ang*1.2)*0.3,p.Position.Z)*CFrame.Angles(0,ang,0)
     end); table.insert(animConns,ac)
+    -- crueltyoftheworld: ESP shard if it's the nearest within 20 studs
+    local crueltyConn = RunService.Heartbeat:Connect(function()
+        if not (p and p.Parent) then return end
+        if not modCruelty then return end
+        local hrp = getHRP(); if not hrp then return end
+        local dist = (p.Position - hrp.Position).Magnitude
+        if dist <= 20 then
+            -- find if this is the nearest shard
+            local nearest = nil; local nearestD = math.huge
+            for _, sd2 in ipairs(shardList) do
+                if sd2.part and sd2.part.Parent then
+                    local d2 = (sd2.part.Position - hrp.Position).Magnitude
+                    if d2 < nearestD then nearestD=d2; nearest=sd2.part end
+                end
+            end
+            local isNearest = (nearest == p)
+            local hl = p:FindFirstChild("CrueltyHL")
+            if isNearest and not hl then
+                hl = Instance.new("Highlight"); hl.Name="CrueltyHL"
+                hl.Adornee=p; hl.OutlineColor=Color3.fromRGB(220,100,255)
+                hl.OutlineTransparency=0; hl.FillColor=Color3.fromRGB(180,60,220)
+                hl.FillTransparency=0.4; hl.DepthMode=Enum.HighlightDepthMode.AlwaysOnTop
+                hl.Parent=p
+            elseif not isNearest and hl then
+                hl:Destroy()
+            end
+        else
+            local hl = p:FindFirstChild("CrueltyHL"); if hl then hl:Destroy() end
+        end
+    end); table.insert(animConns, crueltyConn)
     -- R3+: magnet — pull toward player within 10 studs
     if currentRound>=3 or modHellClock then
         local mc=RunService.Heartbeat:Connect(function(dt)
@@ -1491,7 +1540,7 @@ local function startPuddleSlowLoop()
         if inPuddle then
             hum.WalkSpeed = math.max(4, hum.WalkSpeed - 0.5)
         else
-            hum.WalkSpeed = math.min(16, hum.WalkSpeed + 2)
+            hum.WalkSpeed = math.min(modFixation and 32 or 30, hum.WalkSpeed + 2)
         end
     end)
 end
@@ -1531,7 +1580,7 @@ local function spawnPuddle(pos)
     end)
 end
 
-local function runDespairEvent()
+local function runDespairEvent(isSecondAttack)
     if despairActive or not gameActive then return end
     despairActive = true
 
@@ -1653,10 +1702,12 @@ local function runDespairEvent()
             startPuddleSlowLoop()
         end
         despairActive = false
-        -- 行進: second attack after 5s
-        if modKoushinn then
+        -- 行進: second attack after 5s. Keep despairActive=true until second attack fires
+        if modKoushinn and not isSecondAttack then
+            despairActive = true   -- block loop scheduler during wait
             task.delay(5, function()
-                if gameActive then runDespairEvent() end
+                despairActive = false
+                if gameActive then runDespairEvent(true) end
             end)
         end
         return
@@ -1714,9 +1765,10 @@ local function startDespairLoop()
             if not gameActive then return end
             el += dt
             if el < interval then return end
+            if despairActive then return end  -- wait until any attack (including 2nd) fully finishes
             despairLoop:Disconnect(); despairLoop = nil
             if math.random() <= 0.25 then
-                runDespairEvent()
+                runDespairEvent(false)
             end
             if gameActive then scheduleNext() end
         end)
@@ -2151,7 +2203,7 @@ local function runVortexEvent()
         if mazeFolder and mazeFolder.Parent then mazeFolder:Destroy(); mazeFolder=nil end
         -- Restore movement
         local hum = getHumanoid()
-        if hum then hum.WalkSpeed = modFixation and 32 or 16; hum.JumpPower = 50 end
+        if hum then hum.WalkSpeed = modFixation and 32 or 30; hum.JumpPower = 50 end
         vortexActive=false; return
     end
 
@@ -2213,7 +2265,7 @@ local function runVortexEvent()
     -- Restore movement
     local unfreezeHum = getHumanoid()
     if unfreezeHum then
-        unfreezeHum.WalkSpeed = modFixation and 32 or (modYourSavior and 40 or 16)
+        unfreezeHum.WalkSpeed = modFixation and 32 or (modYourSavior and 40 or 30)
         unfreezeHum.JumpPower = 50
     end
     if vGui and vGui.Parent then vGui:Destroy() end
@@ -3344,6 +3396,244 @@ local function startDemonTimer()
     end)
 end
 
+
+-- ── Vision (crueltyoftheworld modifier) ────────────────────
+local function buildVisionModel(parent)
+    local m = Instance.new("Model"); m.Name="Vision"; m.Parent=parent
+    local function vp(name,sz,cf,col)
+        local p=Instance.new("Part"); p.Name=name; p.Size=sz; p.CFrame=cf
+        p.Anchored=true; p.CanCollide=false; p.Color=col
+        p.Material=Enum.Material.SmoothPlastic; p.CastShadow=false
+        p.Transparency=1; p.Parent=m; return p  -- starts fully invisible
+    end
+    local skin=Color3.fromRGB(190,160,130); local dark=Color3.fromRGB(15,10,20)
+    local root=vp("Root",Vector3.new(2,2,1),CFrame.new(0,3,0),dark)
+    vp("Torso",    Vector3.new(2,2,1),    CFrame.new(0,  3,  0),  skin)
+    vp("Head",     Vector3.new(2,1,1),    CFrame.new(0,  4.5,0),  skin)
+    vp("RightArm", Vector3.new(1,2,1),    CFrame.new( 1.5,3,  0), skin)
+    vp("LeftArm",  Vector3.new(1,2,1),    CFrame.new(-1.5,3,  0), skin)
+    vp("RightLeg", Vector3.new(1,2,1),    CFrame.new( 0.5,1,  0), dark)
+    vp("LeftLeg",  Vector3.new(1,2,1),    CFrame.new(-0.5,1,  0), dark)
+    -- glowing eyes (white, visible even in normal vision)
+    vp("EyeL",Vector3.new(0.3,0.3,0.15),CFrame.new(-0.35,4.55,-0.45),Color3.fromRGB(255,255,255))
+    vp("EyeR",Vector3.new(0.3,0.3,0.15),CFrame.new( 0.35,4.55,-0.45),Color3.fromRGB(255,255,255))
+    return m, root
+end
+
+local function setVisionPos(model, root, newPos)
+    if not model.Parent then return end
+    local offset = newPos - root.CFrame.Position
+    for _, p in ipairs(model:GetDescendants()) do
+        if p:IsA("BasePart") then p.CFrame = p.CFrame + offset end
+    end
+end
+
+local function setVisionVisible(model, visible)
+    for _, p in ipairs(model:GetDescendants()) do
+        if p:IsA("BasePart") then
+            p.Transparency = visible and 0 or 1
+        end
+    end
+    -- ESP only when tablet equipped
+    for _, p in ipairs(model:GetDescendants()) do
+        if p:IsA("BasePart") and p.Transparency < 0.5 then
+            local hl = p:FindFirstChild("VisionHL")
+            if visible and not hl then
+                hl = Instance.new("Highlight"); hl.Name="VisionHL"
+                hl.Adornee=p; hl.OutlineColor=Color3.fromRGB(120,220,255)
+                hl.OutlineTransparency=0; hl.FillColor=Color3.fromRGB(60,160,255)
+                hl.FillTransparency=0.35; hl.DepthMode=Enum.HighlightDepthMode.AlwaysOnTop
+                hl.Parent=p
+            elseif not visible and hl then
+                hl:Destroy()
+            end
+        end
+    end
+end
+
+local function visionFacePlayer(model, root)
+    local h=getHRP(); if not h then return end
+    local cur=root.CFrame.Position
+    local tgt=Vector3.new(h.Position.X,cur.Y,h.Position.Z)
+    if (tgt-cur).Magnitude<0.3 then return end
+    local faceCF=CFrame.new(cur,tgt)
+    local newYaw=math.atan2(-faceCF.LookVector.X,-faceCF.LookVector.Z)
+    local curYaw=math.atan2(-root.CFrame.LookVector.X,-root.CFrame.LookVector.Z)
+    local dy=((newYaw-curYaw+math.pi)%(2*math.pi))-math.pi
+    if math.abs(dy)<0.01 then return end
+    local c2,s2=math.cos(dy),math.sin(dy)
+    local origin=root.CFrame.Position
+    for _,p in ipairs(model:GetDescendants()) do
+        if p:IsA("BasePart") then
+            local lp=p.CFrame.Position-origin
+            local rx=lp.X*c2-lp.Z*s2; local rz=lp.X*s2+lp.Z*c2
+            p.CFrame=CFrame.new(origin+Vector3.new(rx,lp.Y,rz))*CFrame.Angles(0,dy,0)
+        end
+    end
+end
+
+-- Tablet GUI
+local tabletGui = Instance.new("ScreenGui")
+tabletGui.Name="TabletGui"; tabletGui.ResetOnSpawn=false; tabletGui.Parent=player.PlayerGui
+tabletGui.Enabled = false  -- hidden until cruelty active
+
+local tabletBtn = Instance.new("TextButton")
+tabletBtn.Size=UDim2.new(0,130,0,45); tabletBtn.Position=UDim2.new(0,14,1,-180)
+tabletBtn.BackgroundColor3=Color3.fromRGB(20,20,35); tabletBtn.BorderSizePixel=0
+tabletBtn.Text="📱 T-A-B-L-E-T"; tabletBtn.Font=Enum.Font.GothamBold; tabletBtn.TextSize=14
+tabletBtn.TextColor3=Color3.fromRGB(120,200,255); tabletBtn.Parent=tabletGui
+Instance.new("UICorner",tabletBtn).CornerRadius=UDim.new(0,10)
+local tbs=Instance.new("UIStroke"); tbs.Color=Color3.fromRGB(80,160,255); tbs.Thickness=2; tbs.Parent=tabletBtn
+
+-- Reverse color overlay (inverted vision)
+local invertFrame=Instance.new("Frame"); invertFrame.Size=UDim2.new(1,0,1,0)
+invertFrame.BackgroundColor3=Color3.new(1,1,1); invertFrame.BackgroundTransparency=1
+invertFrame.BorderSizePixel=0; invertFrame.Parent=tabletGui
+-- UIColorCorrectionEffect approach: use a white Neon overlay at low transparency with blend
+local invertEffect=Instance.new("ColorCorrectionEffect")
+invertEffect.Name="TabletInvert"; invertEffect.Enabled=false
+invertEffect.Saturation=-1; invertEffect.Contrast=1; invertEffect.Brightness=0.5
+invertEffect.Parent=game:GetService("Lighting")
+
+-- Tablet shake overlay
+local shakeGui=Instance.new("ScreenGui"); shakeGui.Name="TabletShake"
+shakeGui.ResetOnSpawn=false; shakeGui.Parent=player.PlayerGui
+
+local visionFolder = nil
+local visionModel  = nil
+local visionRoot   = nil
+
+local function spawnVisionEntity()
+    if visionActive then return end
+    visionActive=true
+    tabletGui.Enabled=true
+    tabletInInventory=true; tabletEquipped=false; tabletHoldTime=0; tabletExploding=false
+
+    visionFolder=Instance.new("Folder"); visionFolder.Name="VisionFolder"; visionFolder.Parent=workspace
+    visionModel, visionRoot = buildVisionModel(visionFolder)
+
+    -- Place far from player
+    local hrp=getHRP()
+    local ang2=math.random()*math.pi*2
+    local spawnPos=(hrp and hrp.Position or MAZE_ORIGIN) + Vector3.new(math.cos(ang2)*50,0,math.sin(ang2)*50)
+    setVisionPos(visionModel, visionRoot, spawnPos+Vector3.new(0,3,0))
+
+    local shakeT=0; local shakeMag=0
+
+    visionHBConn=RunService.Heartbeat:Connect(function(dt)
+        if not visionActive then return end
+        if not visionModel or not visionModel.Parent then return end
+        local h=getHRP(); if not h then return end
+
+        -- Tablet equip/unequip from button state (handled by button press)
+        -- Show/hide vision based on tablet
+        setVisionVisible(visionModel, tabletEquipped)
+
+        -- Vision speed: 30 normal, 10 when tablet equipped
+        local VSPEED = tabletEquipped and 10 or 30
+
+        -- Move toward player (noclip, levitate)
+        local cur=visionRoot.CFrame.Position
+        local targetY=h.Position.Y+2
+        local flatCur=Vector3.new(cur.X,targetY,cur.Z)
+        local target=Vector3.new(h.Position.X,targetY,h.Position.Z)
+        local diff=target-flatCur; local dist=diff.Magnitude
+        if dist>0.5 then
+            setVisionPos(visionModel,visionRoot,flatCur+diff.Unit*math.min(VSPEED*dt,dist))
+        end
+        -- Keep Y locked
+        if math.abs(visionRoot.CFrame.Position.Y-targetY)>0.5 then
+            setVisionPos(visionModel,visionRoot,Vector3.new(visionRoot.CFrame.Position.X,targetY,visionRoot.CFrame.Position.Z))
+        end
+        visionFacePlayer(visionModel,visionRoot)
+
+        -- Tablet hold time + shake
+        if tabletEquipped and not tabletExploding then
+            tabletHoldTime+=dt
+            if tabletHoldTime>=5 then
+                -- Explode
+                tabletExploding=true
+                tabletEquipped=false
+                tabletHoldTime=0
+                invertEffect.Enabled=false
+                -- Explosion damage
+                local hum=getHumanoid(); if hum then
+                    entityDamage(hum, 90)
+                end
+                -- Shake burst
+                local expT=0; local expConn
+                expConn=RunService.Heartbeat:Connect(function(edt)
+                    expT+=edt
+                    local cam=workspace.CurrentCamera
+                    if cam then
+                        cam.CFrame=cam.CFrame*CFrame.new(
+                            (math.random()-0.5)*0.8,(math.random()-0.5)*0.5,0)
+                    end
+                    if expT>0.7 then pcall(function() expConn:Disconnect() end) end
+                end)
+                -- Red flash
+                local eGui=Instance.new("ScreenGui"); eGui.ResetOnSpawn=false; eGui.Parent=player.PlayerGui
+                local ef=Instance.new("Frame"); ef.Size=UDim2.new(1,0,1,0)
+                ef.BackgroundColor3=Color3.fromRGB(255,60,0); ef.BackgroundTransparency=0.1
+                ef.BorderSizePixel=0; ef.Parent=eGui
+                TweenService:Create(ef,TweenInfo.new(0.5),{BackgroundTransparency=1}):Play()
+                task.delay(0.6,function() if eGui and eGui.Parent then eGui:Destroy() end end)
+                task.delay(2,function() tabletExploding=false end)
+            else
+                -- Shake intensifies over 5s
+                shakeMag=tabletHoldTime/5
+                shakeT+=dt
+                local cam=workspace.CurrentCamera
+                if cam then
+                    cam.CFrame=cam.CFrame*CFrame.new(
+                        (math.random()-0.5)*shakeMag*0.55,
+                        (math.random()-0.5)*shakeMag*0.35, 0)
+                end
+            end
+        else
+            shakeMag=0; shakeT=0
+        end
+
+        -- Touch kill (only when NOT in tablet mode — invisible)
+        if not tabletEquipped then
+            if dist<3.5 then
+                visionActive=false
+                if visionHBConn then visionHBConn:Disconnect(); visionHBConn=nil end
+                local hum=getHumanoid(); if hum then hum.Health=0 end
+            end
+        end
+    end)
+end
+
+-- Tablet button interaction
+local tabletHeld=false
+tabletBtn.MouseButton1Down:Connect(function()
+    if not tabletInInventory or tabletExploding then return end
+    tabletEquipped=true; tabletHeld=true
+    invertEffect.Enabled=true
+    tabletBtn.BackgroundColor3=Color3.fromRGB(40,80,160)
+    tabletBtn.Text="📱 [HOLDING]"
+end)
+local function dropTablet()
+    tabletEquipped=false; tabletHeld=false
+    invertEffect.Enabled=false
+    tabletBtn.BackgroundColor3=Color3.fromRGB(20,20,35)
+    tabletBtn.Text="📱 T-A-B-L-E-T"
+end
+tabletBtn.MouseButton1Up:Connect(dropTablet)
+tabletBtn.MouseLeave:Connect(dropTablet)
+-- Keyboard: hold E
+UIS.InputBegan:Connect(function(inp,gpe)
+    if gpe then return end
+    if inp.KeyCode==Enum.KeyCode.E and tabletInInventory and not tabletExploding then
+        tabletEquipped=true; invertEffect.Enabled=true
+        tabletBtn.BackgroundColor3=Color3.fromRGB(40,80,160); tabletBtn.Text="📱 [HOLDING]"
+    end
+end)
+UIS.InputEnded:Connect(function(inp)
+    if inp.KeyCode==Enum.KeyCode.E then dropTablet() end
+end)
+
 -- Saferoom
 local function buildSaferoom()
     local f=Instance.new("Folder"); f.Name="Saferoom"; f.Parent=workspace
@@ -3437,6 +3727,10 @@ startRound = function()
     if demonHBConn then demonHBConn:Disconnect(); demonHBConn=nil end
     if demonPart and demonPart.Parent then demonPart.Parent.Parent:Destroy() end
     demonActive=false
+    if visionHBConn then visionHBConn:Disconnect(); visionHBConn=nil end
+    if visionFolder and visionFolder.Parent then visionFolder:Destroy(); visionFolder=nil end
+    visionActive=false; tabletEquipped=false; invertEffect.Enabled=false
+    tabletGui.Enabled=modCruelty
     if demonTimerConn then demonTimerConn:Disconnect(); demonTimerConn=nil end
     accentBar.BackgroundColor3=C.shard
     local gW,gH,st=getRound(currentRound); refreshHUD("Generating Round "..currentRound.."…",C.white)
@@ -3479,12 +3773,17 @@ startRound = function()
     if modHellClock and not demonActive then
         startDemonTimer()
     end
+    if modCruelty and not visionActive then
+        task.delay(0.5, spawnVisionEntity)
+    end
     task.wait(0.15); local hrp=getHRP(); if hrp then hrp.CFrame=CFrame.new(sp) end
 end
 
 -- Init
 local _sf,initDoor=buildSaferoom()
 task.wait(1.2); local hrp=getHRP(); if hrp then hrp.CFrame=CFrame.new(safeSpawnPos) end
+local function setBaseSpeed() local hm=getHumanoid(); if hm then hm.WalkSpeed=30 end end
+setBaseSpeed()
 refreshHUD("Enter the door to start",C.door)
 initDoor.Touched:Connect(function(hit) if hit.Parent==player.Character and not gameActive then startRound() end end)
 player.CharacterAdded:Connect(function(c)
