@@ -62,8 +62,8 @@ local modUnforgiving   = false
 local modGreedMaze     = false
 local modFalsehood     = false
 local modDontLeave     = false
-local modKoushinn      = false   -- 行進
-local modMvulbal       = false   -- מבלבל
+local modKoushinn      = false   -- Koushinn (Marching)
+local modMvulbal       = false   -- Mvulbal (Confusing)
 local modYourSavior    = false   -- Your Savior
 local modHellClock     = false   -- Hell Clock
 local modHateYourself  = false   -- hateyourself
@@ -211,7 +211,7 @@ local ALL_MODIFIERS = {
      onApply=function()
          modDontLeave=true
      end},
-    {id="Koushinn",      name="行進",              col=Color3.fromRGB(130,180,220),
+    {id="Koushinn",      name="Koushinn",              col=Color3.fromRGB(130,180,220),
      desc="Despair passively spawns regardless of round and attacks twice.",
      perk="[Grey puddle no longer spawns after Despair]",
      chainOf=nil,
@@ -220,7 +220,7 @@ local ALL_MODIFIERS = {
          -- start despair loop if not already running
          if gameActive then startDespairLoop() end
      end},
-    {id="Mvulbal",       name="מבלבל",             col=Color3.fromRGB(100,220,180),
+    {id="Mvulbal",       name="Mvulbal",             col=Color3.fromRGB(100,220,180),
      desc="Vortex passively spawns regardless of round. Chance is now 50%.",
      perk="[90% entity damage reduction]",
      chainOf=nil,
@@ -262,7 +262,7 @@ local modToggleBtn = Instance.new("TextButton")
 modToggleBtn.Size     = UDim2.new(0,140,0,38)
 modToggleBtn.Position = UDim2.new(1,-150,0,10)
 modToggleBtn.BackgroundColor3 = Color3.fromRGB(18,12,30)
-modToggleBtn.Text = "MODIFIERS ▼"
+modToggleBtn.Text = "MODIFIERS v"
 modToggleBtn.Font = Enum.Font.GothamBold; modToggleBtn.TextSize=15
 modToggleBtn.TextColor3 = Color3.fromRGB(200,150,255)
 modToggleBtn.BorderSizePixel=0; modToggleBtn.Parent=modGui
@@ -286,7 +286,7 @@ local visConn = RunService.Heartbeat:Connect(function()
     modToggleBtn.Visible = show
     if not show and modPanelOpen then
         modPanel.Visible=false; modPanelOpen=false
-        modToggleBtn.Text="MODIFIERS ▼"
+        modToggleBtn.Text="MODIFIERS v"
     end
 end)
 
@@ -313,7 +313,7 @@ local function rebuildModPanel()
 
     local title=Instance.new("TextLabel"); title.Size=UDim2.new(1,-20,0,28)
     title.Position=UDim2.new(0,10,0,8); title.BackgroundTransparency=1
-    title.Text="— MODIFIERS —"; title.TextColor3=Color3.fromRGB(200,150,255)
+    title.Text="-- MODIFIERS --"; title.TextColor3=Color3.fromRGB(200,150,255)
     title.Font=Enum.Font.GothamBold; title.TextScaled=true; title.Parent=modPanel
 
     local choices = getAvailableMods()
@@ -343,7 +343,7 @@ local function rebuildModPanel()
         if mod.chainOf then
             local chainTag=Instance.new("TextLabel"); chainTag.Size=UDim2.new(0,55,0,18)
             chainTag.Position=UDim2.new(1,-62,0,8); chainTag.BackgroundColor3=Color3.fromRGB(60,20,80)
-            chainTag.BorderSizePixel=0; chainTag.Text="⛓ CHAIN"
+            chainTag.BorderSizePixel=0; chainTag.Text="[CHAIN]"
             chainTag.TextColor3=Color3.fromRGB(200,100,255); chainTag.Font=Enum.Font.GothamBold
             chainTag.TextScaled=true; chainTag.Parent=card
             Instance.new("UICorner",chainTag).CornerRadius=UDim.new(0,4)
@@ -383,7 +383,7 @@ modToggleBtn.MouseButton1Click:Connect(function()
     if gameActive then return end
     modPanelOpen = not modPanelOpen
     modPanel.Visible = modPanelOpen
-    modToggleBtn.Text = modPanelOpen and "MODIFIERS ▲" or "MODIFIERS ▼"
+    modToggleBtn.Text = modPanelOpen and "MODIFIERS ^" or "MODIFIERS v"
     if modPanelOpen then rebuildModPanel() end
 end)
 
@@ -393,7 +393,7 @@ local function triggerParryCooldown()
     parryCooldown = true; isParrying = false
     local t = 0
     local conn; conn = RunService.Heartbeat:Connect(function(dt)
-        t += dt
+        t = t + dt
         if t >= cd then
             parryCooldown = false
             conn:Disconnect()
@@ -418,7 +418,7 @@ local function checkESP()
     if rem==0 then return end
     if rem<=math.max(1,math.ceil(totalShards*ESP_PCT)) then
         espActive=true; accentBar.BackgroundColor3=C.gold
-        refreshHUD("⚠ LAST "..rem.." SHARDS – ESP!",C.gold)
+        refreshHUD("!! LAST "..rem.." SHARDS - ESP!",C.gold)
         for _,sd in ipairs(shardList) do
             if sd.part and sd.part.Parent then
                 sd.part.Color=C.gold; setESP(sd.part,C.gold,C.gold,0.3)
@@ -1682,7 +1682,7 @@ local function runDespairEvent(isSecondAttack)
             startPuddleSlowLoop()
         end
         despairActive = false
-        -- 行進: second attack after 5s. Keep despairActive=true until second attack fires
+        -- Koushinn (Marching): second attack after 5s. Keep despairActive=true until second attack fires
         if modKoushinn and not isSecondAttack then
             despairActive = true   -- block loop scheduler during wait
             task.delay(5, function()
@@ -1866,10 +1866,10 @@ local function runEcneulfniEvent()
     -- Place eyes on the face (distribute evenly)
     local lids = {}
     if eyeCount == 0 then
-        -- No eyes: blank face, just show the face with a "…" or empty
+        -- No eyes: blank face, just show the face with a "?" or empty
         local emptyLbl = Instance.new("TextLabel")
         emptyLbl.Size = UDim2.new(1, 0, 0.5, 0); emptyLbl.Position = UDim2.new(0, 0, 0.25, 0)
-        emptyLbl.BackgroundTransparency = 1; emptyLbl.Text = "—"
+        emptyLbl.BackgroundTransparency = 1; emptyLbl.Text = "-"
         emptyLbl.TextColor3 = Color3.fromRGB(180, 160, 160)
         emptyLbl.Font = Enum.Font.GothamBold; emptyLbl.TextScaled = true; emptyLbl.Parent = face
     else
@@ -3363,7 +3363,7 @@ local function startDemonTimer()
         local rem = math.max(0, countdownSecs - elapsed)
         local mins = math.floor(rem / 60)
         local secs = math.floor(rem % 60)
-        tLbl.Text = string.format("👿 %d:%02d", mins, secs)
+        tLbl.Text = string.format("DEMON %d:%02d", mins, secs)
         -- Pulse red when under 30s
         if rem <= 30 then
             tLbl.TextColor3 = Color3.fromRGB(255, math.floor(30 * (rem/30)), 0)
@@ -3446,7 +3446,7 @@ local function buildYouModel()
     -- Flicker
     local flickT = 0
     local fc = RunService.Heartbeat:Connect(function(dt)
-        flickT += dt
+        flickT = flickT + dt
         local v = math.sin(flickT*43)*0.6 + math.sin(flickT*13)*0.4 + (math.random()*0.3-0.15) > 0.05
         hl.OutlineTransparency = v and 0 or 0.88
         hl.FillTransparency    = v and (0.25+math.random()*0.4) or 1
@@ -3502,7 +3502,7 @@ local function showWrongMoveText()
     -- Shake each letter independently
     local t = 0; local shakeConn
     shakeConn = RunService.Heartbeat:Connect(function(dt)
-        t += dt
+        t = t + dt
         local alpha = math.min(1, t / 2)
         for i, lbl in ipairs(lbls) do
             local ox = (math.random()-0.5) * 6 * (1-alpha*0.7)
@@ -3536,7 +3536,7 @@ local function applyReversedMovement(duration)
     local elapsed = 0
     if youReversedConn then youReversedConn:Disconnect() end
     youReversedConn = RunService.Heartbeat:Connect(function(dt)
-        elapsed += dt
+        elapsed = elapsed + dt
         -- Flickering near end
         if elapsed >= duration - 0.5 then
             mf.BackgroundTransparency = 0.3 + 0.25 * math.abs(math.sin(elapsed * 18))
@@ -3620,14 +3620,14 @@ local function spawnYou()
         if not model or not model.Parent then return end
 
         -- Life timer
-        youLifeTimer += dt
+        youLifeTimer = youLifeTimer + dt
         if youLifeTimer >= YOU_LIFE then
             clearYou(); return
         end
 
         -- Frozen timer
         if youFrozen then
-            youFrozenTimer -= dt
+            youFrozenTimer = youFrozenTimer - dt
             if youFrozenTimer <= 0 then youFrozen = false end
             return  -- don't move while frozen
         end
@@ -3680,7 +3680,7 @@ local function startYouLoop()
         if not gameActive then return end
         if youActive then return end  -- countdown frozen while "You" is out
 
-        el += dt
+        el = el + dt
         if el < YOU_COOLDOWN then return end
         el = 0
 
@@ -3731,7 +3731,7 @@ local function buildSaferoom()
         local bb2=Instance.new("BillboardGui"); bb2.Size=UDim2.new(0,120,0,36)
         bb2.StudsOffset=Vector3.new(0,3,0); bb2.AlwaysOnTop=false; bb2.Parent=skip
         local lbl2=Instance.new("TextLabel"); lbl2.Size=UDim2.new(1,0,1,0)
-        lbl2.BackgroundTransparency=1; lbl2.Text="Skip→R"..targetRound
+        lbl2.BackgroundTransparency=1; lbl2.Text="Skip->R"..targetRound
         lbl2.TextColor3=Color3.new(1,1,1); lbl2.Font=Enum.Font.GothamBold
         lbl2.TextScaled=true; lbl2.Parent=bb2
         -- touch
@@ -3788,7 +3788,7 @@ startRound = function()
     visionActive=false; tabletEquipped=false; invertEffect.Enabled=false
     if demonTimerConn then demonTimerConn:Disconnect(); demonTimerConn=nil end
     accentBar.BackgroundColor3=C.shard
-    local gW,gH,st=getRound(currentRound); refreshHUD("Generating Round "..currentRound.."…",C.white)
+    local gW,gH,st=getRound(currentRound); refreshHUD("Generating Round "..currentRound.."?",C.white)
     math.randomseed(os.clock()*100000+currentRound*997)
     local grid=generateMaze(gW,gH); currentGrid=grid; gridW=gW; gridH=gH
     mazeFolder=buildMazeWorld(grid,gW,gH)
