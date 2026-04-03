@@ -588,6 +588,7 @@ end
 
 showVictoryText = function()
     local gui=Instance.new("ScreenGui"); gui.Name="Victory"; gui.ResetOnSpawn=false; gui.Parent=player.PlayerGui
+    playSound("136177056426886", workspace, 6)
 
     local line1=Instance.new("TextLabel"); line1.Size=UDim2.new(0.8,0,0,48)
     line1.Position=UDim2.new(0.1,0,0.28,0); line1.BackgroundTransparency=1
@@ -825,29 +826,99 @@ task.wait(1.2)
 local initHRP=getHRP()
 if initHRP then initHRP.CFrame=CFrame.new(safeSpawnPos) end
 
+local function resetAllDomains()
+    -- Frenzy
+    if domainActive then
+        domainActive=false
+        if domainConn then domainConn:Disconnect(); domainConn=nil end
+        for _,v in pairs(builtSegs) do if v.folder and v.folder.Parent then v.folder:Destroy() end end
+        builtSegs={}; segCount=0
+        if reckFolder and reckFolder.Parent then reckFolder:Destroy(); reckFolder=nil; reckParts={} end
+        finalDoorBuilt=false; finalDoorOpen=false; finalBtnCount=0; endingTriggered=false
+        reckCooldownT=0; reckRunning=false
+    end
+    -- Grief
+    if griefActive then
+        griefActive=false
+        if griefConn then griefConn:Disconnect(); griefConn=nil end
+        if regretConn then regretConn:Disconnect(); regretConn=nil end
+        if nGrassConn then nGrassConn:Disconnect(); nGrassConn=nil end
+        regretActive=false; fogEventActive=false
+        for _,d in pairs(griefFloors) do if d.folder and d.folder.Parent then d.folder:Destroy() end end
+        griefFloors={}; griefFloorCount=0
+        for _,e in ipairs(fallens) do if e.hbConn then pcall(function() e.hbConn:Disconnect() end) end; if e.folder and e.folder.Parent then e.folder:Destroy() end end
+        fallens={}
+        for _,rp in ipairs(regretParts) do if rp and rp.Parent then rp:Destroy() end end
+        regretParts={}
+        if floodPart and floodPart.Parent then floodPart:Destroy(); floodPart=nil end
+        if rainPart and rainPart.Parent then rainPart:Destroy(); rainPart=nil end
+        stopGriefRainSound()
+        beaconTriggered=false; beaconComplete=false; floodRising=false
+        currentFloor=1; lastFloorTrigger=0
+    end
+    -- nevaeH
+    if nevaeHActive then
+        nevaeHActive=false
+        if nevaeHConn then nevaeHConn:Disconnect(); nevaeHConn=nil end
+        if nDeityConn then nDeityConn:Disconnect(); nDeityConn=nil end
+        if nGrassConn then nGrassConn:Disconnect(); nGrassConn=nil end
+        for _,e in ipairs(nBelieverList) do if e.hbConn then pcall(function() e.hbConn:Disconnect() end) end; if e.folder and e.folder.Parent then e.folder:Destroy() end end
+        nBelieverList={}
+        for _,sd in ipairs(nStatues) do if sd.folder and sd.folder.Parent then sd.folder:Destroy() end end
+        nStatues={}
+        for _,ai in ipairs(nAfterimages) do if ai and ai.Parent then ai:Destroy() end end
+        nAfterimages={}
+        for _,obj in ipairs(nFallObjects) do if obj and obj.Parent then obj:Destroy() end end
+        nFallObjects={}
+        if nDeityPart and nDeityPart.Parent then nDeityPart:Destroy(); nDeityPart=nil end
+        if nMapFolder and nMapFolder.Parent then nMapFolder:Destroy(); nMapFolder=nil end
+        nPhase=1; nStatuePrayed=0; nDeityActive=false
+    end
+    restoreFog()
+    -- Restore day sky
+    Lighting.ClockTime=14; Lighting.Brightness=1
+    Lighting.OutdoorAmbient=Color3.fromRGB(128,128,128)
+    Lighting.Ambient=Color3.fromRGB(0,0,0)
+    selectedDomain=nil
+    parryCooldown=false
+    -- Reset UI
+    frenzyBtn.BackgroundColor3=Color3.fromRGB(35,8,8); frenzyBtn.TextColor3=Color3.fromRGB(255,70,40)
+    pcall(function() griefBtn.BackgroundColor3=Color3.fromRGB(12,12,28); griefBtn.TextColor3=Color3.fromRGB(120,140,200) end)
+    pcall(function() nevBtn.BackgroundColor3=Color3.fromRGB(12,20,35); nevBtn.TextColor3=Color3.fromRGB(140,190,255) end)
+    dsNotice.Text="PICK"; dsNotice.TextColor3=Color3.fromRGB(200,100,80)
+    hudLbl.Text="Pick a domain to begin"; hudLbl.TextColor3=Color3.fromRGB(200,130,130)
+    workspace.CurrentCamera.CameraType=Enum.CameraType.Custom
+end
+
 player.CharacterAdded:Connect(function(c)
     character=c; task.wait(0.5)
     local h=c:WaitForChild("HumanoidRootPart",5)
     if h then
         h.CFrame=CFrame.new(safeSpawnPos)
         task.delay(0.3,function()
-            local hum=getHum()
-            if hum then hum.WalkSpeed=16 end
+            local hum=getHum(); if hum then hum.WalkSpeed=16 end
         end)
-        if domainActive then
-            domainActive=false
-            if domainConn then domainConn:Disconnect(); domainConn=nil end
-            restoreFog()
-            for _,v in pairs(builtSegs) do if v.folder and v.folder.Parent then v.folder:Destroy() end end
-            builtSegs={}; segCount=0
-            if reckFolder and reckFolder.Parent then reckFolder:Destroy(); reckFolder=nil; reckParts={} end
-            finalDoorBuilt=false; finalDoorOpen=false; finalBtnCount=0; endingTriggered=false
-            selectedDomain=nil
-            frenzyBtn.BackgroundColor3=Color3.fromRGB(35,8,8)
-            frenzyBtn.TextColor3=Color3.fromRGB(255,70,40)
-            dsNotice.Text="PICK"; dsNotice.TextColor3=Color3.fromRGB(200,100,80)
-            hudLbl.Text="Pick a domain to begin"; hudLbl.TextColor3=Color3.fromRGB(200,130,130)
+        resetAllDomains()
+    end
+end)
+
+-- Health = 0 kill detection (clientside damage workaround)
+RunService.Heartbeat:Connect(function()
+    local hum=getHum()
+    if hum and hum.Health<=0 and hum.Health>-1 then
+        hum.Health=-1
+        local char=player.Character
+        if char then
+            for _,p in ipairs(char:GetDescendants()) do
+                if p:IsA("BasePart") then
+                    p.Anchored=false
+                    p.AssemblyLinearVelocity=Vector3.new(math.random(-5,5),math.random(5,15),math.random(-5,5))
+                end
+            end
         end
+        task.delay(0.5,function()
+            local hum2=getHum(); if hum2 then hum2:TakeDamage(9999) end
+        end)
     end
 end)
 
@@ -1296,6 +1367,7 @@ runFogEvent = function()
             pcall(function() shakeConn:Disconnect() end)
             TweenService:Create(Lighting,TweenInfo.new(1.5),{FogColor=origColor, FogEnd=origEnd}):Play()
             if griefRainSound then TweenService:Create(griefRainSound,TweenInfo.new(1.5),{Volume=0.4}):Play() end
+            playSound("73701432285365", getHRP() or workspace, 1.2)
             -- Reopen stair blockers
             for _,fd in pairs(griefFloors) do
                 for _,p in ipairs(fd.parts) do
@@ -1464,7 +1536,7 @@ onFloorEntered = function(floorIdx)
     end
 
     -- Floor 30: Beacon
-    if floorIdx == 30 and not beaconTriggered then
+    if floorIdx == 50 and not beaconTriggered then
         buildGriefBeacon()
     end
 end
@@ -1473,9 +1545,9 @@ end
 buildGriefBeacon = function()
     beaconTriggered=true
     local cx=GTOW_ORIGIN.X; local cz=GTOW_ORIGIN.Z
-    local o=gFloorOrigin(30)
+    local o=gFloorOrigin(50)
 
-    -- Beacon pillar in center of floor 30 (exposed, no roof above it)
+    -- Beacon pillar in center of floor 50 (exposed, no roof above it)
     local beacon=Instance.new("Part"); beacon.Name="GriefBeacon"
     beacon.Size=Vector3.new(3,8,3); beacon.Position=Vector3.new(cx,o.Y+4,cz)
     beacon.Anchored=true; beacon.CanCollide=false
@@ -1555,7 +1627,7 @@ runBeaconCutscene = function(beacon, floorOrigin)
             cam.CameraType=Enum.CameraType.Custom
             local hum2=getHum(); if hum2 then hum2.WalkSpeed=GRIEF_SPEED; hum2.JumpPower=50 end
 
-            -- Materialize path from floor 30
+            -- Materialize path from floor 50
             task.delay(0.5,function() materializeExitPath(floorOrigin) end)
         end)
     end)
@@ -1888,7 +1960,7 @@ local function spawnStatue(isFake)
             local hl=Instance.new("Highlight"); hl.Adornee=base
             hl.OutlineColor=Color3.fromRGB(255,20,0); hl.FillColor=Color3.fromRGB(200,0,0)
             hl.FillTransparency=0.4; hl.DepthMode=Enum.HighlightDepthMode.AlwaysOnTop; hl.Parent=base
-            playSound("133245268132726",base,1)
+            playSound("139824454685718",base,1.2)
             local hum=getHum(); if hum then hum.Health=math.max(0.1,hum.Health-30) end
             task.delay(3,function()
                 TweenService:Create(hl,TweenInfo.new(0.5),{OutlineTransparency=1,FillTransparency=1}):Play()
@@ -1896,10 +1968,11 @@ local function spawnStatue(isFake)
             end)
         else
             -- Green ESP for 3s
+            playSound("109836938138193",base,1)
             local hl=Instance.new("Highlight"); hl.Adornee=base
             hl.OutlineColor=Color3.fromRGB(0,255,60); hl.FillColor=Color3.fromRGB(0,200,40)
             hl.FillTransparency=0.4; hl.DepthMode=Enum.HighlightDepthMode.AlwaysOnTop; hl.Parent=base
-            playSound("115937318685871",base,0.8)
+            playSound("109836938138193",base,1)
             nStatuePrayed=nStatuePrayed+1
             local goal=nStatueGoal[nPhase] or 3
             hudLbl.Text="nevaeH - Statues: "..nStatuePrayed.."/"..goal
@@ -2040,8 +2113,11 @@ runDeityEvent = function(eyeParts)
     end
     setCharVis(false)
 
-    local PULL=0.06
+    local PULL=0.022
     local gazeTime=0
+    local deityStareSound=Instance.new("Sound"); deityStareSound.SoundId="rbxassetid://140292013454615"
+    deityStareSound.Volume=0; deityStareSound.PlaybackSpeed=0; deityStareSound.Looped=true
+    deityStareSound.Parent=workspace; deityStareSound:Play()
     local evStart=tick()
     local EVT_DUR=6
     local origFogColor=Lighting.FogColor
@@ -2053,6 +2129,7 @@ runDeityEvent = function(eyeParts)
         local elapsed=tick()-evStart
         if elapsed>=EVT_DUR then
             nDeityConn:Disconnect(); nDeityConn=nil
+            if deityStareSound and deityStareSound.Parent then deityStareSound:Stop(); deityStareSound:Destroy() end
             TweenService:Create(eyeParts.upperLid,TweenInfo.new(0.4),{Position=UDim2.new(0,0,-0.05,0)}):Play()
             TweenService:Create(eyeParts.lowerLid,TweenInfo.new(0.4),{Position=UDim2.new(0,0,0.40,0)}):Play()
             cam.CameraType=origType; setCharVis(true)
@@ -2088,6 +2165,11 @@ runDeityEvent = function(eyeParts)
         Lighting.FogColor=Color3.fromRGB(fogR,fogG,fogG)
         Lighting.FogEnd=math.max(20, origFogEnd-progress*60)
         if progress>0.1 then doShake(progress*4,0.2) end
+        -- Deity stare sound
+        deityStareSound.Volume=progress*5
+        deityStareSound.PlaybackSpeed=progress
+        local pitchShift=deityStareSound:FindFirstChildOfClass("PitchShiftSoundEffect") or Instance.new("PitchShiftSoundEffect",deityStareSound)
+        pitchShift.Octave=1+progress*0.5
 
         local hum=getHum(); if not hum then return end
         if dot>0.92 then
@@ -2125,6 +2207,8 @@ runDeityEvent = function(eyeParts)
                 Instance.new("UICorner",aiHalo).CornerRadius=UDim.new(1,0)
                 local aiS=Instance.new("UIStroke"); aiS.Color=Color3.fromRGB(255,210,50); aiS.Thickness=5; aiS.Parent=aiHalo
                 table.insert(nAfterimages,aimf)
+                if deityStareSound and deityStareSound.Parent then deityStareSound:Stop(); deityStareSound:Destroy() end
+                playSound("134584731825936",nDeityPart or workspace,1.5)
 
                 TweenService:Create(eyeParts.upperLid,TweenInfo.new(0.4),{Position=UDim2.new(0,0,-0.05,0)}):Play()
                 TweenService:Create(eyeParts.lowerLid,TweenInfo.new(0.4),{Position=UDim2.new(0,0,0.40,0)}):Play()
@@ -2251,9 +2335,18 @@ local function startFalling()
                     obj.Material=Enum.Material.SmoothPlastic
                     obj.Color=Color3.fromRGB(80,80,90); obj.CastShadow=false; obj.Parent=workspace
                     game:GetService("Debris"):AddItem(obj,5)
+                    obj.Touched:Connect(function(hit2)
+                        if hit2.Parent==workspace or hit2.Name:match("NBase") or hit2.Name:match("Floor") then
+                            local groundSounds={"9118615018","9118612945","9118614718"}
+                            playSound(groundSounds[math.random(1,3)],obj,0.8)
+                        end
+                    end)
                     local oc; oc=obj.Touched:Connect(function(hit)
                         if hit.Parent~=player.Character then return end
-                        local hum=getHum(); if hum then hum.Health=math.max(0.1,hum.Health-30) end
+                        local hum=getHum(); if hum then
+                            if hum.Health<=30 then playSound("108266709824723",obj,1) end
+                            hum.Health=math.max(0.1,hum.Health-30)
+                        end
                         oc:Disconnect()
                     end)
                     table.insert(nFallObjects,obj)
@@ -2276,7 +2369,9 @@ startNPhase = function(p)
     elseif p==2 then
         -- Black fog, night
         setNFog(Color3.fromRGB(15,15,25), 15, 200, 3)
-        Lighting.Brightness=0.15
+        TweenService:Create(Lighting,TweenInfo.new(3),{Brightness=0.08,ClockTime=0}):Play()
+        Lighting.OutdoorAmbient=Color3.fromRGB(10,10,18)
+        Lighting.Ambient=Color3.fromRGB(8,8,15)
         hudLbl.Text="nevaeH - Phase 2  Statues: 0/5"
         hudLbl.TextColor3=Color3.fromRGB(180,180,220)
         spawnNStatues(5,0)
@@ -2311,6 +2406,9 @@ startNPhase = function(p)
         setNFog(Color3.fromRGB(8,8,18),15,160,2)
         spawnNStatues(10,5)  -- 10 real + 5 fake
     elseif p==5 then
+        -- Pre-dawn bright
+        TweenService:Create(Lighting,TweenInfo.new(3),{Brightness=0.7,ClockTime=6}):Play()
+        Lighting.OutdoorAmbient=Color3.fromRGB(160,160,180)
         -- Flash screen
         local fg=Instance.new("ScreenGui"); fg.Name="P5Flash"; fg.ResetOnSpawn=false; fg.Parent=player.PlayerGui
         local ff=Instance.new("Frame"); ff.Size=UDim2.new(1,0,1,0)
