@@ -15,6 +15,14 @@ local Debris       = game:GetService("Debris")
 local player    = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 
+-- Sound helper (global)
+local function playSound(id, parent, vol)
+    local s=Instance.new("Sound"); s.SoundId="rbxassetid://"..id
+    s.Volume=vol or 1; s.Parent=parent or workspace; s:Play()
+    game:GetService("Debris"):AddItem(s, 8)
+    return s
+end
+
 local function getHRP()   local c=player.Character; return c and c:FindFirstChild("HumanoidRootPart") end
 local function getHum()   local c=player.Character; return c and c:FindFirstChildOfClass("Humanoid") end
 local function makePart(n,sz,pos,col,mat,trans,collide,parent)
@@ -32,7 +40,7 @@ local DOM_ORIGIN   = Vector3.new(600, 0, 200)  -- domain road starts here
 local ROAD_W       = 75
 local ROAD_H       = 20
 local SEG_LEN      = 200
-local MAX_SEGS     = 20
+local MAX_SEGS     = 50
 local PLAYER_SPEED = 50
 
 local C = {
@@ -844,17 +852,22 @@ player.CharacterAdded:Connect(function(c)
 end)
 
 
+-- Parry cooldown (shared across all domains)
+local parryCooldown = false
+local function triggerParryCooldown(dur)
+    parryCooldown = true
+    task.delay(dur or 2, function() parryCooldown = false end)
+end
+-- Wrap holdParry to respect cooldown
+local _origHoldParry = holdParry
+holdParry = function()
+    if parryCooldown then return end
+    _origHoldParry()
+end
+
 -- ================================================================
 --  GRIEF DOMAIN  (Despair's Domain)
 -- ================================================================
--- Grief sound helper
-local function playSound(id, parent, vol)
-    local s=Instance.new("Sound"); s.SoundId="rbxassetid://"..id
-    s.Volume=vol or 1; s.Parent=parent or workspace; s:Play()
-    game:GetService("Debris"):AddItem(s, 8)
-    return s
-end
-
 -- Rain ambience (looping, persistent)
 local griefRainSound = nil
 local function startGriefRainSound()
@@ -978,7 +991,7 @@ local function buildGriefFloor(floorIdx)
     gp("Ceiling",Vector3.new(TOW_W,1,TOW_D),Vector3.new(cx,o.Y+FLOOR_H-0.5,cz),FC)
 
     -- Stair: series of step Parts from floor level to ceiling
-    if floorIdx < 35 then
+    if floorIdx < 50 then
         local rampX = cx - hw + 7
         local stepCount = 8
         local stepW = 10
@@ -993,23 +1006,35 @@ local function buildGriefFloor(floorIdx)
         -- The ceiling slab covers everything; we remove it and add 3 smaller slabs leaving a gap
         -- Delete the full ceiling and replace with 3 panels
         if f:FindFirstChild("Ceiling") then f:FindFirstChild("Ceiling"):Destroy() end
-        -- Left ceiling panel
-        gp("CeilL", Vector3.new(rampX-hw-1, 1, TOW_D),
-            Vector3.new((cx-hw+rampX-hw-1)/2+1, o.Y+FLOOR_H-0.5, cz), FC)
-        -- Right ceiling panel
-        gp("CeilR", Vector3.new(TOW_W-(rampX-cx)-stepW/2-1, 1, TOW_D),
-            Vector3.new(cx+(TOW_W-(rampX-cx)-stepW/2-1)/2+rampX-cx+stepW/4, o.Y+FLOOR_H-0.5, cz), FC)
-        -- Front/back ceiling panels to fill Z sides
+        -- Ceiling with stair hole: 4 panels around the opening
         local openZ1 = cz - TOW_D*0.35
-        local openZ2 = cz - TOW_D*0.35 + stepCount*stepD
+        local openZ2 = openZ1 + stepCount*stepD
+        local openXL = rampX - stepW/2
+        local openXR = rampX + stepW/2
+        -- Left of hole
+        if openXL > cx-hw then
+            gp("CeilHL",Vector3.new(openXL-(cx-hw),1,TOW_D),Vector3.new((cx-hw+openXL)/2,o.Y+FLOOR_H-0.5,cz),FC)
+        end
+        -- Right of hole
+        if openXR < cx+hw then
+            gp("CeilHR",Vector3.new((cx+hw)-openXR,1,TOW_D),Vector3.new((openXR+cx+hw)/2,o.Y+FLOOR_H-0.5,cz),FC)
+        end
+        -- Front of hole
         if openZ1 > cz-TOW_D/2 then
-            gp("CeilFront",Vector3.new(stepW+2, 1, openZ1-(cz-TOW_D/2)),
-                Vector3.new(rampX, o.Y+FLOOR_H-0.5, (openZ1+cz-TOW_D/2)/2), FC)
+            gp("CeilHF",Vector3.new(stepW,1,openZ1-(cz-TOW_D/2)),Vector3.new(rampX,o.Y+FLOOR_H-0.5,(cz-TOW_D/2+openZ1)/2),FC)
         end
+        -- Back of hole
         if openZ2 < cz+TOW_D/2 then
-            gp("CeilBack",Vector3.new(stepW+2, 1, cz+TOW_D/2-openZ2),
-                Vector3.new(rampX, o.Y+FLOOR_H-0.5, (openZ2+cz+TOW_D/2)/2), FC)
+            gp("CeilHB",Vector3.new(stepW,1,(cz+TOW_D/2)-openZ2),Vector3.new(rampX,o.Y+FLOOR_H-0.5,(openZ2+cz+TOW_D/2)/2),FC)
         end
+        -- Hole blocker (invisible, toggled closed during events)
+        local blocker=Instance.new("Part"); blocker.Name="StairBlocker_"..floorIdx
+        blocker.Size=Vector3.new(stepW,1,openZ2-openZ1)
+        blocker.Position=Vector3.new(rampX,o.Y+FLOOR_H-0.5,(openZ1+openZ2)/2)
+        blocker.Anchored=true; blocker.CanCollide=false; blocker.Transparency=1
+        blocker.Material=Enum.Material.SmoothPlastic; blocker.Color=FC
+        blocker.CastShadow=false; blocker.Parent=f
+        table.insert(parts, blocker)
     end
 
     -- Ambient light
@@ -1126,12 +1151,12 @@ buildRegret = function(floorIdx)
         end
     end
 
-    -- Block upward stair
-    local stairBlock = nil
+    -- Close stair hole blocker during regret
+    local stairBlocker = nil
     if griefFloors[floorIdx] then
         for _,p in ipairs(griefFloors[floorIdx].parts) do
-            if p.Name == "Stair_"..floorIdx then
-                p.Transparency = 1; p.CanCollide = false; stairBlock = p; break
+            if p.Name == "StairBlocker_"..floorIdx then
+                p.Transparency = 0.25; p.CanCollide = true; stairBlocker = p; break
             end
         end
     end
@@ -1152,8 +1177,8 @@ buildRegret = function(floorIdx)
 
     -- After 4s: eat floor (remove walls, keep stair)
     task.delay(4, function()
-        -- Restore stair block
-        if stairBlock then stairBlock.Transparency=0; stairBlock.CanCollide=true end
+        -- Reopen stair hole
+        if stairBlocker then stairBlocker.Transparency=1; stairBlocker.CanCollide=false end
 
         -- Remove wall parts on current floor (leave stair)
         if griefFloors[floorIdx] then
@@ -1226,6 +1251,18 @@ runFogEvent = function()
     TweenService:Create(Lighting:FindFirstChildOfClass("Atmosphere") or Lighting,
         TweenInfo.new(0),{}):Play()  -- placeholder
     Lighting.FogEnd = 20
+    -- Close stair blockers during fog event
+    local hrpFE=getHRP()
+    if hrpFE then
+        local curF=math.max(1,math.floor((hrpFE.Position.Y-GTOW_ORIGIN.Y)/FLOOR_H)+1)
+        for fi=curF-1,curF+1 do
+            if griefFloors[fi] then
+                for _,p in ipairs(griefFloors[fi].parts) do
+                    if p.Name:match("StairBlocker_") then p.Transparency=0.25; p.CanCollide=true end
+                end
+            end
+        end
+    end
 
     -- Shake during thick fog
     local shakeConn; shakeConn = RunService.Heartbeat:Connect(function(dt)
@@ -1259,6 +1296,14 @@ runFogEvent = function()
             pcall(function() shakeConn:Disconnect() end)
             TweenService:Create(Lighting,TweenInfo.new(1.5),{FogColor=origColor, FogEnd=origEnd}):Play()
             if griefRainSound then TweenService:Create(griefRainSound,TweenInfo.new(1.5),{Volume=0.4}):Play() end
+            -- Reopen stair blockers
+            for _,fd in pairs(griefFloors) do
+                for _,p in ipairs(fd.parts) do
+                    if p and p.Parent and p.Name:match("StairBlocker_") then
+                        p.Transparency=1; p.CanCollide=false
+                    end
+                end
+            end
             fogEventActive = false
         end)
     end)
@@ -1384,7 +1429,7 @@ onFloorEntered = function(floorIdx)
 
     -- Generate next 2 floors
     for i=floorIdx,floorIdx+2 do
-        if not griefFloors[i] and i<=35 then buildGriefFloor(i) end
+        if not griefFloors[i] and i<=50 then buildGriefFloor(i) end
     end
 
     -- Start flood rising on floor 2+
@@ -1679,6 +1724,795 @@ task.delay(1, function()
                 if selectedDomain~="Grief" then return end
                 if domainActive or griefActive then return end
                 startGriefDomain()
+            end)
+            break
+        end
+    end
+end)
+
+-- ================================================================
+--  nevaeH DOMAIN  (Saint's Domain)
+-- ================================================================
+
+-- Forward declarations
+local nPhase
+local nBelieverList
+local nDeity
+local nDeityActive
+local nDeityEventConn
+local runDeityEvent
+local spawnBeliever
+local startNPhase
+local nShowVictory
+local nExitCutscene
+
+-- Constants
+local NHV_ORIGIN   = Vector3.new(-600, 0, 0)
+local NHV_SIZE     = 280      -- map radius (square half-side)
+local NHV_TREE_H   = 120
+local NHV_TREE_R   = 12
+local NEVAEH_SPEED = 45
+
+-- State
+local nevaeHActive  = false
+local nevaeHConn    = nil
+local nPhase        = 1
+local nStatuePrayed = 0
+local nStatueGoal   = {3,5,7,10,20}  -- per phase
+local nStatues      = {}  -- {part, fake, prayed, conn}
+local nBelieverList = {}
+local nDeityActive  = false
+local nDeityConn    = nil
+local nFallObjects  = {}
+local nTreePart     = nil
+local nDeityPart    = nil
+local nAfterimages  = {}
+local nGrassConn    = nil
+local nFallConn     = nil
+local nDeityFogConn = nil
+local nPhaseFolder  = nil
+local nMapFolder    = nil
+
+-- Fog tween shortcut
+local function setNFog(color, fstart, fend_val, dur)
+    if dur and dur > 0 then
+        TweenService:Create(Lighting, TweenInfo.new(dur), {
+            FogColor=color, FogStart=fstart, FogEnd=fend_val
+        }):Play()
+    else
+        Lighting.FogColor=color; Lighting.FogStart=fstart; Lighting.FogEnd=fend_val
+    end
+end
+
+-- ── Map builder ──────────────────────────────────────────────
+local function buildNevaeHMap()
+    nMapFolder = Instance.new("Folder"); nMapFolder.Name="nevaeHMap"; nMapFolder.Parent=workspace
+    local cx=NHV_ORIGIN.X; local cz=NHV_ORIGIN.Z; local hs=NHV_SIZE
+
+    -- Ground base (grass)
+    local grass=makePart("NBase",Vector3.new(hs*2,1,hs*2),Vector3.new(cx,-0.5,cz),
+        Color3.fromRGB(45,110,45),Enum.Material.Grass,0,true,nMapFolder)
+
+    -- Soil path: ring around tree (radius 35, width 10)
+    local RING_R=35; local RING_SEGS=28
+    for i=1,RING_SEGS do
+        local a=(i/RING_SEGS)*math.pi*2
+        local na=((i+1)/RING_SEGS)*math.pi*2
+        local px=cx+math.cos(a)*RING_R; local pz=cz+math.sin(a)*RING_R
+        local nx=cx+math.cos(na)*RING_R; local nz=cz+math.sin(na)*RING_R
+        local mid=Vector3.new((px+nx)/2, 0.1, (pz+nz)/2)
+        local len=(Vector3.new(px,0,pz)-Vector3.new(nx,0,nz)).Magnitude
+        local seg=Instance.new("Part"); seg.Name="SoilRing"; seg.Size=Vector3.new(10,0.5,len+1)
+        seg.CFrame=CFrame.new(mid)*CFrame.Angles(0,a+math.pi/2,0)
+        seg.Anchored=true; seg.CanCollide=true; seg.Material=Enum.Material.SmoothPlastic
+        seg.Color=Color3.fromRGB(100,70,40); seg.Parent=nMapFolder
+    end
+
+    -- 4 soil paths leading outward from ring
+    local pathDirs={{1,0},{-1,0},{0,1},{0,-1}}
+    for _,d in ipairs(pathDirs) do
+        for step=0,10 do
+            local dist=RING_R+10+step*22
+            local px=cx+d[1]*dist; local pz=cz+d[2]*dist
+            local seg=makePart("SoilPath",Vector3.new(10,0.5,22),
+                Vector3.new(px,0.1,pz),Color3.fromRGB(100,70,40),Enum.Material.SmoothPlastic,0,true,nMapFolder)
+            if d[1]~=0 then seg.Size=Vector3.new(22,0.5,10) end
+        end
+    end
+
+    -- Soil patches scattered
+    for i=1,35 do
+        local a=math.random()*math.pi*2; local r=math.random(50,hs-20)
+        local sp=makePart("SoilPatch",Vector3.new(math.random(8,18),0.5,math.random(8,18)),
+            Vector3.new(cx+math.cos(a)*r,0.1,cz+math.sin(a)*r),
+            Color3.fromRGB(110,75,45),Enum.Material.SmoothPlastic,0,true,nMapFolder)
+    end
+
+    -- Giant tree trunk
+    nTreePart=makePart("NTree",Vector3.new(NHV_TREE_R*2,NHV_TREE_H,NHV_TREE_R*2),
+        Vector3.new(cx,NHV_TREE_H/2,cz),Color3.fromRGB(60,35,18),Enum.Material.Wood,0,true,nMapFolder)
+    nTreePart.Shape = Enum.PartType.Cylinder
+    -- Rotate cylinder to be vertical
+    nTreePart.CFrame = CFrame.new(cx,NHV_TREE_H/2,cz)*CFrame.Angles(0,0,math.pi/2)
+    nTreePart.Size = Vector3.new(NHV_TREE_H,NHV_TREE_R*2,NHV_TREE_R*2)
+
+    -- Tree canopy (big ball cluster)
+    for i=1,5 do
+        local a=math.random()*math.pi*2; local r=math.random(15,30)
+        local bh=NHV_TREE_H+math.random(-10,20)
+        local ball=makePart("Canopy_"..i,Vector3.new(math.random(30,55),math.random(25,40),math.random(30,55)),
+            Vector3.new(cx+math.cos(a)*r,bh,cz+math.sin(a)*r),
+            Color3.fromRGB(30,90,30),Enum.Material.Grass,0,false,nMapFolder)
+        ball.Shape=Enum.PartType.Ball
+    end
+    -- Center canopy
+    makePart("CanopyC",Vector3.new(60,45,60),Vector3.new(cx,NHV_TREE_H+18,cz),
+        Color3.fromRGB(25,80,25),Enum.Material.Grass,0,false,nMapFolder)
+
+    return nMapFolder
+end
+
+-- ── Statue builder ────────────────────────────────────────────
+local function spawnStatue(isFake)
+    local cx=NHV_ORIGIN.X; local cz_t=NHV_ORIGIN.Z; local hs=NHV_SIZE
+    local pos
+    if isFake then
+        -- On grass (not soil - random position)
+        local a=math.random()*math.pi*2; local r=math.random(55,hs-25)
+        pos=Vector3.new(cx+math.cos(a)*r, 0.5, cz_t+math.sin(a)*r)
+    else
+        -- On soil paths/ring area
+        local paths={{cx-120,cz_t},{cx+120,cz_t},{cx,cz_t-120},{cx,cz_t+120},
+                     {cx-80,cz_t-80},{cx+80,cz_t+80},{cx-80,cz_t+80},{cx+80,cz_t-80}}
+        local pick=paths[math.random(1,#paths)]
+        pos=Vector3.new(pick[1]+math.random(-8,8),0.5,pick[2]+math.random(-8,8))
+    end
+
+    local f=Instance.new("Folder"); f.Name=isFake and "FakeStatue" or "Statue"; f.Parent=workspace
+    local base=makePart("Base",Vector3.new(3,0.5,3),pos,Color3.fromRGB(160,150,140),nil,0,true,f)
+    local pillar=makePart("Pillar",Vector3.new(1.5,4,1.5),pos+Vector3.new(0,2.25,0),Color3.fromRGB(160,150,140),nil,0,true,f)
+    local head=makePart("Head",Vector3.new(2,2,2),pos+Vector3.new(0,5.5,0),Color3.fromRGB(180,170,160),nil,0,true,f)
+    head.Shape=Enum.PartType.Ball
+
+    local pp=Instance.new("ProximityPrompt"); pp.ActionText="Pray"
+    pp.MaxActivationDistance=8; pp.HoldDuration=5; pp.RequiresLineOfSight=false
+    pp.ObjectText=isFake and "???" or "Statue"; pp.Parent=base
+
+    local sd={folder=f, base=base, fake=isFake, prayed=false, pp=pp}
+
+    pp.Triggered:Connect(function()
+        if sd.prayed then return end
+        sd.prayed=true; pp:Destroy()
+        if isFake then
+            -- Red ESP for 3s then fade, 30 damage
+            local hl=Instance.new("Highlight"); hl.Adornee=base
+            hl.OutlineColor=Color3.fromRGB(255,20,0); hl.FillColor=Color3.fromRGB(200,0,0)
+            hl.FillTransparency=0.4; hl.DepthMode=Enum.HighlightDepthMode.AlwaysOnTop; hl.Parent=base
+            playSound("133245268132726",base,1)
+            local hum=getHum(); if hum then hum.Health=math.max(0.1,hum.Health-30) end
+            task.delay(3,function()
+                TweenService:Create(hl,TweenInfo.new(0.5),{OutlineTransparency=1,FillTransparency=1}):Play()
+                task.delay(0.6,function() if hl.Parent then hl:Destroy() end end)
+            end)
+        else
+            -- Green ESP for 3s
+            local hl=Instance.new("Highlight"); hl.Adornee=base
+            hl.OutlineColor=Color3.fromRGB(0,255,60); hl.FillColor=Color3.fromRGB(0,200,40)
+            hl.FillTransparency=0.4; hl.DepthMode=Enum.HighlightDepthMode.AlwaysOnTop; hl.Parent=base
+            playSound("115937318685871",base,0.8)
+            nStatuePrayed=nStatuePrayed+1
+            local goal=nStatueGoal[nPhase] or 3
+            hudLbl.Text="nevaeH - Statues: "..nStatuePrayed.."/"..goal
+            task.delay(3,function()
+                TweenService:Create(hl,TweenInfo.new(0.5),{OutlineTransparency=1,FillTransparency=1}):Play()
+                task.delay(0.6,function() if hl.Parent then hl:Destroy() end end)
+            end)
+            -- Check phase complete
+            if nStatuePrayed >= goal and nevaeHActive then
+                task.delay(0.5,function() startNPhase(nPhase+1) end)
+            end
+        end
+    end)
+
+    table.insert(nStatues,sd)
+    return sd
+end
+
+local function spawnNStatues(count, fakeCount)
+    for i=1,count do spawnStatue(false) end
+    for i=1,fakeCount do spawnStatue(true) end
+end
+
+local function clearNStatues()
+    for _,sd in ipairs(nStatues) do
+        if sd.folder and sd.folder.Parent then sd.folder:Destroy() end
+    end
+    nStatues={}
+end
+
+-- ── Deity ─────────────────────────────────────────────────────
+local function buildDeity()
+    if nDeityPart then return end
+    local cx=NHV_ORIGIN.X; local cz_t=NHV_ORIGIN.Z
+    local topY=NHV_TREE_H+55
+
+    nDeityPart=Instance.new("Part"); nDeityPart.Name="Deity"
+    nDeityPart.Size=Vector3.new(4,4,4); nDeityPart.Position=Vector3.new(cx,topY,cz_t)
+    nDeityPart.Anchored=true; nDeityPart.CanCollide=false; nDeityPart.Transparency=1
+    nDeityPart.CastShadow=false; nDeityPart.Parent=workspace
+
+    local bb=Instance.new("BillboardGui"); bb.Name="DeityEye"
+    bb.Size=UDim2.new(0,450,0,450); bb.StudsOffsetWorldSpace=Vector3.new(0,0,0)
+    bb.AlwaysOnTop=true; bb.Parent=nDeityPart
+
+    local root=Instance.new("Frame"); root.Size=UDim2.new(1,0,1,0)
+    root.BackgroundTransparency=1; root.BorderSizePixel=0; root.Parent=bb
+
+    -- Golden ring (halo)
+    local halo=Instance.new("Frame"); halo.Size=UDim2.new(0,160,0,160)
+    halo.Position=UDim2.new(0.5,-80,0.02,0); halo.BackgroundTransparency=1
+    halo.BorderSizePixel=0; halo.Parent=root
+    Instance.new("UICorner",halo).CornerRadius=UDim.new(1,0)
+    local hs=Instance.new("UIStroke"); hs.Color=Color3.fromRGB(255,210,50); hs.Thickness=12; hs.Parent=halo
+
+    -- Multiple wings (6 pairs, semi-transparent)
+    local wingAngles={-80,-50,-20,20,50,80}
+    for _,ang in ipairs(wingAngles) do
+        for side=-1,1,2 do
+            local w=Instance.new("Frame"); w.Size=UDim2.new(0,90,0,30)
+            w.BackgroundColor3=Color3.fromRGB(240,230,180)
+            w.BackgroundTransparency=0.45; w.BorderSizePixel=0
+            local wx = 0.5 + side*0.22
+            w.Position=UDim2.new(wx,-45,0.45,-15)
+            w.Rotation=ang*side; w.Parent=root
+            Instance.new("UICorner",w).CornerRadius=UDim.new(0.5,0)
+        end
+    end
+
+    -- Eye container
+    local eyeCon=Instance.new("Frame"); eyeCon.Name="DeityEyeCon"
+    eyeCon.Size=UDim2.new(0,200,0,100); eyeCon.Position=UDim2.new(0.5,-100,0.5,-50)
+    eyeCon.BackgroundTransparency=1; eyeCon.ClipsDescendants=true; eyeCon.Parent=root
+
+    local eyeW=Instance.new("Frame"); eyeW.Size=UDim2.new(1,0,1,0)
+    eyeW.BackgroundColor3=Color3.fromRGB(10,8,15); eyeW.Parent=eyeCon  -- black eye
+    Instance.new("UICorner",eyeW).CornerRadius=UDim.new(0.5,0)
+
+    local pupil=Instance.new("Frame"); pupil.Name="DeityPupil"
+    pupil.Size=UDim2.new(0,50,0,50); pupil.Position=UDim2.new(0.5,-25,0.5,-25)
+    pupil.BackgroundColor3=Color3.new(1,1,1); pupil.Parent=eyeW  -- white pupil
+    Instance.new("UICorner",pupil).CornerRadius=UDim.new(1,0)
+
+    -- Eyelids (start closed)
+    local upperLid=Instance.new("Frame"); upperLid.Name="DUpperLid"
+    upperLid.Size=UDim2.new(1,0,0.65,0); upperLid.Position=UDim2.new(0,0,-0.05,0)
+    upperLid.BackgroundColor3=Color3.fromRGB(10,8,15); upperLid.ZIndex=5; upperLid.Parent=eyeCon
+    Instance.new("UICorner",upperLid).CornerRadius=UDim.new(0.35,0)
+
+    local lowerLid=Instance.new("Frame"); lowerLid.Name="DLowerLid"
+    lowerLid.Size=UDim2.new(1,0,0.65,0); lowerLid.Position=UDim2.new(0,0,0.40,0)
+    lowerLid.BackgroundColor3=Color3.fromRGB(10,8,15); lowerLid.ZIndex=5; lowerLid.Parent=eyeCon
+    Instance.new("UICorner",lowerLid).CornerRadius=UDim.new(0.35,0)
+
+    -- Wing flutter animation
+    local wingT=0
+    local wingConn=RunService.Heartbeat:Connect(function(dt)
+        if not nDeityPart or not nDeityPart.Parent then return end
+        wingT=wingT+dt*2.5
+        for i,w in ipairs(root:GetChildren()) do
+            if w:IsA("Frame") and w.Name=="" then
+                local flut=math.sin(wingT*1.8+i*0.6)*12
+                w.Rotation=w.Rotation+flut*dt*0.5
+            end
+        end
+    end)
+    nDeityPart.Destroying:Connect(function() pcall(function() wingConn:Disconnect() end) end)
+
+    return nDeityPart, {upperLid=upperLid,lowerLid=lowerLid,pupil=pupil}
+end
+
+-- ── Deity event ───────────────────────────────────────────────
+runDeityEvent = function(eyeParts)
+    if not nDeityPart or not nevaeHActive then return end
+    local open = math.random()<0.30
+    if not open then return end  -- 30% chance
+
+    -- Open lids
+    TweenService:Create(eyeParts.upperLid,TweenInfo.new(0.5,Enum.EasingStyle.Back),
+        {Position=UDim2.new(0,0,-0.9,0)}):Play()
+    TweenService:Create(eyeParts.lowerLid,TweenInfo.new(0.5,Enum.EasingStyle.Back),
+        {Position=UDim2.new(0,0,1.2,0)}):Play()
+
+    nDeityActive=true
+    local cam=workspace.CurrentCamera
+    local cf0=cam.CFrame
+    local camYaw=math.atan2(-cf0.LookVector.X,-cf0.LookVector.Z)
+    local camPitch=math.asin(math.clamp(cf0.LookVector.Y,-1,1))
+    local origType=cam.CameraType
+    cam.CameraType=Enum.CameraType.Scriptable
+
+    -- Make player invisible
+    local function setCharVis(vis)
+        local c=player.Character; if not c then return end
+        for _,obj in ipairs(c:GetDescendants()) do
+            if obj:IsA("BasePart") or obj:IsA("Decal") then obj.LocalTransparencyModifier=vis and 0 or 1 end
+        end
+    end
+    setCharVis(false)
+
+    local PULL=0.06
+    local gazeTime=0
+    local evStart=tick()
+    local EVT_DUR=6
+    local origFogColor=Lighting.FogColor
+    local origFogEnd=Lighting.FogEnd
+
+    if nDeityConn then nDeityConn:Disconnect() end
+    nDeityConn=RunService.Heartbeat:Connect(function(dt)
+        if not nevaeHActive then nDeityConn:Disconnect(); return end
+        local elapsed=tick()-evStart
+        if elapsed>=EVT_DUR then
+            nDeityConn:Disconnect(); nDeityConn=nil
+            TweenService:Create(eyeParts.upperLid,TweenInfo.new(0.4),{Position=UDim2.new(0,0,-0.05,0)}):Play()
+            TweenService:Create(eyeParts.lowerLid,TweenInfo.new(0.4),{Position=UDim2.new(0,0,0.40,0)}):Play()
+            cam.CameraType=origType; setCharVis(true)
+            setNFog(origFogColor, 15, origFogEnd, 2)
+            nDeityActive=false
+            return
+        end
+
+        local hrp=getHRP(); if not hrp then return end
+        local headPos=hrp.Position+Vector3.new(0,2,0)
+        local deityPos=nDeityPart.Position
+        local toD=(deityPos-headPos)
+        if toD.Magnitude<0.1 then return end; toD=toD.Unit
+
+        local delta=UIS:GetMouseDelta()
+        camYaw=camYaw-delta.X*0.0025
+        camPitch=math.clamp(camPitch-delta.Y*0.0025,-1.4,1.4)
+
+        local tYaw=math.atan2(-toD.X,-toD.Z)
+        local tPitch=math.asin(math.clamp(toD.Y,-1,1))
+        local dy=((tYaw-camYaw+math.pi)%(math.pi*2))-math.pi
+        camYaw=camYaw+dy*PULL
+        camPitch=camPitch+(tPitch-camPitch)*PULL
+
+        cam.CFrame=CFrame.new(headPos)*CFrame.Angles(0,camYaw,0)*CFrame.Angles(camPitch,0,0)
+
+        local dot=cam.CFrame.LookVector:Dot(toD)
+        local progress=math.clamp(dot,0,1)
+
+        -- Fog reddening + shake proportional to gaze
+        local fogR=math.floor(130+progress*125)
+        local fogG=math.floor(130-progress*120)
+        Lighting.FogColor=Color3.fromRGB(fogR,fogG,fogG)
+        Lighting.FogEnd=math.max(20, origFogEnd-progress*60)
+        if progress>0.1 then doShake(progress*4,0.2) end
+
+        local hum=getHum(); if not hum then return end
+        if dot>0.92 then
+            gazeTime=gazeTime+dt
+            if gazeTime>=0.4 then
+                -- Instant death + afterimage
+                nDeityConn:Disconnect(); nDeityConn=nil
+                cam.CameraType=origType; setCharVis(true)
+                setNFog(origFogColor,15,origFogEnd,2)
+                nDeityActive=false
+                -- Afterimage (white wings + yellow ring, permanent)
+                local aimf=Instance.new("Part"); aimf.Name="Afterimage"
+                aimf.Size=Vector3.new(4,8,1); aimf.Position=hrp.Position
+                aimf.Anchored=true; aimf.CanCollide=false
+                aimf.Material=Enum.Material.Neon; aimf.Color=Color3.new(1,1,1)
+                aimf.Transparency=0.35; aimf.CastShadow=false; aimf.Parent=workspace
+                local ahl=Instance.new("Highlight"); ahl.Adornee=aimf
+                ahl.OutlineColor=Color3.fromRGB(255,210,50); ahl.FillColor=Color3.new(1,1,1)
+                ahl.FillTransparency=0.3; ahl.DepthMode=Enum.HighlightDepthMode.AlwaysOnTop; ahl.Parent=aimf
+                -- Wings on billboard
+                local aiBB=Instance.new("BillboardGui"); aiBB.Size=UDim2.new(0,120,0,120)
+                aiBB.AlwaysOnTop=false; aiBB.Parent=aimf
+                local aiR=Instance.new("Frame"); aiR.Size=UDim2.new(1,0,1,0)
+                aiR.BackgroundTransparency=1; aiR.Parent=aiBB
+                for _,side in ipairs({-1,1}) do
+                    local w=Instance.new("Frame"); w.Size=UDim2.new(0,55,0,22)
+                    w.BackgroundColor3=Color3.new(1,1,1); w.BackgroundTransparency=0.3
+                    w.Position=UDim2.new(0.5,side==(-1) and -70 or 15,0.3,0)
+                    w.Rotation=side*20; w.Parent=aiR
+                    Instance.new("UICorner",w).CornerRadius=UDim.new(0.5,0)
+                end
+                -- Ring above
+                local aiHalo=Instance.new("Frame"); aiHalo.Size=UDim2.new(0,40,0,40)
+                aiHalo.Position=UDim2.new(0.5,-20,0,0); aiHalo.BackgroundTransparency=1; aiHalo.Parent=aiBB
+                Instance.new("UICorner",aiHalo).CornerRadius=UDim.new(1,0)
+                local aiS=Instance.new("UIStroke"); aiS.Color=Color3.fromRGB(255,210,50); aiS.Thickness=5; aiS.Parent=aiHalo
+                table.insert(nAfterimages,aimf)
+
+                TweenService:Create(eyeParts.upperLid,TweenInfo.new(0.4),{Position=UDim2.new(0,0,-0.05,0)}):Play()
+                TweenService:Create(eyeParts.lowerLid,TweenInfo.new(0.4),{Position=UDim2.new(0,0,0.40,0)}):Play()
+                hum.Health=0
+            end
+        else
+            gazeTime=math.max(0,gazeTime-dt*0.8)
+        end
+    end)
+end
+
+-- ── Believer entity ───────────────────────────────────────────
+spawnBeliever = function()
+    local cx=NHV_ORIGIN.X; local cz_t=NHV_ORIGIN.Z
+    local ang=math.random()*math.pi*2; local r=math.random(30,80)
+    local pos=Vector3.new(cx+math.cos(ang)*r,1,cz_t+math.sin(ang)*r)
+
+    local f=Instance.new("Folder"); f.Name="Believer"; f.Parent=workspace
+    local glow=Color3.fromRGB(200,190,140)
+    local function bp(name,sz,cf,col,trans)
+        local p=Instance.new("Part"); p.Name=name; p.Size=sz; p.CFrame=cf
+        p.Anchored=true; p.CanCollide=false; p.Color=col; p.Transparency=trans or 0
+        p.Material=Enum.Material.SmoothPlastic; p.CastShadow=false; p.Parent=f; return p
+    end
+    local root=bp("Root",Vector3.new(0.1,0.1,0.1),CFrame.new(pos),Color3.new(0,0,0),0.999)
+    bp("Torso",   Vector3.new(2,2,1),   CFrame.new(pos),glow)
+    bp("Head",    Vector3.new(2,1,1),   CFrame.new(pos+Vector3.new(0,1.5,0)),glow)
+    bp("LAr",     Vector3.new(1,2,1),   CFrame.new(pos+Vector3.new(-1.5,0,0)),glow)
+    bp("RAr",     Vector3.new(1,2,1),   CFrame.new(pos+Vector3.new( 1.5,0,0)),glow)
+    bp("LLg",     Vector3.new(1,2,1),   CFrame.new(pos+Vector3.new(-0.5,-2,0)),glow)
+    bp("RLg",     Vector3.new(1,2,1),   CFrame.new(pos+Vector3.new( 0.5,-2,0)),glow)
+    -- Wings (phases 3+)
+    for _,side in ipairs({-1,1}) do
+        bp("Wing"..side,Vector3.new(0.3,4,8),
+            CFrame.new(pos+Vector3.new(side*4,1,0))*CFrame.Angles(0,0,side*0.4),
+            Color3.fromRGB(230,220,180),0.35)
+    end
+    local hl=Instance.new("Highlight"); hl.Adornee=root
+    hl.OutlineColor=Color3.fromRGB(220,200,80); hl.FillColor=Color3.fromRGB(200,180,60)
+    hl.FillTransparency=0.5; hl.DepthMode=Enum.HighlightDepthMode.AlwaysOnTop; hl.Parent=root
+
+    local health=90; local speed=20
+    local ent={folder=f,root=root,health=health,speed=speed,hbConn=nil,dead=false,stopped=false}
+
+    local function setPos(np)
+        if not f.Parent then return end
+        local off=np-root.CFrame.Position
+        for _,p in ipairs(f:GetDescendants()) do if p:IsA("BasePart") then p.CFrame=p.CFrame+off end end
+    end
+
+    ent.hbConn=RunService.Heartbeat:Connect(function(dt)
+        if ent.dead or ent.stopped then return end
+        if not f.Parent then return end
+        local hrp=getHRP(); if not hrp then return end
+        local cur=root.CFrame.Position
+        local tgt=hrp.Position; local diff=tgt-cur; local dist=diff.Magnitude
+        if dist>0.5 then setPos(cur+diff.Unit*math.min(speed*dt,dist)) end
+
+        -- Face
+        if dist>0.5 then
+            local fCF=CFrame.new(cur,Vector3.new(tgt.X,cur.Y,tgt.Z))
+            local dy=math.atan2(-fCF.LookVector.X,-fCF.LookVector.Z)-math.atan2(-root.CFrame.LookVector.X,-root.CFrame.LookVector.Z)
+            dy=((dy+math.pi)%(math.pi*2))-math.pi
+            if math.abs(dy)>0.01 then
+                local c2,s2=math.cos(dy),math.sin(dy); local orig=root.CFrame.Position
+                for _,p in ipairs(f:GetDescendants()) do
+                    if p:IsA("BasePart") then
+                        local lp=p.CFrame.Position-orig
+                        p.CFrame=CFrame.new(orig+Vector3.new(lp.X*c2-lp.Z*s2,lp.Y,lp.X*s2+lp.Z*c2))*CFrame.Angles(0,dy,0)
+                    end
+                end
+            end
+        end
+
+        -- Hit
+        if dist<3.2 then
+            local hum=getHum(); if hum and hum.Health>0 then
+                hum.Health=math.max(0.1,hum.Health-35*dt)
+                if math.random()<0.04 then playSound("76525344270919",root,0.8) end
+            end
+        end
+
+        -- Parry
+        if isParrying and not parryCooldown and dist<5 then
+            triggerParryCooldown(2)
+            playSound("133245268132726",root,1)
+            ent.health=ent.health-30
+            if ent.health<=0 then
+                playSound("81916503066203",root,1)
+                ent.dead=true; ent.hbConn:Disconnect()
+                TweenService:Create(root,TweenInfo.new(0.5),{Transparency=1}):Play()
+                task.delay(0.55,function() if f.Parent then f:Destroy() end end)
+                for i,e in ipairs(nBelieverList) do if e==ent then table.remove(nBelieverList,i); break end end
+                return
+            end
+            -- Knockback
+            local away=(cur-tgt).Unit
+            task.spawn(function()
+                for _=1,15 do task.wait(0.04); if ent.dead then break end; setPos(root.CFrame.Position+away*2.5) end
+            end)
+        end
+    end)
+
+    table.insert(nBelieverList,ent)
+    return ent
+end
+
+-- ── Falling objects (phase 5) ─────────────────────────────────
+local function startFalling()
+    if nFallConn then return end
+    task.spawn(function()
+        while nevaeHActive and nPhase>=5 do
+            task.wait(1)
+            for i=1,5 do
+                task.spawn(function()
+                    local hrp=getHRP(); if not hrp then return end
+                    local ang=math.random()*math.pi*2; local r=math.random(5,45)
+                    local fx=hrp.Position.X+math.cos(ang)*r
+                    local fz=hrp.Position.Z+math.sin(ang)*r
+                    local obj=Instance.new("Part"); obj.Name="FallObj"
+                    obj.Size=Vector3.new(math.random(2,5),math.random(2,5),math.random(2,5))
+                    obj.Position=Vector3.new(fx,hrp.Position.Y+60,fz)
+                    obj.Anchored=false; obj.CanCollide=true
+                    obj.Material=Enum.Material.SmoothPlastic
+                    obj.Color=Color3.fromRGB(80,80,90); obj.CastShadow=false; obj.Parent=workspace
+                    game:GetService("Debris"):AddItem(obj,5)
+                    local oc; oc=obj.Touched:Connect(function(hit)
+                        if hit.Parent~=player.Character then return end
+                        local hum=getHum(); if hum then hum.Health=math.max(0.1,hum.Health-30) end
+                        oc:Disconnect()
+                    end)
+                    table.insert(nFallObjects,obj)
+                end)
+            end
+        end
+    end)
+end
+
+-- ── Phase transitions ─────────────────────────────────────────
+local deityEyeParts = nil
+
+startNPhase = function(p)
+    if not nevaeHActive then return end
+    nPhase=p; nStatuePrayed=0
+    clearNStatues()
+
+    if p==1 then
+        -- Setup already done in startNevaeH
+    elseif p==2 then
+        -- Black fog, night
+        setNFog(Color3.fromRGB(15,15,25), 15, 200, 3)
+        Lighting.Brightness=0.15
+        hudLbl.Text="nevaeH - Phase 2  Statues: 0/5"
+        hudLbl.TextColor3=Color3.fromRGB(180,180,220)
+        spawnNStatues(5,0)
+        -- Build and activate Deity
+        local dp,ep=buildDeity(); deityEyeParts=ep
+        -- Schedule deity events every 20s
+        task.spawn(function()
+            while nevaeHActive and nPhase>=2 do
+                task.wait(20)
+                if nevaeHActive and nPhase>=2 and deityEyeParts then
+                    runDeityEvent(deityEyeParts)
+                end
+            end
+        end)
+    elseif p==3 then
+        hudLbl.Text="nevaeH - Phase 3  Statues: 0/7"
+        setNFog(Color3.fromRGB(10,10,20),15,180,2)
+        spawnNStatues(7,0)
+        -- Spawn first believers from tree
+        for i=1,3 do
+            task.delay(i*1.5,function() if nevaeHActive then spawnBeliever() end end)
+        end
+        -- Ongoing believer spawning every 25s
+        task.spawn(function()
+            while nevaeHActive and nPhase>=3 do
+                task.wait(25)
+                if nevaeHActive and nPhase>=3 and #nBelieverList<8 then spawnBeliever() end
+            end
+        end)
+    elseif p==4 then
+        hudLbl.Text="nevaeH - Phase 4  Statues: 0/10"
+        setNFog(Color3.fromRGB(8,8,18),15,160,2)
+        spawnNStatues(10,5)  -- 10 real + 5 fake
+    elseif p==5 then
+        -- Flash screen
+        local fg=Instance.new("ScreenGui"); fg.Name="P5Flash"; fg.ResetOnSpawn=false; fg.Parent=player.PlayerGui
+        local ff=Instance.new("Frame"); ff.Size=UDim2.new(1,0,1,0)
+        ff.BackgroundColor3=Color3.new(1,1,1); ff.BackgroundTransparency=0; ff.BorderSizePixel=0; ff.Parent=fg
+        TweenService:Create(ff,TweenInfo.new(1.2),{BackgroundTransparency=1}):Play()
+        task.delay(1.3,function() if fg and fg.Parent then fg:Destroy() end end)
+
+        -- White less thick fog
+        setNFog(Color3.fromRGB(220,220,230),8,120,2)
+        hudLbl.Text="nevaeH - Phase 5  Statues: 0/20"
+        hudLbl.TextColor3=Color3.fromRGB(255,255,200)
+        spawnNStatues(20,10)
+        startFalling()
+        -- Constant weak shake
+        task.spawn(function()
+            while nevaeHActive and nPhase>=5 do
+                doShake(1.2, 0.8)
+                task.wait(0.9)
+            end
+        end)
+    elseif p==6 then
+        -- Finale
+        nExitCutscene()
+    end
+end
+
+-- ── Exit cutscene ─────────────────────────────────────────────
+nExitCutscene = function()
+    local cam=workspace.CurrentCamera
+    local hum=getHum(); if hum then hum.WalkSpeed=0; hum.JumpPower=0 end
+    local cx=NHV_ORIGIN.X; local cz_t=NHV_ORIGIN.Z
+    local treeTop=Vector3.new(cx,NHV_TREE_H+80,cz_t)
+
+    -- Camera from high above looking down at tree
+    cam.CameraType=Enum.CameraType.Scriptable
+    cam.CFrame=CFrame.new(cx,NHV_TREE_H+200,cz_t+20)*CFrame.Angles(-math.pi/2.2,0,0)
+
+    task.delay(5,function()
+        -- Tree burst of light
+        if nTreePart then
+            TweenService:Create(nTreePart,TweenInfo.new(0.8),{Color=Color3.new(1,1,0.8)}):Play()
+            local tl=Instance.new("PointLight"); tl.Brightness=50; tl.Range=600
+            tl.Color=Color3.fromRGB(255,245,150); tl.Parent=nTreePart
+        end
+
+        -- Yellow blind flash
+        local fgY=Instance.new("ScreenGui"); fgY.Name="TreeBurst"; fgY.ResetOnSpawn=false; fgY.Parent=player.PlayerGui
+        local ffy=Instance.new("Frame"); ffy.Size=UDim2.new(1,0,1,0)
+        ffy.BackgroundColor3=Color3.fromRGB(255,240,80); ffy.BackgroundTransparency=0; ffy.BorderSizePixel=0; ffy.Parent=fgY
+        doShake(20,1.5)
+        TweenService:Create(ffy,TweenInfo.new(3),{BackgroundTransparency=1}):Play()
+        task.delay(3.1,function() if fgY and fgY.Parent then fgY:Destroy() end end)
+
+        -- Fog → yellow
+        setNFog(Color3.fromRGB(255,240,100),15,300,2)
+
+        -- Stop falling objects
+        nPhase=99  -- stops all loops
+        for _,obj in ipairs(nFallObjects) do if obj and obj.Parent then obj:Destroy() end end
+
+        -- Deity disappears
+        if nDeityPart and nDeityPart.Parent then
+            TweenService:Create(nDeityPart,TweenInfo.new(1),{Transparency=1}):Play()
+            task.delay(1.1,function() if nDeityPart and nDeityPart.Parent then nDeityPart:Destroy(); nDeityPart=nil end end)
+        end
+
+        -- Believers stop, become angels (gold ESP, stopped)
+        for _,e in ipairs(nBelieverList) do
+            e.stopped=true
+            local hl=e.root and e.root:FindFirstChildOfClass("Highlight")
+            if hl then hl.OutlineColor=Color3.fromRGB(255,215,50); hl.FillColor=Color3.fromRGB(255,200,30) end
+        end
+
+        -- Fake statues get yellow ESP
+        for _,sd in ipairs(nStatues) do
+            if sd.fake and sd.folder and sd.folder.Parent then
+                local hl=Instance.new("Highlight"); hl.Adornee=sd.base
+                hl.OutlineColor=Color3.fromRGB(255,215,50); hl.FillColor=Color3.fromRGB(255,180,0)
+                hl.FillTransparency=0.4; hl.DepthMode=Enum.HighlightDepthMode.AlwaysOnTop; hl.Parent=sd.base
+            end
+        end
+    end)
+
+    -- Victory text + return camera at 8s
+    task.delay(8,function()
+        showVictoryText()
+        cam.CameraType=Enum.CameraType.Custom
+        local hum2=getHum(); if hum2 then hum2.WalkSpeed=NEVAEH_SPEED; hum2.JumpPower=50 end
+    end)
+
+    -- Exit path at 11s
+    task.delay(11,function()
+        local cx2=NHV_ORIGIN.X; local cz2=NHV_ORIGIN.Z
+        local pf=Instance.new("Folder"); pf.Name="NevPath"; pf.Parent=workspace
+        for i=1,15 do
+            task.delay(i*0.2,function()
+                local seg=makePart("NPath_"..i,Vector3.new(8,1,8),
+                    Vector3.new(cx2+i*10, 1, cz2+80),
+                    Color3.fromRGB(255,230,80),Enum.Material.Neon,1,true,pf)
+                TweenService:Create(seg,TweenInfo.new(0.5),{Transparency=0.1}):Play()
+            end)
+        end
+        -- Portal
+        task.delay(15*0.2+1,function()
+            local port=makePart("NevPortal",Vector3.new(9,14,2),
+                Vector3.new(cx2+15*10+5,7,cz2+80),
+                Color3.fromRGB(255,200,30),Enum.Material.Neon,0.2,false,pf)
+            local phl=Instance.new("Highlight"); phl.Adornee=port
+            phl.OutlineColor=Color3.fromRGB(255,230,60); phl.FillColor=Color3.fromRGB(255,200,0)
+            phl.FillTransparency=0.2; phl.DepthMode=Enum.HighlightDepthMode.AlwaysOnTop; phl.Parent=port
+            local pc; pc=port.Touched:Connect(function(hit)
+                if hit.Parent~=player.Character then return end
+                pc:Disconnect(); pf:Destroy()
+                nevaeHActive=false; restoreFog()
+                if nMapFolder and nMapFolder.Parent then nMapFolder:Destroy(); nMapFolder=nil end
+                for _,ai in ipairs(nAfterimages) do if ai.Parent then ai:Destroy() end end
+                local hrp3=getHRP(); if hrp3 then hrp3.CFrame=CFrame.new(safeSpawnPos) end
+                hudLbl.Text="nevaeH Domain Clear!"
+                hudLbl.TextColor3=Color3.fromRGB(255,240,100)
+                selectedDomain=nil
+            end)
+        end)
+    end)
+end
+
+-- ── Start nevaeH ──────────────────────────────────────────────
+local function startNevaeH()
+    nevaeHActive=true; nPhase=1; nStatuePrayed=0
+    nStatues={}; nBelieverList={}; nAfterimages={}; nFallObjects={}
+    nDeityPart=nil; nDeityActive=false
+
+    -- Phase 1 fog: blue, airy
+    setNFog(Color3.fromRGB(100,150,220),15,250,0)
+    Lighting.Brightness=1.2; Lighting.OutdoorAmbient=Color3.fromRGB(100,140,200)
+
+    -- Teleport + speed
+    local hrp=getHRP()
+    if hrp then hrp.CFrame=CFrame.new(NHV_ORIGIN.X,1.5,NHV_ORIGIN.Z+50) end
+    local hum=getHum(); if hum then hum.WalkSpeed=NEVAEH_SPEED; hum.JumpPower=50 end
+
+    buildNevaeHMap()
+    spawnNStatues(3,0)
+
+    hudLbl.Text="nevaeH - Statues: 0/3"
+    hudLbl.TextColor3=Color3.fromRGB(140,200,255)
+
+    -- Grass damage loop
+    nGrassConn=RunService.Heartbeat:Connect(function(dt)
+        if not nevaeHActive then nGrassConn:Disconnect(); return end
+        local hrp2=getHRP(); if not hrp2 then return end
+        local hum2=getHum(); if not hum2 then return end
+        -- Raycast downward to check surface
+        local result=workspace:Raycast(hrp2.Position,Vector3.new(0,-3.5,0))
+        if result and result.Instance then
+            local n=result.Instance.Name
+            if n~="SoilRing" and n~="SoilPath" and n~="SoilPatch" and n~="NPath" and not n:match("Step") and not n:match("Stair") then
+                if result.Instance.Material==Enum.Material.Grass then
+                    hum2.Health=math.max(0.1,hum2.Health-5*dt)
+                end
+            end
+        end
+    end)
+
+    -- Main loop
+    nevaeHConn=RunService.Heartbeat:Connect(function(dt)
+        if not nevaeHActive then nevaeHConn:Disconnect(); nevaeHConn=nil; return end
+    end)
+end
+
+-- Wire nevaeH button
+local nevBtn=Instance.new("TextButton"); nevBtn.Size=UDim2.new(0,200,0,32)
+nevBtn.Position=UDim2.new(0,525,0.5,-16); nevBtn.BackgroundColor3=Color3.fromRGB(12,20,35)
+nevBtn.Text="nevaeH  |  Saint's Domain"; nevBtn.Font=Enum.Font.GothamBold; nevBtn.TextSize=12
+nevBtn.TextColor3=Color3.fromRGB(140,190,255); nevBtn.BorderSizePixel=0; nevBtn.Parent=dsBar
+Instance.new("UICorner",nevBtn).CornerRadius=UDim.new(0,6)
+local nvs=Instance.new("UIStroke"); nvs.Color=Color3.fromRGB(80,140,255); nvs.Thickness=1.5; nvs.Parent=nevBtn
+
+-- Widen bar for 3 buttons
+dsBar.Size=UDim2.new(0,780,0,46)
+dsBar.Position=UDim2.new(0.5,-390,0,8)
+
+nevBtn.MouseButton1Click:Connect(function()
+    if domainActive or griefActive or nevaeHActive then return end
+    selectedDomain="nevaeH"
+    nevBtn.BackgroundColor3=Color3.fromRGB(20,35,65)
+    nevBtn.TextColor3=Color3.fromRGB(200,230,255)
+    frenzyBtn.BackgroundColor3=Color3.fromRGB(35,8,8); frenzyBtn.TextColor3=Color3.fromRGB(255,70,40)
+    griefBtn.BackgroundColor3=Color3.fromRGB(12,12,28); griefBtn.TextColor3=Color3.fromRGB(120,140,200)
+    dsNotice.Text="READY"; dsNotice.TextColor3=Color3.fromRGB(100,255,120)
+    hudLbl.Text="nevaeH selected - enter the door!"
+    hudLbl.TextColor3=Color3.fromRGB(140,190,255)
+end)
+
+-- Door handler
+task.delay(1.5,function()
+    for _,obj in ipairs(workspace:GetDescendants()) do
+        if obj.Name=="Door" and obj.Parent and obj.Parent.Name=="Saferoom" then
+            obj.Touched:Connect(function(hit)
+                if hit.Parent~=player.Character then return end
+                if selectedDomain~="nevaeH" then return end
+                if nevaeHActive or domainActive or griefActive then return end
+                startNevaeH()
             end)
             break
         end
