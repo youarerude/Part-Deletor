@@ -23,6 +23,79 @@ local function playSound(id, parent, vol)
     return s
 end
 
+-- ── Custom Health System ────────────────────────────────────
+local CUSTOM_MAX_HP = 100
+local customHP      = CUSTOM_MAX_HP
+local customHPDead  = false
+
+-- HP Bar GUI (top center)
+local hpGui = Instance.new("ScreenGui"); hpGui.Name="CustomHP"; hpGui.ResetOnSpawn=false; hpGui.Parent=player.PlayerGui
+local hpFrame = Instance.new("Frame"); hpFrame.Size=UDim2.new(0,320,0,28)
+hpFrame.Position=UDim2.new(0.5,-160,0,60); hpFrame.BackgroundColor3=Color3.fromRGB(12,3,3)
+hpFrame.BackgroundTransparency=0.2; hpFrame.BorderSizePixel=0; hpFrame.Parent=hpGui
+Instance.new("UICorner",hpFrame).CornerRadius=UDim.new(0,8)
+local hpFill = Instance.new("Frame"); hpFill.Name="HPFill"; hpFill.Size=UDim2.new(1,0,1,0)
+hpFill.BackgroundColor3=Color3.fromRGB(50,200,80); hpFill.BorderSizePixel=0; hpFill.Parent=hpFrame
+Instance.new("UICorner",hpFill).CornerRadius=UDim.new(0,8)
+local hpStroke=Instance.new("UIStroke"); hpStroke.Color=Color3.fromRGB(0,150,40); hpStroke.Thickness=2; hpStroke.Parent=hpFrame
+local hpLbl=Instance.new("TextLabel"); hpLbl.Size=UDim2.new(1,0,1,0); hpLbl.BackgroundTransparency=1
+hpLbl.TextColor3=Color3.new(1,1,1); hpLbl.Font=Enum.Font.GothamBold; hpLbl.TextScaled=true
+hpLbl.Text="100 HP"; hpLbl.ZIndex=3; hpLbl.Parent=hpFrame
+
+local function updateHPBar()
+    local pct=math.max(0,customHP/CUSTOM_MAX_HP)
+    TweenService:Create(hpFill,TweenInfo.new(0.1),{Size=UDim2.new(pct,0,1,0)}):Play()
+    hpLbl.Text=math.ceil(customHP).." HP"
+    if pct>0.5 then hpFill.BackgroundColor3=Color3.fromRGB(50,200,80)
+    elseif pct>0.25 then hpFill.BackgroundColor3=Color3.fromRGB(220,160,30)
+    else hpFill.BackgroundColor3=Color3.fromRGB(210,30,30) end
+end
+
+local function takeDamage(amount)
+    if customHPDead then return end
+    customHP=math.max(0,customHP-amount)
+    updateHPBar()
+    if customHP<=0 then
+        customHPDead=true
+        -- Kill the character
+        local hum=getHum(); if hum then hum.Health=0 end
+        task.delay(3,function()
+            -- Reset after respawn
+            customHP=CUSTOM_MAX_HP; customHPDead=false; updateHPBar()
+        end)
+    end
+end
+
+local function resetCustomHP()
+    customHP=CUSTOM_MAX_HP; customHPDead=false; updateHPBar()
+end
+
+-- Keep Roblox health maxed so only our system kills
+RunService.Heartbeat:Connect(function()
+    local hum=getHum()
+    if hum and not customHPDead then
+        if hum.MaxHealth~=999 then hum.MaxHealth=999 end
+        if hum.Health<999 and hum.Health>0 then hum.Health=999 end
+    end
+end)
+
+-- Player light
+local function attachPlayerLight()
+    local hrp=getHRP(); if not hrp then return end
+    if hrp:FindFirstChild("DomainLight") then return end
+    local pl=Instance.new("PointLight"); pl.Name="DomainLight"
+    pl.Brightness=3; pl.Range=28; pl.Color=Color3.fromRGB(200,210,230); pl.Parent=hrp
+end
+attachPlayerLight()
+player.CharacterAdded:Connect(function(c)
+    task.wait(0.5); local hrp2=c:FindFirstChild("HumanoidRootPart")
+    if hrp2 then
+        local pl2=Instance.new("PointLight"); pl2.Name="DomainLight"
+        pl2.Brightness=3; pl2.Range=28; pl2.Color=Color3.fromRGB(200,210,230); pl2.Parent=hrp2
+    end
+    resetCustomHP()
+end)
+
 local function getHRP()   local c=player.Character; return c and c:FindFirstChild("HumanoidRootPart") end
 local function getHum()   local c=player.Character; return c and c:FindFirstChildOfClass("Humanoid") end
 local function makePart(n,sz,pos,col,mat,trans,collide,parent)
@@ -419,8 +492,7 @@ local function buildSegment(segIdx)
                     if hrp then
                         local diff=hrp.Position-tar.Position
                         if Vector3.new(diff.X,0,diff.Z).Magnitude < ts/2+1 then
-                            local hum=getHum()
-                            if hum and hum.Health>0 then hum.Health=math.max(0.1,hum.Health-5) end
+                            takeDamage(5)
                         end
                     end
                 end
@@ -588,7 +660,7 @@ end
 
 showVictoryText = function()
     local gui=Instance.new("ScreenGui"); gui.Name="Victory"; gui.ResetOnSpawn=false; gui.Parent=player.PlayerGui
-    playSound("136177056426886", workspace, 6)
+    playSound("136177056426886", workspace, 8)
 
     local line1=Instance.new("TextLabel"); line1.Size=UDim2.new(0.8,0,0,48)
     line1.Position=UDim2.new(0.1,0,0.28,0); line1.BackgroundTransparency=1
@@ -749,7 +821,7 @@ local function startFrenzyDomain()
                 local dx = math.abs(hrp2.Position.X - DOM_ORIGIN.X)
                 local dz = math.abs(hrp2.Position.Z - reckZ)
                 if dx < 26 and dz < 18 then
-                    local hum2=getHum(); if hum2 and hum2.Health>0 then hum2.Health=0 end
+                    takeDamage(CUSTOM_MAX_HP)
                 end
             end
 
@@ -859,6 +931,7 @@ local function resetAllDomains()
     -- nevaeH
     if nevaeHActive then
         nevaeHActive=false
+        pcall(function() stopNevMusic() end)
         if nevaeHConn then nevaeHConn:Disconnect(); nevaeHConn=nil end
         if nDeityConn then nDeityConn:Disconnect(); nDeityConn=nil end
         if nGrassConn then nGrassConn:Disconnect(); nGrassConn=nil end
@@ -902,25 +975,7 @@ player.CharacterAdded:Connect(function(c)
     end
 end)
 
--- Health = 0 kill detection (clientside damage workaround)
-RunService.Heartbeat:Connect(function()
-    local hum=getHum()
-    if hum and hum.Health<=0 and hum.Health>-1 then
-        hum.Health=-1
-        local char=player.Character
-        if char then
-            for _,p in ipairs(char:GetDescendants()) do
-                if p:IsA("BasePart") then
-                    p.Anchored=false
-                    p.AssemblyLinearVelocity=Vector3.new(math.random(-5,5),math.random(5,15),math.random(-5,5))
-                end
-            end
-        end
-        task.delay(0.5,function()
-            local hum2=getHum(); if hum2 then hum2:TakeDamage(9999) end
-        end)
-    end
-end)
+
 
 
 -- Parry cooldown (shared across all domains)
@@ -1295,7 +1350,7 @@ buildRegret = function(floorIdx)
                             end
                         end
                         local sndD=Instance.new("Sound"); sndD.SoundId="rbxassetid://139937016099100"; sndD.Volume=1; sndD.Parent=hrp; sndD:Play()
-                        task.delay(0.3,function() local hum=getHum(); if hum then hum.Health=0 end end)
+                        task.delay(0.3,function() takeDamage(CUSTOM_MAX_HP) end)
                     end
                 end
             end
@@ -1462,7 +1517,7 @@ buildFallen = function(pos)
         -- Hit player
         if dist<3.2 then
             local hum=getHum(); if hum and hum.Health>0 then
-                hum.Health=math.max(0.1,hum.Health-20*dt)
+                takeDamage(20*dt)
                 if math.random()<0.04 then playSound("76525344270919", root, 0.8) end
             end
         end
@@ -1735,7 +1790,7 @@ local function startGriefDomain()
             -- Flood damage
             if hrp2.Position.Y <= floodY+2 then
                 local hum2=getHum()
-                if hum2 and hum2.Health>0 then hum2.Health=math.max(0.1,hum2.Health-10*dt) end
+                if not customHPDead then takeDamage(10*dt) end
             end
         end
 
@@ -1961,7 +2016,7 @@ local function spawnStatue(isFake)
             hl.OutlineColor=Color3.fromRGB(255,20,0); hl.FillColor=Color3.fromRGB(200,0,0)
             hl.FillTransparency=0.4; hl.DepthMode=Enum.HighlightDepthMode.AlwaysOnTop; hl.Parent=base
             playSound("139824454685718",base,1.2)
-            local hum=getHum(); if hum then hum.Health=math.max(0.1,hum.Health-30) end
+            takeDamage(30)
             task.delay(3,function()
                 TweenService:Create(hl,TweenInfo.new(0.5),{OutlineTransparency=1,FillTransparency=1}):Play()
                 task.delay(0.6,function() if hl.Parent then hl:Destroy() end end)
@@ -2212,7 +2267,7 @@ runDeityEvent = function(eyeParts)
 
                 TweenService:Create(eyeParts.upperLid,TweenInfo.new(0.4),{Position=UDim2.new(0,0,-0.05,0)}):Play()
                 TweenService:Create(eyeParts.lowerLid,TweenInfo.new(0.4),{Position=UDim2.new(0,0,0.40,0)}):Play()
-                hum.Health=0
+                takeDamage(CUSTOM_MAX_HP)
             end
         else
             gazeTime=math.max(0,gazeTime-dt*0.8)
@@ -2286,7 +2341,7 @@ spawnBeliever = function()
         -- Hit
         if dist<3.2 then
             local hum=getHum(); if hum and hum.Health>0 then
-                hum.Health=math.max(0.1,hum.Health-35*dt)
+                takeDamage(35*dt)
                 if math.random()<0.04 then playSound("76525344270919",root,0.8) end
             end
         end
@@ -2318,16 +2373,14 @@ end
 
 -- ── Falling objects (phase 5) ─────────────────────────────────
 local function startFalling()
-    if nFallConn then return end
     task.spawn(function()
         while nevaeHActive and nPhase>=5 do
             task.wait(1)
-            for i=1,5 do
+            for i=1,10 do
                 task.spawn(function()
-                    local hrp=getHRP(); if not hrp then return end
-                    local ang=math.random()*math.pi*2; local r=math.random(5,45)
-                    local fx=hrp.Position.X+math.cos(ang)*r
-                    local fz=hrp.Position.Z+math.sin(ang)*r
+                    local a=math.random()*math.pi*2; local r=math.random(10,NHV_SIZE-10)
+                    local fx=NHV_ORIGIN.X+math.cos(a)*r
+                    local fz=NHV_ORIGIN.Z+math.sin(a)*r
                     local obj=Instance.new("Part"); obj.Name="FallObj"
                     obj.Size=Vector3.new(math.random(2,5),math.random(2,5),math.random(2,5))
                     obj.Position=Vector3.new(fx,hrp.Position.Y+60,fz)
@@ -2343,10 +2396,8 @@ local function startFalling()
                     end)
                     local oc; oc=obj.Touched:Connect(function(hit)
                         if hit.Parent~=player.Character then return end
-                        local hum=getHum(); if hum then
-                            if hum.Health<=30 then playSound("108266709824723",obj,1) end
-                            hum.Health=math.max(0.1,hum.Health-30)
-                        end
+                        if customHP<=30 then playSound("108266709824723",obj,1) end
+                        takeDamage(30)
                         oc:Disconnect()
                     end)
                     table.insert(nFallObjects,obj)
@@ -2359,14 +2410,42 @@ end
 -- ── Phase transitions ─────────────────────────────────────────
 local deityEyeParts = nil
 
+
+-- nevaeH domain music
+local nevMusic = nil
+local function startNevMusic(timePos)
+    if not nevMusic then
+        nevMusic=Instance.new("Sound"); nevMusic.SoundId="rbxassetid://85510778475422"
+        nevMusic.Volume=1.5; nevMusic.Looped=true
+        nevMusic.PlaybackSpeed=0.02557  -- normalize sped-up audio to original tempo
+        local pse=Instance.new("PitchShiftSoundEffect"); pse.Octave=0.5; pse.Parent=nevMusic
+        nevMusic.Parent=workspace; nevMusic:Play()
+    end
+    nevMusic.TimePosition=timePos or 0
+end
+local function stopNevMusic()
+    if nevMusic then nevMusic:Stop(); nevMusic:Destroy(); nevMusic=nil end
+end
+
+local NEV_TIMES={
+    [1]=0,          -- 0:00
+    [2]=2.48,       -- 1:37
+    [3]=3.12,       -- 2:02
+    [4]=3.73,       -- 2:26
+    [5]=6.14,       -- 4:00
+    sinatloss=8.59  -- 5:36
+}
+
 startNPhase = function(p)
     if not nevaeHActive then return end
     nPhase=p; nStatuePrayed=0
     clearNStatues()
 
     if p==1 then
+        startNevMusic(NEV_TIMES[1])
         -- Setup already done in startNevaeH
     elseif p==2 then
+        startNevMusic(NEV_TIMES[2])
         -- Black fog, night
         setNFog(Color3.fromRGB(15,15,25), 15, 200, 3)
         TweenService:Create(Lighting,TweenInfo.new(3),{Brightness=0.08,ClockTime=0}):Play()
@@ -2390,25 +2469,33 @@ startNPhase = function(p)
         hudLbl.Text="nevaeH - Phase 3  Statues: 0/7"
         setNFog(Color3.fromRGB(10,10,20),15,180,2)
         spawnNStatues(7,0)
-        -- Spawn first believers from tree
-        for i=1,3 do
-            task.delay(i*1.5,function() if nevaeHActive then spawnBeliever() end end)
-        end
-        -- Ongoing believer spawning every 25s
+        startNevMusic(NEV_TIMES[3])
+        -- Believer spawn loop: 1 per second on phase 3
         task.spawn(function()
-            while nevaeHActive and nPhase>=3 do
-                task.wait(25)
-                if nevaeHActive and nPhase>=3 and #nBelieverList<8 then spawnBeliever() end
+            while nevaeHActive and nPhase==3 do
+                spawnBeliever(); task.wait(1)
             end
         end)
     elseif p==4 then
         hudLbl.Text="nevaeH - Phase 4  Statues: 0/10"
         setNFog(Color3.fromRGB(8,8,18),15,160,2)
-        spawnNStatues(10,5)  -- 10 real + 5 fake
+        spawnNStatues(10,5)
+        startNevMusic(NEV_TIMES[4])
+        task.spawn(function()
+            while nevaeHActive and nPhase==4 do
+                for _=1,3 do spawnBeliever() end; task.wait(1)
+            end
+        end)
     elseif p==5 then
         -- Pre-dawn bright
         TweenService:Create(Lighting,TweenInfo.new(3),{Brightness=0.7,ClockTime=6}):Play()
         Lighting.OutdoorAmbient=Color3.fromRGB(160,160,180)
+        startNevMusic(NEV_TIMES[5])
+        task.spawn(function()
+            while nevaeHActive and nPhase==5 do
+                for _=1,5 do spawnBeliever() end; task.wait(1)
+            end
+        end)
         -- Flash screen
         local fg=Instance.new("ScreenGui"); fg.Name="P5Flash"; fg.ResetOnSpawn=false; fg.Parent=player.PlayerGui
         local ff=Instance.new("Frame"); ff.Size=UDim2.new(1,0,1,0)
@@ -2494,6 +2581,7 @@ nExitCutscene = function()
 
     -- Victory text + return camera at 8s
     task.delay(8,function()
+        if nevMusic then nevMusic.TimePosition=NEV_TIMES.sinatloss end
         showVictoryText()
         cam.CameraType=Enum.CameraType.Custom
         local hum2=getHum(); if hum2 then hum2.WalkSpeed=NEVAEH_SPEED; hum2.JumpPower=50 end
@@ -2522,7 +2610,7 @@ nExitCutscene = function()
             local pc; pc=port.Touched:Connect(function(hit)
                 if hit.Parent~=player.Character then return end
                 pc:Disconnect(); pf:Destroy()
-                nevaeHActive=false; restoreFog()
+                nevaeHActive=false; stopNevMusic(); restoreFog()
                 if nMapFolder and nMapFolder.Parent then nMapFolder:Destroy(); nMapFolder=nil end
                 for _,ai in ipairs(nAfterimages) do if ai.Parent then ai:Destroy() end end
                 local hrp3=getHRP(); if hrp3 then hrp3.CFrame=CFrame.new(safeSpawnPos) end
@@ -2551,6 +2639,7 @@ local function startNevaeH()
 
     buildNevaeHMap()
     spawnNStatues(3,0)
+    startNevMusic(NEV_TIMES[1])
 
     hudLbl.Text="nevaeH - Statues: 0/3"
     hudLbl.TextColor3=Color3.fromRGB(140,200,255)
@@ -2566,7 +2655,7 @@ local function startNevaeH()
             local n=result.Instance.Name
             if n~="SoilRing" and n~="SoilPath" and n~="SoilPatch" and n~="NPath" and not n:match("Step") and not n:match("Stair") then
                 if result.Instance.Material==Enum.Material.Grass then
-                    hum2.Health=math.max(0.1,hum2.Health-5*dt)
+                    takeDamage(5*dt)
                 end
             end
         end
