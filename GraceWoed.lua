@@ -70,18 +70,10 @@ local function resetCustomHP()
     customHP=CUSTOM_MAX_HP; customHPDead=false; updateHPBar()
 end
 
--- Keep Roblox health maxed so only our system kills
-RunService.Heartbeat:Connect(function()
-    local hum=getHum()
-    if hum and not customHPDead then
-        if hum.MaxHealth~=999 then hum.MaxHealth=999 end
-        if hum.Health<999 and hum.Health>0 then hum.Health=999 end
-    end
-end)
+-- Custom HP is the only damage source; no need to pin Roblox health
 
 -- Player light
-local function attachPlayerLight()
-    local hrp=getHRP(); if not hrp then return end
+local function     local hrp=getHRP(); if not hrp then return end
     if hrp:FindFirstChild("DomainLight") then return end
     local pl=Instance.new("PointLight"); pl.Name="DomainLight"
     pl.Brightness=3; pl.Range=28; pl.Color=Color3.fromRGB(200,210,230); pl.Parent=hrp
@@ -98,6 +90,7 @@ end)
 
 local function getHRP()   local c=player.Character; return c and c:FindFirstChild("HumanoidRootPart") end
 local function getHum()   local c=player.Character; return c and c:FindFirstChildOfClass("Humanoid") end
+attachPlayerLight()
 local function makePart(n,sz,pos,col,mat,trans,collide,parent)
     local p=Instance.new("Part"); p.Name=n; p.Size=sz; p.CFrame=CFrame.new(pos)
     p.Anchored=true; p.CanCollide=collide~=false; p.Material=mat or Enum.Material.SmoothPlastic
