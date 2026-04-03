@@ -165,7 +165,7 @@ hudLbl.TextScaled=true; hudLbl.TextXAlignment=Enum.TextXAlignment.Left; hudLbl.P
 
 -- Parry button
 local pg=Instance.new("ScreenGui"); pg.Name="ParryGui"; pg.ResetOnSpawn=false; pg.Parent=player.PlayerGui
-local pb=Instance.new("TextButton"); pb.Size=UDim2.new(0,110,0,110); pb.Position=UDim2.new(1,-130,1,-140)
+local pb=Instance.new("TextButton"); pb.Size=UDim2.new(0,110,0,110); pb.Position=UDim2.new(1,-130,1,-185)
 pb.BackgroundColor3=Color3.fromRGB(255,215,0); pb.Text="PARRY"; pb.Font=Enum.Font.GothamBold; pb.TextSize=22
 pb.TextColor3=Color3.new(0,0,0); pb.BorderSizePixel=0; pb.Parent=pg
 Instance.new("UICorner",pb).CornerRadius=UDim.new(1,0)
@@ -381,6 +381,7 @@ local function buildSegment(segIdx)
                 activated = activated + 1
                 if activated >= 3 then
                     -- Slide door down
+                    local gh=getHRP(); if gh then playSound("115937318685871",gh,1) end
                     TweenService:Create(panel,TweenInfo.new(2,Enum.EasingStyle.Quad,Enum.EasingDirection.In),
                         {CFrame=panel.CFrame+Vector3.new(0,-(ROAD_H+8),0)}):Play()
                     task.delay(2.2,function() if panel and panel.Parent then panel:Destroy() end end)
@@ -539,6 +540,7 @@ end
 
 doRecklessExplosion = function()
     -- Destroy crowd
+    local dhrp=getHRP(); if dhrp then playSound("93486052675418",dhrp,1.2) end
     if reckFolder and reckFolder.Parent then reckFolder:Destroy(); reckFolder=nil; reckParts={} end
 
     -- Massive shake for 10 seconds
@@ -845,6 +847,36 @@ end)
 -- ================================================================
 --  GRIEF DOMAIN  (Despair's Domain)
 -- ================================================================
+-- Grief sound helper
+local function playSound(id, parent, vol)
+    local s=Instance.new("Sound"); s.SoundId="rbxassetid://"..id
+    s.Volume=vol or 1; s.Parent=parent or workspace; s:Play()
+    game:GetService("Debris"):AddItem(s, 8)
+    return s
+end
+
+-- Rain ambience (looping, persistent)
+local griefRainSound = nil
+local function startGriefRainSound()
+    if griefRainSound then return end
+    local s=Instance.new("Sound"); s.SoundId="rbxassetid://140237752767800"
+    s.Volume=0.4; s.Looped=true; s.RollOffMaxDistance=9999
+    s.Parent=workspace; s:Play()
+    griefRainSound=s
+end
+local function stopGriefRainSound()
+    if griefRainSound then griefRainSound:Stop(); griefRainSound:Destroy(); griefRainSound=nil end
+end
+
+-- Grief forward declarations
+local onFloorEntered
+local buildRegret
+local buildFallen
+local buildGriefBeacon
+local runBeaconCutscene
+local materializeExitPath
+local runFogEvent
+
 
 local GTOW_ORIGIN  = Vector3.new(-200, 0, 0)  -- tower world origin
 local FLOOR_H      = 14   -- height per floor
@@ -945,17 +977,39 @@ local function buildGriefFloor(floorIdx)
     -- Ceiling
     gp("Ceiling",Vector3.new(TOW_W,1,TOW_D),Vector3.new(cx,o.Y+FLOOR_H-0.5,cz),FC)
 
-    -- Stair ramp (along W inner wall, goes up to next floor)
-    if floorIdx < 45 then
-        local rampX = cx - hw + 6
-        local rampBot = o.Y
-        local rampTop = o.Y + FLOOR_H
-        local rampMid = (rampBot+rampTop)/2
-        local ramp = gp("Stair_"..floorIdx,Vector3.new(8,1,TOW_D*0.6),
-            Vector3.new(rampX, rampMid, cz),
-            Color3.fromRGB(65,55,45))
-        -- Tilt ramp
-        ramp.CFrame = CFrame.new(rampX, rampMid, cz) * CFrame.Angles(0,0, math.atan2(FLOOR_H, TOW_D*0.6))
+    -- Stair: series of step Parts from floor level to ceiling
+    if floorIdx < 35 then
+        local rampX = cx - hw + 7
+        local stepCount = 8
+        local stepW = 10
+        local stepD = (TOW_D * 0.7) / stepCount
+        for si = 0, stepCount-1 do
+            local stepY = o.Y + (si/stepCount)*FLOOR_H + 0.5
+            local stepZ = cz - TOW_D*0.35 + si*stepD + stepD/2
+            local step = gp("Step_"..floorIdx.."_"..si, Vector3.new(stepW, 1, stepD+0.2),
+                Vector3.new(rampX, stepY, stepZ), Color3.fromRGB(65,55,45))
+        end
+        -- Hole in ceiling: we make ceiling transparent in stair area (leave opening)
+        -- The ceiling slab covers everything; we remove it and add 3 smaller slabs leaving a gap
+        -- Delete the full ceiling and replace with 3 panels
+        if f:FindFirstChild("Ceiling") then f:FindFirstChild("Ceiling"):Destroy() end
+        -- Left ceiling panel
+        gp("CeilL", Vector3.new(rampX-hw-1, 1, TOW_D),
+            Vector3.new((cx-hw+rampX-hw-1)/2+1, o.Y+FLOOR_H-0.5, cz), FC)
+        -- Right ceiling panel
+        gp("CeilR", Vector3.new(TOW_W-(rampX-cx)-stepW/2-1, 1, TOW_D),
+            Vector3.new(cx+(TOW_W-(rampX-cx)-stepW/2-1)/2+rampX-cx+stepW/4, o.Y+FLOOR_H-0.5, cz), FC)
+        -- Front/back ceiling panels to fill Z sides
+        local openZ1 = cz - TOW_D*0.35
+        local openZ2 = cz - TOW_D*0.35 + stepCount*stepD
+        if openZ1 > cz-TOW_D/2 then
+            gp("CeilFront",Vector3.new(stepW+2, 1, openZ1-(cz-TOW_D/2)),
+                Vector3.new(rampX, o.Y+FLOOR_H-0.5, (openZ1+cz-TOW_D/2)/2), FC)
+        end
+        if openZ2 < cz+TOW_D/2 then
+            gp("CeilBack",Vector3.new(stepW+2, 1, cz+TOW_D/2-openZ2),
+                Vector3.new(rampX, o.Y+FLOOR_H-0.5, (openZ2+cz+TOW_D/2)/2), FC)
+        end
     end
 
     -- Ambient light
@@ -1039,10 +1093,11 @@ local function buildRain()
 end
 
 -- ── Regret (giant worm) ──────────────────────────────────────
-local function buildRegret(floorIdx)
+buildRegret = function(floorIdx)
     if regretActive then return end
     regretActive = true
     regretParts  = {}
+    playSound("139902269912848", workspace, 1.2)
     local o      = gFloorOrigin(floorIdx)
     local cx     = GTOW_ORIGIN.X; local cz = GTOW_ORIGIN.Z
     local hw     = TOW_W/2
@@ -1127,15 +1182,25 @@ local function buildRegret(floorIdx)
             local py = hrp.Position.Y
             local myFloor = math.floor((py - GTOW_ORIGIN.Y) / FLOOR_H) + 1
             if myFloor == floorIdx then
-                -- Player was on eaten floor
                 if isParrying then
                     -- Knock off tower
-                    if hrp then
-                        hrp.Anchored=false
-                        hrp.AssemblyLinearVelocity=Vector3.new(math.random(-20,20),5,math.random(-20,20))
-                    end
+                    hrp.Anchored=false
+                    hrp.AssemblyLinearVelocity=Vector3.new(math.random(-20,20),5,math.random(-20,20))
+                    playSound("133245268132726", hrp, 1)
                 else
-                    local hum=getHum(); if hum then hum.Health=0 end
+                    -- Annihilate: scatter all body parts
+                    local char=player.Character
+                    if char then
+                        for _,p in ipairs(char:GetDescendants()) do
+                            if p:IsA("BasePart") then
+                                p.Anchored=false
+                                p.AssemblyLinearVelocity=Vector3.new(math.random(-40,40),math.random(20,50),math.random(-40,40))
+                                TweenService:Create(p,TweenInfo.new(0.5),{Transparency=1}):Play()
+                            end
+                        end
+                        local sndD=Instance.new("Sound"); sndD.SoundId="rbxassetid://139937016099100"; sndD.Volume=1; sndD.Parent=hrp; sndD:Play()
+                        task.delay(0.3,function() local hum=getHum(); if hum then hum.Health=0 end end)
+                    end
                 end
             end
         end
@@ -1149,9 +1214,10 @@ local function buildRegret(floorIdx)
 end
 
 -- ── Fog thickening event ─────────────────────────────────────
-local function runFogEvent()
+runFogEvent = function()
     if fogEventActive or beaconComplete then return end
     fogEventActive = true
+    if griefRainSound then TweenService:Create(griefRainSound,TweenInfo.new(1.5),{Volume=1.2}):Play() end
 
     local origEnd   = Lighting.FogEnd
     local origColor = Lighting.FogColor
@@ -1181,7 +1247,10 @@ local function runFogEvent()
             local inWindowHeight = (py_rel >= 4 and py_rel <= 10)
             local nearEdge = (math.abs(px-cx) > hw-3) or (math.abs(pz-cz_t) > hd-3)
             if inWindowHeight and nearEdge then
-                local hum=getHum(); if hum then hum.Health=0 end
+                local hum=getHum(); if hum then
+                    local dhrp2=getHRP(); if dhrp2 then playSound("137673547776909",dhrp2,1) end
+                    hum.Health=0
+                end
             end
         end
 
@@ -1189,13 +1258,14 @@ local function runFogEvent()
         task.delay(2, function()
             pcall(function() shakeConn:Disconnect() end)
             TweenService:Create(Lighting,TweenInfo.new(1.5),{FogColor=origColor, FogEnd=origEnd}):Play()
+            if griefRainSound then TweenService:Create(griefRainSound,TweenInfo.new(1.5),{Volume=0.4}):Play() end
             fogEventActive = false
         end)
     end)
 end
 
 -- ── Fallen entity ─────────────────────────────────────────────
-local function buildFallen(pos)
+buildFallen = function(pos)
     local f=Instance.new("Folder"); f.Name="Fallen"; f.Parent=workspace
     local skin=Color3.fromRGB(90,110,130)
     local dark=Color3.fromRGB(50,60,75)
@@ -1276,6 +1346,7 @@ local function buildFallen(pos)
         if dist<3.2 then
             local hum=getHum(); if hum and hum.Health>0 then
                 hum.Health=math.max(0.1,hum.Health-20*dt)
+                if math.random()<0.04 then playSound("76525344270919", root, 0.8) end
             end
         end
 
@@ -1307,7 +1378,7 @@ local function buildFallen(pos)
 end
 
 -- ── Floor enter callback ─────────────────────────────────────
-local function onFloorEntered(floorIdx)
+onFloorEntered = function(floorIdx)
     if not griefActive then return end
     currentFloor = floorIdx
 
@@ -1354,7 +1425,7 @@ local function onFloorEntered(floorIdx)
 end
 
 -- ── Beacon ───────────────────────────────────────────────────
-local function buildGriefBeacon()
+buildGriefBeacon = function()
     beaconTriggered=true
     local cx=GTOW_ORIGIN.X; local cz=GTOW_ORIGIN.Z
     local o=gFloorOrigin(30)
@@ -1392,7 +1463,7 @@ local function buildGriefBeacon()
     end)
 end
 
-local function runBeaconCutscene(beacon, floorOrigin)
+runBeaconCutscene = function(beacon, floorOrigin)
     local cam=workspace.CurrentCamera
     local hum=getHum(); if hum then hum.WalkSpeed=0; hum.JumpPower=0 end
 
@@ -1445,7 +1516,7 @@ local function runBeaconCutscene(beacon, floorOrigin)
     end)
 end
 
-local function materializeExitPath(floorOrigin)
+materializeExitPath = function(floorOrigin)
     local cx=GTOW_ORIGIN.X; local cz_t=GTOW_ORIGIN.Z
     local pY=floorOrigin.Y+0.5
     local pathFolder=Instance.new("Folder"); pathFolder.Name="ExitPath"; pathFolder.Parent=workspace
@@ -1487,6 +1558,7 @@ local function materializeExitPath(floorOrigin)
             griefActive=false
             restoreFog(); floodRising=false
             if rainEmitter then rainEmitter.Enabled=false end
+            stopGriefRainSound()
             local hrp=getHRP(); if hrp then hrp.CFrame=CFrame.new(safeSpawnPos) end
             hudLbl.Text="Grief Domain Clear!"
             hudLbl.TextColor3=Color3.fromRGB(100,255,100)
@@ -1522,6 +1594,9 @@ local function startGriefDomain()
     buildRain()
 
     hudLbl.Text="Grief  -  Floor 1"; hudLbl.TextColor3=Color3.fromRGB(150,165,185)
+
+    -- Start rain ambience
+    startGriefRainSound()
 
     -- Main loop
     griefConn=RunService.Heartbeat:Connect(function(dt)
