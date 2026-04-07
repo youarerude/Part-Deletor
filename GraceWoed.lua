@@ -23,7 +23,7 @@ local function playSound(id, parent, vol)
     return s
 end
 
--- ── Custom Health System ────────────────────────────────────
+-- -- Custom Health System ------------------------------------
 local CUSTOM_MAX_HP = 100
 local customHP      = CUSTOM_MAX_HP
 local customHPDead  = false
@@ -114,7 +114,7 @@ local function makePart(n,sz,pos,col,mat,trans,collide,parent)
     p.Color=col; p.Transparency=trans or 0; p.CastShadow=false; p.Parent=parent; return p
 end
 
--- ── Constants ───────────────────────────────────────────────
+-- -- Constants -----------------------------------------------
 local SAFE_ORIGIN    = Vector3.new(0,0,0)
 local SAFE_W, SAFE_D = 40, 44
 local safeSpawnPos   = SAFE_ORIGIN + Vector3.new(SAFE_W/2, 1.5, SAFE_D/2)
@@ -141,7 +141,7 @@ local C = {
     white  = Color3.new(1,1,1),
 }
 
--- ── Domain state ────────────────────────────────────────────
+-- -- Domain state --------------------------------------------
 local domainActive    = false
 local selectedDomain  = nil
 local builtSegs       = {}    -- [idx] -> {folder, startZ}
@@ -174,7 +174,7 @@ local savedBright    = Lighting.Brightness
 local savedOutAmb    = Lighting.OutdoorAmbient
 local savedAmb       = Lighting.Ambient
 
--- ── Screen shake (RenderStepped-based, mobile friendly) ──────
+-- -- Screen shake (RenderStepped-based, mobile friendly) ------
 local shakeIntensityVal = 0
 local shakeDurationVal  = 0
 local shakeStartTime    = 0
@@ -201,7 +201,7 @@ RunService.Heartbeat:Connect(function()
     end
 end)
 
--- ── Fog setup ────────────────────────────────────────────────
+-- -- Fog setup ------------------------------------------------
 local function applyDomainFog()
     Lighting.FogColor       = Color3.fromRGB(160, 8, 8)
     Lighting.FogStart       = 8
@@ -220,7 +220,7 @@ local function restoreFog()
     Lighting.Ambient        = savedAmb
 end
 
--- ── HUD + Parry + Domain Selector ───────────────────────────
+-- -- HUD + Parry + Domain Selector ---------------------------
 local sg = Instance.new("ScreenGui"); sg.Name="WOEDMain"; sg.ResetOnSpawn=false; sg.Parent=player.PlayerGui
 
 -- Domain selector bar (top center)
@@ -272,7 +272,7 @@ UIS.InputEnded:Connect(function(inp)
     if inp.KeyCode==Enum.KeyCode.Q or inp.KeyCode==Enum.KeyCode.ButtonR1 then relParry() end
 end)
 
--- ── Reckless crowd builder ───────────────────────────────────
+-- -- Reckless crowd builder -----------------------------------
 local function buildReckless()
     if reckFolder and reckFolder.Parent then reckFolder:Destroy() end
     reckFolder = Instance.new("Folder"); reckFolder.Name="Reckless"; reckFolder.Parent=workspace
@@ -325,7 +325,7 @@ local function setReckZ(newZ)
     end
 end
 
--- ── Player safety check (is in hiding spot) ──────────────────
+-- -- Player safety check (is in hiding spot) ------------------
 local function playerInHide()
     local hrp=getHRP(); if not hrp then return false end
     local rx = math.abs(hrp.Position.X - DOM_ORIGIN.X)
@@ -334,7 +334,7 @@ local function playerInHide()
     return false
 end
 
--- ── Hiding spot builder ──────────────────────────────────────
+-- -- Hiding spot builder --------------------------------------
 -- Returns hideType string
 local function buildHideSpot(parent, segIdx)
     local startZ = DOM_ORIGIN.Z + segIdx * SEG_LEN
@@ -399,7 +399,7 @@ local function buildHideSpot(parent, segIdx)
     return htype
 end
 
--- ── Segment builder ──────────────────────────────────────────
+-- -- Segment builder ------------------------------------------
 local function buildSegment(segIdx)
     if builtSegs[segIdx] then return end
     local f = Instance.new("Folder"); f.Name="Seg_"..segIdx; f.Parent=workspace
@@ -515,7 +515,7 @@ local function buildSegment(segIdx)
     -- Done from main loop instead
 end
 
--- ── Final door + 10 buttons ──────────────────────────────────
+-- -- Final door + 10 buttons ----------------------------------
 local finalDoor = nil
 
 -- Forward declarations
@@ -577,7 +577,7 @@ local function buildFinalDoor()
     end
 end
 
--- ── Ending cutscene ──────────────────────────────────────────
+-- -- Ending cutscene ------------------------------------------
 local cutsceneConn = nil
 
 startEndCutscene = function(doorZ)
@@ -739,7 +739,7 @@ spawnPortal = function()
     end)
 end
 
--- ── Domain main loop ─────────────────────────────────────────
+-- -- Domain main loop -----------------------------------------
 local domainConn = nil
 
 local function startFrenzyDomain()
@@ -800,7 +800,7 @@ local function startFrenzyDomain()
             end
         end
 
-        -- ── Reckless logic ─────────────────────────────────
+        -- -- Reckless logic ---------------------------------
         if not reckRunning then
             reckCooldownT = reckCooldownT + dt
             if reckCooldownT >= 10 then
@@ -853,7 +853,7 @@ local function startFrenzyDomain()
     end)
 end
 
--- ── Saferoom ─────────────────────────────────────────────────
+-- -- Saferoom -------------------------------------------------
 local function buildSaferoom()
     local f=Instance.new("Folder"); f.Name="Saferoom"; f.Parent=workspace
     local o=SAFE_ORIGIN; local cX=SAFE_W/2; local cZ=SAFE_D/2
@@ -890,7 +890,7 @@ local function buildSaferoom()
     return f
 end
 
--- ── Domain selector wiring ────────────────────────────────────
+-- -- Domain selector wiring ------------------------------------
 frenzyBtn.MouseButton1Click:Connect(function()
     if domainActive then return end
     selectedDomain = "Frenzy"
@@ -902,7 +902,7 @@ frenzyBtn.MouseButton1Click:Connect(function()
     hudLbl.TextColor3 = Color3.fromRGB(255, 130, 80)
 end)
 
--- ── Init ──────────────────────────────────────────────────────
+-- -- Init ------------------------------------------------------
 buildSaferoom()
 task.wait(1.2)
 local initHRP=getHRP()
@@ -1065,7 +1065,7 @@ local beaconComplete   = false
 -- Floor entry tracking (to prevent multi-trigger)
 local lastFloorTrigger = 0
 
--- ── Tower floor builder ─────────────────────────────────────
+-- -- Tower floor builder -------------------------------------
 local function gFloorOrigin(floorIdx)
     return GTOW_ORIGIN + Vector3.new(0, (floorIdx-1)*FLOOR_H, 0)
 end
@@ -1218,7 +1218,7 @@ local function buildGriefFloor(floorIdx)
     griefFloorCount = math.max(griefFloorCount, floorIdx)
 end
 
--- ── Flood ───────────────────────────────────────────────────
+-- -- Flood ---------------------------------------------------
 local function buildFlood()
     if floodPart then return end
     local cx = GTOW_ORIGIN.X; local cz = GTOW_ORIGIN.Z
@@ -1231,7 +1231,7 @@ local function buildFlood()
     floodPart.CastShadow=false; floodPart.Parent=workspace
 end
 
--- ── Rain ────────────────────────────────────────────────────
+-- -- Rain ----------------------------------------------------
 local function buildRain()
     rainPart = Instance.new("Part"); rainPart.Name="GriefRain"
     rainPart.Size=Vector3.new(1,1,1); rainPart.Anchored=true
@@ -1253,7 +1253,7 @@ local function buildRain()
     rainEmitter = pe
 end
 
--- ── Regret (giant worm) ──────────────────────────────────────
+-- -- Regret (giant worm) --------------------------------------
 buildRegret = function(floorIdx)
     if regretActive then return end
     regretActive = true
@@ -1374,7 +1374,7 @@ buildRegret = function(floorIdx)
     end)
 end
 
--- ── Fog thickening event ─────────────────────────────────────
+-- -- Fog thickening event -------------------------------------
 runFogEvent = function()
     if fogEventActive or beaconComplete then return end
     fogEventActive = true
@@ -1446,7 +1446,7 @@ runFogEvent = function()
     end)
 end
 
--- ── Fallen entity ─────────────────────────────────────────────
+-- -- Fallen entity ---------------------------------------------
 buildFallen = function(pos)
     local f=Instance.new("Folder"); f.Name="Fallen"; f.Parent=workspace
     local skin=Color3.fromRGB(90,110,130)
@@ -1559,7 +1559,7 @@ buildFallen = function(pos)
     return ent
 end
 
--- ── Floor enter callback ─────────────────────────────────────
+-- -- Floor enter callback -------------------------------------
 onFloorEntered = function(floorIdx)
     if not griefActive then return end
     currentFloor = floorIdx
@@ -1606,7 +1606,7 @@ onFloorEntered = function(floorIdx)
     end
 end
 
--- ── Beacon ───────────────────────────────────────────────────
+-- -- Beacon ---------------------------------------------------
 buildGriefBeacon = function()
     beaconTriggered=true
     local cx=GTOW_ORIGIN.X; local cz=GTOW_ORIGIN.Z
@@ -1673,7 +1673,7 @@ runBeaconCutscene = function(beacon, floorOrigin)
         local ff=Instance.new("Frame"); ff.Size=UDim2.new(1,0,1,0)
         ff.BackgroundColor3=Color3.new(1,1,1); ff.BackgroundTransparency=0; ff.BorderSizePixel=0; ff.Parent=flashGui
 
-        -- Fog → yellow, stop rain & flood
+        -- Fog - yellow, stop rain & flood
         Lighting.FogColor=Color3.fromRGB(255,240,100); Lighting.FogEnd=200
         floodRising=false
         if rainEmitter then rainEmitter.Enabled=false end
@@ -1749,7 +1749,7 @@ materializeExitPath = function(floorOrigin)
     end)
 end
 
--- ── Grief domain main ─────────────────────────────────────────
+-- -- Grief domain main -----------------------------------------
 local function startGriefDomain()
     griefActive=true; griefFloors={}; griefFloorCount=0
     currentFloor=1; floodRising=false; fallens={}; regretActive=false
@@ -1921,7 +1921,7 @@ local function setNFog(color, fstart, fend_val, dur)
     end
 end
 
--- ── Map builder ──────────────────────────────────────────────
+-- -- Map builder ----------------------------------------------
 local function buildNevaeHMap()
     nMapFolder = Instance.new("Folder"); nMapFolder.Name="nevaeHMap"; nMapFolder.Parent=workspace
     local cx=NHV_ORIGIN.X; local cz=NHV_ORIGIN.Z; local hs=NHV_SIZE
@@ -1989,7 +1989,7 @@ local function buildNevaeHMap()
     return nMapFolder
 end
 
--- ── Statue builder ────────────────────────────────────────────
+-- -- Statue builder --------------------------------------------
 local function spawnStatue(isFake)
     local cx=NHV_ORIGIN.X; local cz_t=NHV_ORIGIN.Z; local hs=NHV_SIZE
     local pos
@@ -2068,7 +2068,7 @@ local function clearNStatues()
     nStatues={}
 end
 
--- ── Deity ─────────────────────────────────────────────────────
+-- -- Deity -----------------------------------------------------
 local function buildDeity()
     if nDeityPart then return end
     local cx=NHV_ORIGIN.X; local cz_t=NHV_ORIGIN.Z
@@ -2149,7 +2149,7 @@ local function buildDeity()
     return nDeityPart, {upperLid=upperLid,lowerLid=lowerLid,pupil=pupil}
 end
 
--- ── Deity event ───────────────────────────────────────────────
+-- -- Deity event -----------------------------------------------
 runDeityEvent = function(eyeParts)
     if not nDeityPart or not nevaeHActive then return end
     local open = math.random()<0.30
@@ -2285,7 +2285,7 @@ runDeityEvent = function(eyeParts)
     end)
 end
 
--- ── Believer entity ───────────────────────────────────────────
+-- -- Believer entity -------------------------------------------
 spawnBeliever = function()
     local cx=NHV_ORIGIN.X; local cz_t=NHV_ORIGIN.Z
     local ang=math.random()*math.pi*2; local r=math.random(30,80)
@@ -2381,70 +2381,84 @@ spawnBeliever = function()
     return ent
 end
 
--- ── Falling objects (phase 5) ─────────────────────────────────
+-- -- Falling objects (phase 5) ---------------------------------
 local function startFalling()
     task.spawn(function()
-        while nevaeHActive and nPhase>=5 do
+        while nevaeHActive and nPhase >= 5 do
             task.wait(1)
-            for i=1,10 do
+            for i = 1, 10 do
                 task.spawn(function()
-                    local a=math.random()*math.pi*2; local r=math.random(10,NHV_SIZE-10)
-                    local fx=NHV_ORIGIN.X+math.cos(a)*r
-                    local fz=NHV_ORIGIN.Z+math.sin(a)*r
-                    local obj=Instance.new("Part"); obj.Name="FallObj"
-                    obj.Size=Vector3.new(math.random(2,5),math.random(2,5),math.random(2,5))
-                    obj.Position=Vector3.new(fx,hrp.Position.Y+60,fz)
-                    obj.Anchored=false; obj.CanCollide=true
-                    obj.Material=Enum.Material.SmoothPlastic
-                    obj.Color=Color3.fromRGB(80,80,90); obj.CastShadow=false; obj.Parent=workspace
-                    game:GetService("Debris"):AddItem(obj,5)
-                    obj.Touched:Connect(function(hit2)
-                        if hit2.Parent==workspace or hit2.Name:match("NBase") or hit2.Name:match("Floor") then
-                            local groundSounds={"9118615018","9118612945","9118614718"}
-                            playSound(groundSounds[math.random(1,3)],obj,0.8)
+                    local a = math.random() * math.pi * 2
+                    local r = math.random(10, NHV_SIZE - 10)
+                    local fx = NHV_ORIGIN.X + math.cos(a) * r
+                    local fz = NHV_ORIGIN.Z + math.sin(a) * r
+                    local spawnY = NHV_ORIGIN.Y + 80
+                    local obj = Instance.new("Part")
+                    obj.Name = "FallObj"
+                    obj.Size = Vector3.new(math.random(2,5), math.random(2,5), math.random(2,5))
+                    obj.Position = Vector3.new(fx, spawnY, fz)
+                    obj.Anchored = false
+                    obj.CanCollide = true
+                    obj.Material = Enum.Material.SmoothPlastic
+                    obj.Color = Color3.fromRGB(80, 80, 90)
+                    obj.CastShadow = false
+                    obj.Parent = workspace
+                    game:GetService("Debris"):AddItem(obj, 6)
+                    table.insert(nFallObjects, obj)
+                    -- Ground impact sound
+                    local groundHit = false
+                    local gc; gc = obj.Touched:Connect(function(hit)
+                        if groundHit then return end
+                        if hit.Parent == player.Character then
+                            groundHit = true
+                            gc:Disconnect()
+                            if customHP <= 30 then playSound("108266709824723", obj, 1) end
+                            takeDamage(30)
+                        elseif not hit.Parent:FindFirstChildOfClass("Humanoid") then
+                            local gSounds = {"9118615018", "9118612945", "9118614718"}
+                            playSound(gSounds[math.random(1,3)], obj, 0.8)
                         end
                     end)
-                    local oc; oc=obj.Touched:Connect(function(hit)
-                        if hit.Parent~=player.Character then return end
-                        if customHP<=30 then playSound("108266709824723",obj,1) end
-                        takeDamage(30)
-                        oc:Disconnect()
-                    end)
-                    table.insert(nFallObjects,obj)
                 end)
             end
         end
     end)
 end
 
--- ── Phase transitions ─────────────────────────────────────────
+-- -- Phase transitions -----------------------------------------
 local deityEyeParts = nil
 
 
--- nevaeH domain music
+-- nevaeH music
+-- Original track 85510778475422 is heavily sped up (9s = 5:52 original)
+-- PlaybackSpeed=0.0256 normalizes it, PitchShiftSoundEffect Octave=0.5 lowers pitch
+-- TimePositions map to original timestamps scaled to the 9s file
 local nevMusic = nil
-local function startNevMusic(timePos)
+local NEV_TIMES = {[1]=0, [2]=2.48, [3]=3.12, [4]=3.73, [5]=6.14, sinatloss=8.59}
+
+local function startNevMusic(t)
     if not nevMusic then
-        nevMusic=Instance.new("Sound"); nevMusic.SoundId="rbxassetid://85510778475422"
-        nevMusic.Volume=1.5; nevMusic.Looped=true
-        nevMusic.PlaybackSpeed=0.02557  -- normalize sped-up audio to original tempo
-        local pse=Instance.new("PitchShiftSoundEffect"); pse.Octave=0.5; pse.Parent=nevMusic
-        nevMusic.Parent=workspace; nevMusic:Play()
+        nevMusic = Instance.new("Sound")
+        nevMusic.SoundId = "rbxassetid://85510778475422"
+        nevMusic.Volume = 1.5
+        nevMusic.Looped = true
+        nevMusic.PlaybackSpeed = 0.0256
+        local pse = Instance.new("PitchShiftSoundEffect")
+        pse.Octave = 0.5
+        pse.Parent = nevMusic
+        nevMusic.Parent = workspace
+        nevMusic:Play()
     end
-    nevMusic.TimePosition=timePos or 0
-end
-local function stopNevMusic()
-    if nevMusic then nevMusic:Stop(); nevMusic:Destroy(); nevMusic=nil end
+    nevMusic.TimePosition = t or 0
 end
 
-local NEV_TIMES={
-    [1]=0,          -- 0:00
-    [2]=2.48,       -- 1:37
-    [3]=3.12,       -- 2:02
-    [4]=3.73,       -- 2:26
-    [5]=6.14,       -- 4:00
-    sinatloss=8.59  -- 5:36
-}
+local function stopNevMusic()
+    if nevMusic then
+        nevMusic:Stop()
+        nevMusic:Destroy()
+        nevMusic = nil
+    end
+end
 
 startNPhase = function(p)
     if not nevaeHActive then return end
@@ -2532,7 +2546,7 @@ startNPhase = function(p)
     end
 end
 
--- ── Exit cutscene ─────────────────────────────────────────────
+-- -- Exit cutscene ---------------------------------------------
 nExitCutscene = function()
     local cam=workspace.CurrentCamera
     local hum=getHum(); if hum then hum.WalkSpeed=0; hum.JumpPower=0 end
@@ -2559,7 +2573,7 @@ nExitCutscene = function()
         TweenService:Create(ffy,TweenInfo.new(3),{BackgroundTransparency=1}):Play()
         task.delay(3.1,function() if fgY and fgY.Parent then fgY:Destroy() end end)
 
-        -- Fog → yellow
+        -- Fog - yellow
         setNFog(Color3.fromRGB(255,240,100),15,300,2)
 
         -- Stop falling objects
@@ -2632,7 +2646,7 @@ nExitCutscene = function()
     end)
 end
 
--- ── Start nevaeH ──────────────────────────────────────────────
+-- -- Start nevaeH ----------------------------------------------
 local function startNevaeH()
     nevaeHActive=true; nPhase=1; nStatuePrayed=0
     nStatues={}; nBelieverList={}; nAfterimages={}; nFallObjects={}
