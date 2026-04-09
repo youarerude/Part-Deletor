@@ -8,6 +8,7 @@ local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 
 local player = Players.LocalPlayer
+local camera = workspace.CurrentCamera
 
 -- ===== CONSTANTS =====
 local ROOM_W            = 30
@@ -20,7 +21,7 @@ local PLANTERA_COOLDOWN = 10
 local DISEASE_SPEED     = 75
 local DISEASE_COOLDOWN  = 10
 local STEM_START        = 50
-local STEM_COOLDOWN     = 7
+local STEM_COOLDOWN     = 60 -- Changed to 1 minute
 local PLANTERA_BEFORE   = 5
 local PLANTERA_AFTER    = 5
 local MALWARE_SPEED     = 100
@@ -28,6 +29,9 @@ local MALWARE_COOLDOWN  = 3
 local MALWARE_START     = 75
 local MALWARE_BEFORE    = 10
 local MALWARE_AFTER     = 10
+local HER_START         = 100
+local HER_COOLDOWN      = 120
+local HER_SPEED         = 30
 local LOCKER_DIST       = 5
 local GEN_AHEAD         = 7
 local CLEAN_BEHIND      = 8
@@ -54,6 +58,7 @@ local nearLocker     = false
 local currentLocker  = nil
 local checkpointDoor = 0
 local rooms          = {}
+local roomIsDark     = {}
 local planteraActive = false
 local planteraOnCooldown = false
 local diseaseActive  = false
@@ -62,6 +67,8 @@ local stemActive     = false
 local stemOnCooldown = false
 local malwareActive  = false
 local malwareOnCooldown = false
+local herActive      = false
+local herOnCooldown  = false
 local planteraSpawnedThisCheckpoint = false
 local isDead         = false
 local hiddenParts    = {}
@@ -94,6 +101,7 @@ local spawnPlantera
 local spawnDisease
 local spawnStem
 local spawnMalware
+local spawnHer
 local onDoorReached
 local onDeath
 local updateCharRef
@@ -147,7 +155,6 @@ createHUD = function()
     screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
     screenGui.Parent = player.PlayerGui
 
-    -- Door counter
     local topBar = Instance.new("Frame")
     topBar.Size = UDim2.new(0, 190, 0, 46)
     topBar.Position = UDim2.new(0.5, -95, 0, 12)
@@ -168,7 +175,6 @@ createHUD = function()
     doorLabel.Font = Enum.Font.GothamBold
     doorLabel.Parent = topBar
 
-    -- Coin counter (top-left, purely visual — not Roblox inventory)
     local coinBar = Instance.new("Frame")
     coinBar.Size = UDim2.new(0, 130, 0, 40)
     coinBar.Position = UDim2.new(0, 14, 0, 12)
@@ -180,7 +186,6 @@ createHUD = function()
     coinCorner.CornerRadius = UDim.new(0, 10)
     coinCorner.Parent = coinBar
 
-    -- Gold coin icon dot
     local coinIcon = Instance.new("Frame")
     coinIcon.Size = UDim2.new(0, 22, 0, 22)
     coinIcon.Position = UDim2.new(0, 8, 0.5, -11)
@@ -203,7 +208,6 @@ createHUD = function()
     coinLabel.TextXAlignment = Enum.TextXAlignment.Left
     coinLabel.Parent = coinBar
 
-    -- Warning banner
     warningFrame = Instance.new("Frame")
     warningFrame.Name = "WarningFrame"
     warningFrame.Size = UDim2.new(1, 0, 0, 72)
@@ -225,7 +229,6 @@ createHUD = function()
     warningLabel.TextWrapped = true
     warningLabel.Parent = warningFrame
 
-    -- Locker hide prompt
     hidePrompt = Instance.new("Frame")
     hidePrompt.Name = "HidePrompt"
     hidePrompt.Size = UDim2.new(0, 240, 0, 58)
@@ -253,7 +256,6 @@ createHUD = function()
         if not isHiding then hideInLocker() else exitLocker() end
     end)
 
-    -- Battery bar
     batteryGui = Instance.new("Frame")
     batteryGui.Name = "BatteryBar"
     batteryGui.Size = UDim2.new(0, 180, 0, 12)
@@ -269,7 +271,6 @@ createHUD = function()
     batteryFill.BorderSizePixel = 0
     batteryFill.Parent = batteryGui
 
-    -- ===== STEM EYE =====
     stemEyeContainer = Instance.new("Frame")
     stemEyeContainer.Name = "StemEyeContainer"
     stemEyeContainer.Size = UDim2.new(0, 240, 0, 120)
@@ -514,6 +515,7 @@ generateRoom = function(doorNum)
 
     local isLocked = math.random(1, 100) <= 40
     local isDark   = math.random(1, 100) <= 38
+    roomIsDark[doorNum] = isDark
     local isLeft   = math.random(1, 100) <= 55
     local isRight  = math.random(1, 100) <= 55
 
@@ -691,13 +693,12 @@ generateRoom = function(doorNum)
                 else loot = "Nothing" end
             end
 
-            -- ── COIN: pure local currency, no Tool, no inventory slot ──
             if loot == "Coin" then
                 local amt = math.random(1, 5)
                 coins = coins + amt
                 if coinLabel then coinLabel.Text = tostring(coins) .. " Coins" end
                 showWarning("Found " .. amt .. " Coin" .. (amt > 1 and "s" or "") .. "!  Total: " .. coins, 2.5)
-                return  -- do NOT add to inventory or create a Tool
+                return
             end
 
             showWarning("You searched Drawer and found: " .. loot, 2)
@@ -917,7 +918,6 @@ onDeath = function()
     inventory = {}
     flashlightBattery = 420
     ecstasyActive = false
-    -- Coins survive death (or set coins=0 here if you prefer wipe on death)
     local cc = game.Lighting:FindFirstChild("EcstasyCC")
     if cc then cc:Destroy() end
 
@@ -1068,7 +1068,8 @@ end
 -- PLANTERA ENTITY
 -- =================================================================
 spawnPlantera = function(doorNum)
-    if planteraActive or planteraOnCooldown then return end
+    if planteraActive or diseaseActive or malwareActive then return end
+    if planteraOnCooldown then return end
     planteraActive = true
     planteraOnCooldown = true
     planteraSpawnedThisCheckpoint = true
@@ -1136,7 +1137,7 @@ spawnPlantera = function(doorNum)
             if dist < 120 then
                 local intensity = (120 - dist) / 120
                 humanoid.CameraOffset = Vector3.new(math.random(-10,10)*0.03*intensity, math.random(-10,10)*0.03*intensity, 0)
-            elseif not diseaseActive then
+            else
                 humanoid.CameraOffset = Vector3.new(0, 0, 0)
             end
             if not isHiding and dist < ROOM_D * 0.5 then
@@ -1147,7 +1148,7 @@ spawnPlantera = function(doorNum)
         if newZ <= stopZ then
             planteraMoveConn:Disconnect()
             sound:Stop()
-            if not diseaseActive and humanoid then humanoid.CameraOffset = Vector3.new(0,0,0) end
+            if humanoid then humanoid.CameraOffset = Vector3.new(0,0,0) end
             planteraActive = false
             local step = 0
             local fadeConn
@@ -1175,7 +1176,8 @@ end
 -- DISEASE ENTITY
 -- =================================================================
 spawnDisease = function(doorNum)
-    if diseaseActive or diseaseOnCooldown then return end
+    if planteraActive or diseaseActive or malwareActive then return end
+    if diseaseOnCooldown then return end
     diseaseActive = true
     diseaseOnCooldown = true
 
@@ -1232,7 +1234,7 @@ spawnDisease = function(doorNum)
                 humanoid.CameraOffset = Vector3.new(math.random(-10,10)*0.06*intensity, math.random(-10,10)*0.06*intensity, 0)
             else
                 if ecstasyActive and not isHiding then humanoid.WalkSpeed = 23 end
-                if not planteraActive then humanoid.CameraOffset = Vector3.new(0,0,0) end
+                humanoid.CameraOffset = Vector3.new(0,0,0)
             end
             if not isHiding and distZ < ROOM_D * 0.5 then
                 if humanoid.Health > 0 then humanoid.Health = 0; onDeath() end
@@ -1242,7 +1244,7 @@ spawnDisease = function(doorNum)
         if newZ <= stopZ then
             moveConn:Disconnect(); sound:Stop()
             diseaseActive = false
-            if not planteraActive and humanoid then humanoid.CameraOffset = Vector3.new(0,0,0) end
+            if humanoid then humanoid.CameraOffset = Vector3.new(0,0,0) end
             entityFolder:Destroy()
             task.delay(DISEASE_COOLDOWN, function() diseaseOnCooldown = false end)
         end
@@ -1251,13 +1253,10 @@ end
 
 -- =================================================================
 -- MALWARE ENTITY
--- No warning. No signal. Hiders AND non-corner players both die.
--- Must stand in a room corner (near both a side wall AND front/back wall).
--- Destroys all decor as it sweeps through each room.
--- Speed: 100. Extreme camera shake.
 -- =================================================================
 spawnMalware = function(doorNum)
-    if malwareActive or malwareOnCooldown then return end
+    if planteraActive or diseaseActive or malwareActive then return end
+    if malwareOnCooldown then return end
     malwareActive = true
     malwareOnCooldown = true
 
@@ -1270,7 +1269,6 @@ spawnMalware = function(doorNum)
     local startZ    = -(startDoor * ROOM_D)
     local stopZ     = -(stopDoor  * ROOM_D)
 
-    -- Glitch-styled neon body
     local entityPart = makePart(
         Vector3.new(ROOM_W - 1, ROOM_H, ROOM_D * 0.4),
         CFrame.new(0, ROOM_H * 0.5, startZ),
@@ -1280,7 +1278,6 @@ spawnMalware = function(doorNum)
     entityPart.Name = "MalwareBody"
     entityPart.CanCollide = false
 
-    -- Second glitchy offset slice
     local slice2 = makePart(
         Vector3.new(ROOM_W - 1, ROOM_H * 0.4, ROOM_D * 0.25),
         CFrame.new(0, ROOM_H * 0.3, startZ + 4),
@@ -1290,7 +1287,6 @@ spawnMalware = function(doorNum)
     slice2.Name = "MalwareSlice"
     slice2.CanCollide = false
 
-    -- Cyan/magenta glitch particles
     local particles = Instance.new("ParticleEmitter")
     particles.Color = ColorSequence.new({
         ColorSequenceKeypoint.new(0, Color3.fromRGB(0, 255, 255)),
@@ -1305,7 +1301,6 @@ spawnMalware = function(doorNum)
     particles.Rotation = NumberRange.new(0, 360)
     particles.Parent = entityPart
 
-    -- Glitch trail
     local trail = Instance.new("Trail")
     trail.Color = ColorSequence.new({
         ColorSequenceKeypoint.new(0, Color3.fromRGB(0, 255, 255)),
@@ -1318,7 +1313,6 @@ spawnMalware = function(doorNum)
     local ta1 = Instance.new("Attachment", entityPart); ta1.Position = Vector3.new(0, -ROOM_H * 0.45, 0)
     trail.Attachment0 = ta0; trail.Attachment1 = ta1
 
-    -- Very loud sound
     local sound = Instance.new("Sound")
     sound.SoundId = "rbxassetid://121601166627717"
     sound.Volume = 5
@@ -1327,7 +1321,6 @@ spawnMalware = function(doorNum)
     sound.Parent = entityPart
     sound:Play()
 
-    -- Track which rooms already had decor destroyed
     local destroyedRooms = {}
 
     local malwareMoveConn
@@ -1342,14 +1335,12 @@ spawnMalware = function(doorNum)
         entityPart.CFrame = CFrame.new(0, ROOM_H * 0.5, newZ)
         slice2.CFrame = CFrame.new(0, ROOM_H * 0.3, newZ + 4 + math.random(-2, 2) * 0.5)
 
-        -- ── Destroy decorations in the room Malware currently occupies ──
         local passingDoor = math.max(0, math.floor(-newZ / ROOM_D + 0.5))
         if not destroyedRooms[passingDoor] then
             destroyedRooms[passingDoor] = true
             if rooms[passingDoor] then
                 for _, part in ipairs(rooms[passingDoor]:GetDescendants()) do
                     if part:IsA("BasePart") and DECOR_NAMES[part.Name] then
-                        -- Brief glitch flash before destroy
                         part.Color = Color3.fromRGB(0, 255, 255)
                         part.Material = Enum.Material.Neon
                         task.delay(0.06, function()
@@ -1360,11 +1351,9 @@ spawnMalware = function(doorNum)
             end
         end
 
-        -- ── Player safety check ──
         if rootPart and humanoid and not isDead then
             local distZ = math.abs(rootPart.Position.Z - newZ)
 
-            -- VERY intense camera shake when nearby
             if distZ < 180 then
                 local intensity = (180 - distZ) / 180
                 humanoid.CameraOffset = Vector3.new(
@@ -1373,15 +1362,10 @@ spawnMalware = function(doorNum)
                     0
                 )
             else
-                if not planteraActive and not diseaseActive then
-                    humanoid.CameraOffset = Vector3.new(0, 0, 0)
-                end
+                humanoid.CameraOffset = Vector3.new(0, 0, 0)
             end
 
-            -- Kill zone: within the room Malware passes through
             if distZ < ROOM_D * 0.55 then
-                -- Survival condition: must be in a CORNER
-                -- Corner = near a side wall (abs X > threshold) AND near front or back wall
                 local playerX  = rootPart.Position.X
                 local playerZ  = rootPart.Position.Z
                 local roomCtrZ = -(passingDoor * ROOM_D)
@@ -1391,7 +1375,6 @@ spawnMalware = function(doorNum)
                 local nearEndWall  = relZ > (ROOM_D * 0.5 - 6)
                 local inCorner = nearSideWall and nearEndWall
 
-                -- Hiding also kills. Only standing in a corner saves you.
                 if not inCorner then
                     if humanoid.Health > 0 then
                         humanoid.Health = 0
@@ -1404,31 +1387,124 @@ spawnMalware = function(doorNum)
         if newZ <= stopZ then
             malwareMoveConn:Disconnect()
             sound:Stop()
-            if not planteraActive and not diseaseActive and humanoid then
-                humanoid.CameraOffset = Vector3.new(0, 0, 0)
-            end
+            if humanoid then humanoid.CameraOffset = Vector3.new(0, 0, 0) end
             malwareActive = false
 
-            -- Quick fade out
             local step = 0
             local fadeConn
             fadeConn = RunService.Heartbeat:Connect(function()
                 step = step + 1
-                if entityPart and entityPart.Parent then
-                    entityPart.Transparency = 0.35 + step * 0.065
-                end
-                if slice2 and slice2.Parent then
-                    slice2.Transparency = 0.5 + step * 0.065
-                end
+                if entityPart and entityPart.Parent then entityPart.Transparency = 0.35 + step * 0.065 end
+                if slice2 and slice2.Parent then slice2.Transparency = 0.5 + step * 0.065 end
                 if step >= 10 then
                     fadeConn:Disconnect()
                     entityFolder:Destroy()
                 end
             end)
 
-            task.delay(MALWARE_COOLDOWN, function()
-                malwareOnCooldown = false
-            end)
+            task.delay(MALWARE_COOLDOWN, function() malwareOnCooldown = false end)
+        end
+    end)
+end
+
+-- =================================================================
+-- HER ENTITY (DAOAC-50)
+-- =================================================================
+spawnHer = function(doorNum)
+    if herActive or herOnCooldown then return end
+    herActive = true
+    herOnCooldown = true
+
+    local roomZ = -(doorNum * ROOM_D)
+
+    local entityFolder = Instance.new("Folder")
+    entityFolder.Name = "HerEntity"
+    entityFolder.Parent = workspace
+
+    local entityPart = makePart(Vector3.new(1.8, 7.5, 1.8), CFrame.new(0, 3.75, roomZ), Color3.fromRGB(0, 0, 0), 0, entityFolder)
+    entityPart.Name = "HerBody"
+    entityPart.CanCollide = false
+
+    local sound = Instance.new("Sound")
+    sound.SoundId = "rbxassetid://129136912774651"
+    sound.Volume = 2
+    sound.Looped = true
+    sound.RollOffMaxDistance = 100
+    sound.Parent = entityPart
+    sound:Play()
+
+    local lookTimer = 0
+    local isChasing = false
+    local herConn
+
+    herConn = RunService.Heartbeat:Connect(function(dt)
+        if not entityPart or not entityPart.Parent or isDead then
+            if herConn then herConn:Disconnect() end
+            return
+        end
+
+        if not isChasing then
+            if rootPart and camera then
+                local toHer = (entityPart.Position - camera.CFrame.Position).Unit
+                local lookDir = camera.CFrame.LookVector
+                local dot = lookDir:Dot(toHer)
+
+                if dot > 0.75 then
+                    lookTimer = lookTimer + dt
+                else
+                    lookTimer = math.max(0, lookTimer - dt)
+                end
+
+                if lookTimer >= 3 then
+                    isChasing = true
+                    sound:Stop()
+                    sound.SoundId = "rbxassetid://108968287863512"
+                    sound.Volume = 3
+                    sound:Play()
+                    entityPart.Color = Color3.fromRGB(20, 0, 0)
+                end
+            end
+
+            if currentDoor > doorNum + 2 then
+                herConn:Disconnect()
+                entityFolder:Destroy()
+                herActive = false
+                task.delay(HER_COOLDOWN, function() herOnCooldown = false end)
+            end
+        else
+            if rootPart then
+                local cframeLook = CFrame.lookAt(entityPart.Position, rootPart.Position)
+                entityPart.CFrame = cframeLook + cframeLook.LookVector * HER_SPEED * dt
+                entityPart.CFrame = CFrame.new(entityPart.Position.X, 3.75, entityPart.Position.Z)
+
+                local dist = (rootPart.Position - entityPart.Position).Magnitude
+                if dist < 100 and humanoid then
+                    local intensity = (100 - dist) / 100
+                    humanoid.CameraOffset = Vector3.new(
+                        math.random(-10, 10) * 0.08 * intensity,
+                        math.random(-10, 10) * 0.08 * intensity,
+                        0
+                    )
+                end
+
+                if dist < 4 and humanoid.Health > 0 then
+                    local deathSound = Instance.new("Sound")
+                    deathSound.SoundId = "rbxassetid://132080416777849"
+                    deathSound.Parent = workspace
+                    deathSound:Play()
+                    humanoid.Health = 0
+                    onDeath()
+                end
+
+                if not roomIsDark[currentDoor] then
+                    herConn:Disconnect()
+                    sound:Stop()
+                    if humanoid then humanoid.CameraOffset = Vector3.new(0, 0, 0) end
+                    entityFolder:Destroy()
+                    herActive = false
+                    task.delay(HER_COOLDOWN, function() herOnCooldown = false end)
+                end
+            end
         end
     end)
 end
@@ -1452,27 +1528,30 @@ onDoorReached = function(doorNum)
 
     for i = 0, doorNum - CLEAN_BEHIND do
         if rooms[i] then rooms[i]:Destroy(); rooms[i] = nil end
+        roomIsDark[i] = nil
     end
 
-    -- Stem
+    if doorNum >= HER_START and not herActive and not herOnCooldown then
+        if roomIsDark[doorNum] and math.random(1, 100) <= 25 then
+            task.spawn(function() spawnHer(doorNum) end)
+        end
+    end
+
     if doorNum >= STEM_START and not stemActive and not stemOnCooldown then
         if math.random(1, 100) <= 85 then
             task.spawn(function() spawnStem(false) end)
         end
     end
 
-    -- Disease
-    if doorNum >= 35 and not diseaseActive and not diseaseOnCooldown then
-        if math.random(1, 100) <= 30 then spawnDisease(doorNum) end
-    end
-
-    -- Plantera
-    if doorNum >= 5 and not planteraActive and not planteraOnCooldown and not planteraSpawnedThisCheckpoint then
+    if doorNum >= 5 and not planteraActive and not diseaseActive and not malwareActive and not planteraOnCooldown and not planteraSpawnedThisCheckpoint then
         if math.random(1, 100) <= 50 then spawnPlantera(doorNum) end
     end
 
-    -- Malware (no warning, 30% chance, door 75+)
-    if doorNum >= MALWARE_START and not malwareActive and not malwareOnCooldown then
+    if doorNum >= 35 and not planteraActive and not diseaseActive and not malwareActive and not diseaseOnCooldown then
+        if math.random(1, 100) <= 30 then spawnDisease(doorNum) end
+    end
+
+    if doorNum >= MALWARE_START and not planteraActive and not diseaseActive and not malwareActive and not malwareOnCooldown then
         if math.random(1, 100) <= 30 then
             task.spawn(function() spawnMalware(doorNum) end)
         end
@@ -1513,7 +1592,6 @@ mainLoop = function()
     RunService.Heartbeat:Connect(function(dt)
         if not gameStarted or not rootPart then return end
 
-        -- Ecstasy timer
         if ecstasyActive then
             if tick() > ecstasyEndTime then
                 ecstasyActive = false
@@ -1525,7 +1603,6 @@ mainLoop = function()
             end
         end
 
-        -- Flashlight battery
         local hasFlashlight = character and character:FindFirstChild("Flashlight")
         if batteryGui then batteryGui.Visible = hasFlashlight ~= nil end
         if hasFlashlight then
@@ -1543,7 +1620,6 @@ mainLoop = function()
             end
         end
 
-        -- Door detection
         local playerPos = rootPart.Position
         local playerZ   = playerPos.Z
         local approxDoor = math.max(0, math.floor(-playerZ / ROOM_D + 0.5))
@@ -1552,7 +1628,6 @@ mainLoop = function()
             onDoorReached(approxDoor)
         end
 
-        -- Locker proximity
         nearLocker = false
         currentLocker = nil
         for d = currentDoor - 1, currentDoor + 1 do
