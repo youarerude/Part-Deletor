@@ -1,6 +1,6 @@
 -- ============================================================
 -- DOORS INSPIRED GAME - LocalScript Executor
--- Devious Goober - Modded
+-- Devious Goober - Modded (Snow White Boss & Malware Fix)
 -- ============================================================
 
 local Players = game:GetService("Players")
@@ -21,7 +21,7 @@ local PLANTERA_COOLDOWN = 10
 local DISEASE_SPEED     = 75
 local DISEASE_COOLDOWN  = 10
 local STEM_START        = 50
-local STEM_COOLDOWN     = 60 -- Changed to 1 minute
+local STEM_COOLDOWN     = 60 
 local PLANTERA_BEFORE   = 5
 local PLANTERA_AFTER    = 5
 local MALWARE_SPEED     = 100
@@ -37,10 +37,10 @@ local GEN_AHEAD         = 7
 local CLEAN_BEHIND      = 8
 local MAX_ITEMS         = 3
 
--- NEW CONSTANTS FOR BREAKER ROOM
-local MAZE_SIZE         = 100
+local SNOW_WHITE_DOOR   = 135
+local SNOW_WHITE_END    = 170
 
--- Decoration part names that Malware destroys as it passes
+-- Decoration part names that Malware targets
 local DECOR_NAMES = {
     TableTop=true, TableLeg=true, PlantPot=true, PlantBush=true,
     DrawerBody=true, Drawer=true, DrawerHandle=true,
@@ -78,60 +78,27 @@ local hiddenParts    = {}
 local inventory      = {}
 local coins          = 0
 
--- NEW ITEM STATES
+-- NEW ITEM & BOSS STATES
 local flashlightBattery = 420
 local ecstasyActive     = false
 local ecstasyEndTime    = 0
-
--- BREAKER ROOM STATE
-local breakerGates      = {}
-local breakerLeverCounts = {}
+local snowWhiteActive   = false
+local snowWhitePart     = nil
+local lockerTime        = 0
+local speedPenaltyEnd   = 0
 
 -- ===== FORWARD DECLARATIONS =====
-local setupLighting
-local createHUD
-local makePart
-local makeLight
-local makeTableDecor
-local makePlant
-local makeDrawerTable
-local makeBed
-local makeLocker
-local makeVineDecor
-local generateRoom
-local createLobby
-local startGame
-local showWarning
-local hideInLocker
-local exitLocker
-local spawnPlantera
-local spawnDisease
-local spawnStem
-local spawnMalware
-local spawnHer
-local onDoorReached
-local onDeath
-local updateCharRef
-local mainLoop
+local setupLighting, createHUD, makePart, makeLight, makeTableDecor
+local makePlant, makeDrawerTable, makeBed, makeLocker, makeVineDecor
+local generateRoom, createLobby, startGame, showWarning, hideInLocker
+local exitLocker, spawnPlantera, spawnDisease, spawnStem, spawnMalware
+local spawnHer, spawnSnowWhite, onDoorReached, onDeath, updateCharRef, mainLoop
 
 -- ===== GUI REFS =====
-local screenGui
-local doorLabel
-local coinLabel
-local warningFrame
-local warningLabel
-local hidePrompt
-local hideBtnLabel
-local stemEyeContainer
-local stemEyeOuter
-local stemEyeStroke
-local stemIris
-local stemPupil
-local stemTopLid
-local stemBottomLid
-local stemSound
-local batteryGui
-local batteryFill
+local screenGui, doorLabel, coinLabel, warningFrame, warningLabel
+local hidePrompt, hideBtnLabel, stemEyeContainer, stemEyeOuter, stemEyeStroke
+local stemIris, stemPupil, stemTopLid, stemBottomLid, stemSound
+local batteryGui, batteryFill, freezeOverlay
 
 -- =================================================================
 -- LIGHTING
@@ -161,6 +128,15 @@ createHUD = function()
     screenGui.ResetOnSpawn = false
     screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
     screenGui.Parent = player.PlayerGui
+
+    freezeOverlay = Instance.new("Frame")
+    freezeOverlay.Name = "FreezeOverlay"
+    freezeOverlay.Size = UDim2.new(1, 0, 1, 0)
+    freezeOverlay.BackgroundColor3 = Color3.fromRGB(0, 255, 255)
+    freezeOverlay.BackgroundTransparency = 1
+    freezeOverlay.BorderSizePixel = 0
+    freezeOverlay.ZIndex = 100
+    freezeOverlay.Parent = screenGui
 
     local topBar = Instance.new("Frame")
     topBar.Size = UDim2.new(0, 190, 0, 46)
@@ -525,123 +501,45 @@ generateRoom = function(doorNum)
     roomIsDark[doorNum] = isDark
     local isLeft   = math.random(1, 100) <= 55
     local isRight  = math.random(1, 100) <= 55
-    local isBreaker = doorNum > 100 and math.random(1, 100) <= 25
 
-    makePart(Vector3.new(ROOM_W, 1, ROOM_D), CFrame.new(O + Vector3.new(0, -0.5, 0)), Color3.fromRGB(36, 36, 46), 0, folder).Name = "Floor"
-    makePart(Vector3.new(ROOM_W, 1, ROOM_D), CFrame.new(O + Vector3.new(0, ROOM_H + 0.5, 0)), Color3.fromRGB(30, 30, 40), 0, folder).Name = "Ceiling"
-    makePart(Vector3.new(1, ROOM_H, ROOM_D), CFrame.new(O + Vector3.new(-ROOM_W * 0.5 - 0.5, ROOM_H * 0.5, 0)), Color3.fromRGB(40, 40, 52), 0, folder).Name = "WallLeft"
-    makePart(Vector3.new(1, ROOM_H, ROOM_D), CFrame.new(O + Vector3.new(ROOM_W * 0.5 + 0.5, ROOM_H * 0.5, 0)), Color3.fromRGB(40, 40, 52), 0, folder).Name = "WallRight"
+    local isIceRoom = (doorNum >= SNOW_WHITE_DOOR and doorNum < SNOW_WHITE_END)
+    local floorMat  = isIceRoom and Enum.Material.Ice or Enum.Material.SmoothPlastic
+    local wallMat   = isIceRoom and Enum.Material.Ice or Enum.Material.SmoothPlastic
+    
+    local floorColor   = isIceRoom and Color3.fromRGB(150, 240, 255) or Color3.fromRGB(36, 36, 46)
+    local ceilingColor = isIceRoom and Color3.fromRGB(120, 220, 255) or Color3.fromRGB(30, 30, 40)
+    local wallColor    = isIceRoom and Color3.fromRGB(130, 230, 255) or Color3.fromRGB(40, 40, 52)
+
+    local floor = makePart(Vector3.new(ROOM_W, 1, ROOM_D), CFrame.new(O + Vector3.new(0, -0.5, 0)), floorColor, 0, folder, floorMat)
+    floor.Name = "Floor"
+    if isIceRoom then
+        floor.CustomPhysicalProperties = PhysicalProperties.new(0.05, 0.05, 0.5, 1, 1)
+    end
+    
+    makePart(Vector3.new(ROOM_W, 1, ROOM_D), CFrame.new(O + Vector3.new(0, ROOM_H + 0.5, 0)), ceilingColor, 0, folder, wallMat).Name = "Ceiling"
+    makePart(Vector3.new(1, ROOM_H, ROOM_D), CFrame.new(O + Vector3.new(-ROOM_W * 0.5 - 0.5, ROOM_H * 0.5, 0)), wallColor, 0, folder, wallMat).Name = "WallLeft"
+    makePart(Vector3.new(1, ROOM_H, ROOM_D), CFrame.new(O + Vector3.new(ROOM_W * 0.5 + 0.5, ROOM_H * 0.5, 0)), wallColor, 0, folder, wallMat).Name = "WallRight"
 
     local bwSideW = (ROOM_W - 5) * 0.5
-    makePart(Vector3.new(bwSideW, ROOM_H, 1), CFrame.new(O + Vector3.new(-(ROOM_W + 5) * 0.25, ROOM_H * 0.5, ROOM_D * 0.5)), Color3.fromRGB(40, 40, 52), 0, folder).Name = "BackWallL"
-    makePart(Vector3.new(bwSideW, ROOM_H, 1), CFrame.new(O + Vector3.new((ROOM_W + 5) * 0.25, ROOM_H * 0.5, ROOM_D * 0.5)), Color3.fromRGB(40, 40, 52), 0, folder).Name = "BackWallR"
-    makePart(Vector3.new(5, ROOM_H - 7, 1), CFrame.new(O + Vector3.new(0, ROOM_H - (ROOM_H - 7) * 0.5, ROOM_D * 0.5)), Color3.fromRGB(40, 40, 52), 0, folder).Name = "BackWallTop"
+    makePart(Vector3.new(bwSideW, ROOM_H, 1), CFrame.new(O + Vector3.new(-(ROOM_W + 5) * 0.25, ROOM_H * 0.5, ROOM_D * 0.5)), wallColor, 0, folder, wallMat).Name = "BackWallL"
+    makePart(Vector3.new(bwSideW, ROOM_H, 1), CFrame.new(O + Vector3.new((ROOM_W + 5) * 0.25, ROOM_H * 0.5, ROOM_D * 0.5)), wallColor, 0, folder, wallMat).Name = "BackWallR"
+    makePart(Vector3.new(5, ROOM_H - 7, 1), CFrame.new(O + Vector3.new(0, ROOM_H - (ROOM_H - 7) * 0.5, ROOM_D * 0.5)), wallColor, 0, folder, wallMat).Name = "BackWallTop"
 
     if isLeft and not isRight then
-        makePart(Vector3.new(ROOM_W * 0.65, ROOM_H, 2), CFrame.new(O + Vector3.new(ROOM_W * 0.175, ROOM_H * 0.5, -ROOM_D * 0.3)), Color3.fromRGB(40, 40, 52), 0, folder)
-        makePart(Vector3.new(ROOM_W * 0.65, ROOM_H, 2), CFrame.new(O + Vector3.new(-ROOM_W * 0.175, ROOM_H * 0.5, -ROOM_D * 0.7)), Color3.fromRGB(40, 40, 52), 0, folder)
+        makePart(Vector3.new(ROOM_W * 0.65, ROOM_H, 2), CFrame.new(O + Vector3.new(ROOM_W * 0.175, ROOM_H * 0.5, -ROOM_D * 0.3)), wallColor, 0, folder, wallMat)
+        makePart(Vector3.new(ROOM_W * 0.65, ROOM_H, 2), CFrame.new(O + Vector3.new(-ROOM_W * 0.175, ROOM_H * 0.5, -ROOM_D * 0.7)), wallColor, 0, folder, wallMat)
     elseif isRight and not isLeft then
-        makePart(Vector3.new(ROOM_W * 0.65, ROOM_H, 2), CFrame.new(O + Vector3.new(-ROOM_W * 0.175, ROOM_H * 0.5, -ROOM_D * 0.3)), Color3.fromRGB(40, 40, 52), 0, folder)
-        makePart(Vector3.new(ROOM_W * 0.65, ROOM_H, 2), CFrame.new(O + Vector3.new(ROOM_W * 0.175, ROOM_H * 0.5, -ROOM_D * 0.7)), Color3.fromRGB(40, 40, 52), 0, folder)
+        makePart(Vector3.new(ROOM_W * 0.65, ROOM_H, 2), CFrame.new(O + Vector3.new(-ROOM_W * 0.175, ROOM_H * 0.5, -ROOM_D * 0.3)), wallColor, 0, folder, wallMat)
+        makePart(Vector3.new(ROOM_W * 0.65, ROOM_H, 2), CFrame.new(O + Vector3.new(ROOM_W * 0.175, ROOM_H * 0.5, -ROOM_D * 0.7)), wallColor, 0, folder, wallMat)
     elseif isLeft and isRight then
-        makePart(Vector3.new(ROOM_W * 0.3, ROOM_H, ROOM_D * 0.6), CFrame.new(O + Vector3.new(0, ROOM_H * 0.5, -ROOM_D * 0.5)), Color3.fromRGB(40, 40, 52), 0, folder)
+        makePart(Vector3.new(ROOM_W * 0.3, ROOM_H, ROOM_D * 0.6), CFrame.new(O + Vector3.new(0, ROOM_H * 0.5, -ROOM_D * 0.5)), wallColor, 0, folder, wallMat)
     else
-        makePart(Vector3.new(bwSideW, ROOM_H, 1), CFrame.new(O + Vector3.new(-(ROOM_W + 5) * 0.25, ROOM_H * 0.5, -ROOM_D * 0.5)), Color3.fromRGB(40, 40, 52), 0, folder).Name = "FrontWallL"
-        makePart(Vector3.new(bwSideW, ROOM_H, 1), CFrame.new(O + Vector3.new((ROOM_W + 5) * 0.25, ROOM_H * 0.5, -ROOM_D * 0.5)), Color3.fromRGB(40, 40, 52), 0, folder).Name = "FrontWallR"
-        makePart(Vector3.new(5, ROOM_H - 7, 1), CFrame.new(O + Vector3.new(0, ROOM_H - (ROOM_H - 7) * 0.5, -ROOM_D * 0.5)), Color3.fromRGB(40, 40, 52), 0, folder).Name = "FrontWallTop"
-        if not isBreaker then
-            makePart(Vector3.new(5.5, 0.4, 0.5), CFrame.new(O + Vector3.new(0, 7.2, -ROOM_D * 0.5)), Color3.fromRGB(60, 40, 20), 0, folder).Name = "DoorFrameTop"
-            makePart(Vector3.new(0.4, 7.2, 0.5), CFrame.new(O + Vector3.new(-2.75, 3.6, -ROOM_D * 0.5)), Color3.fromRGB(60, 40, 20), 0, folder).Name = "DoorFrameL"
-            makePart(Vector3.new(0.4, 7.2, 0.5), CFrame.new(O + Vector3.new(2.75, 3.6, -ROOM_D * 0.5)), Color3.fromRGB(60, 40, 20), 0, folder).Name = "DoorFrameR"
-        end
-    end
-
-    -- ===== BREAKER ROOM (after door 100, 25% chance) =====
-    if isBreaker then
-        -- Large gate instead of normal door
-        local gate = makePart(Vector3.new(6, 8.5, 1), CFrame.new(O + Vector3.new(0, 4.25, -ROOM_D * 0.5)), Color3.fromRGB(55, 55, 65), 0, folder, Enum.Material.Metal)
-        gate.Name = "BreakerGate"
-        gate.CanCollide = true
-        breakerGates[doorNum] = gate
-        breakerLeverCounts[doorNum] = 0
-
-        -- Downstairs to hedge maze
-        local stairOrigin = O + Vector3.new(-10, 0, 12)
-        local numSteps = 14
-        local stepHeight = 28 / numSteps
-        local stepDepth = 4
-        for i = 1, numSteps do
-            local y = (i - 1) * stepHeight
-            local z = -(i * stepDepth)
-            makePart(Vector3.new(5, stepHeight * 0.9, stepDepth * 0.9), CFrame.new(stairOrigin + Vector3.new(0, y + stepHeight * 0.45, z)), Color3.fromRGB(65, 50, 35), 0, folder).Name = "BreakerStairs"
-        end
-
-        -- 100x100 hedge maze (below the room)
-        local mazeY = -28
-        local mazeOrigin = O + Vector3.new(0, mazeY, -ROOM_D * 0.5)
-
-        -- Maze floor
-        makePart(Vector3.new(MAZE_SIZE, 1, MAZE_SIZE), CFrame.new(mazeOrigin), Color3.fromRGB(25, 35, 20), 0, folder).Name = "MazeFloor"
-
-        -- Maze boundary walls
-        makePart(Vector3.new(MAZE_SIZE, 12, 2), CFrame.new(mazeOrigin + Vector3.new(0, 6, MAZE_SIZE/2)), Color3.fromRGB(30, 60, 30), 0, folder).Name = "MazeBoundary"
-        makePart(Vector3.new(MAZE_SIZE, 12, 2), CFrame.new(mazeOrigin + Vector3.new(0, 6, -MAZE_SIZE/2)), Color3.fromRGB(30, 60, 30), 0, folder).Name = "MazeBoundary"
-        makePart(Vector3.new(2, 12, MAZE_SIZE), CFrame.new(mazeOrigin + Vector3.new(MAZE_SIZE/2, 6, 0)), Color3.fromRGB(30, 60, 30), 0, folder).Name = "MazeBoundary"
-        makePart(Vector3.new(2, 12, MAZE_SIZE), CFrame.new(mazeOrigin + Vector3.new(-MAZE_SIZE/2, 6, 0)), Color3.fromRGB(30, 60, 30), 0, folder).Name = "MazeBoundary"
-
-        -- Hedge walls (maze feel)
-        for _ = 1, 35 do
-            local posX = math.random(-MAZE_SIZE/2 + 8, MAZE_SIZE/2 - 8)
-            local posZ = math.random(-MAZE_SIZE/2 + 8, MAZE_SIZE/2 - 8)
-            local length = math.random(8, 22)
-            local angle = math.random(0, 3) * 90
-            local hedge = makePart(Vector3.new(2.2, 10, length), CFrame.new(mazeOrigin + Vector3.new(posX, 5, posZ)) * CFrame.Angles(0, math.rad(angle), 0), Color3.fromRGB(25, 70, 25), 0, folder, Enum.Material.Grass)
-            hedge.Name = "Hedge"
-            hedge.CanCollide = true
-        end
-
-        -- Lights only if NOT combined with dark room
-        local mazeDark = isDark
-        if not mazeDark then
-            for _ = 1, 12 do
-                local lx = math.random(-MAZE_SIZE/2 + 12, MAZE_SIZE/2 - 12)
-                local lz = math.random(-MAZE_SIZE/2 + 12, MAZE_SIZE/2 - 12)
-                local lightPart = makePart(Vector3.new(1.5, 1.5, 1.5), CFrame.new(mazeOrigin + Vector3.new(lx, 11, lz)), Color3.fromRGB(240, 240, 180), 0, folder)
-                lightPart.Name = "MazeLightBulb"
-                makeLight(lightPart, 2, 40, Color3.fromRGB(255, 255, 200))
-            end
-        end
-
-        -- 3 levers in the maze
-        for i = 1, 3 do
-            local lx = math.random(-MAZE_SIZE/2 + 18, MAZE_SIZE/2 - 18)
-            local lz = math.random(-MAZE_SIZE/2 + 18, MAZE_SIZE/2 - 18)
-            local leverPos = mazeOrigin + Vector3.new(lx, 2.5, lz)
-
-            local base = makePart(Vector3.new(1.6, 2.8, 1.6), CFrame.new(leverPos), Color3.fromRGB(50, 50, 60), 0, folder)
-            base.Name = "LeverBase"
-
-            local arm = makePart(Vector3.new(0.4, 4.2, 0.4), CFrame.new(leverPos + Vector3.new(0, 2.8, 0)) * CFrame.Angles(math.rad(35), 0, 0), Color3.fromRGB(70, 70, 80), 0, folder)
-            arm.Name = "LeverArm"
-
-            local prompt = Instance.new("ProximityPrompt")
-            prompt.ActionText = "Pull Lever"
-            prompt.RequiresLineOfSight = false
-            prompt.Parent = arm
-
-            local thisDoor = doorNum
-            prompt.Triggered:Connect(function()
-                prompt:Destroy()
-                breakerLeverCounts[thisDoor] = (breakerLeverCounts[thisDoor] or 0) + 1
-                showWarning("Lever pulled! (" .. breakerLeverCounts[thisDoor] .. "/3)", 2)
-                if breakerLeverCounts[thisDoor] >= 3 and breakerGates[thisDoor] then
-                    local g = breakerGates[thisDoor]
-                    g.CanCollide = false
-                    g.Transparency = 0.75
-                    showWarning("GATE OPENED! You can proceed to the next door.", 4)
-                end
-            end)
-        end
+        makePart(Vector3.new(bwSideW, ROOM_H, 1), CFrame.new(O + Vector3.new(-(ROOM_W + 5) * 0.25, ROOM_H * 0.5, -ROOM_D * 0.5)), wallColor, 0, folder, wallMat).Name = "FrontWallL"
+        makePart(Vector3.new(bwSideW, ROOM_H, 1), CFrame.new(O + Vector3.new((ROOM_W + 5) * 0.25, ROOM_H * 0.5, -ROOM_D * 0.5)), wallColor, 0, folder, wallMat).Name = "FrontWallR"
+        makePart(Vector3.new(5, ROOM_H - 7, 1), CFrame.new(O + Vector3.new(0, ROOM_H - (ROOM_H - 7) * 0.5, -ROOM_D * 0.5)), wallColor, 0, folder, wallMat).Name = "FrontWallTop"
+        makePart(Vector3.new(5.5, 0.4, 0.5), CFrame.new(O + Vector3.new(0, 7.2, -ROOM_D * 0.5)), Color3.fromRGB(60, 40, 20), 0, folder).Name = "DoorFrameTop"
+        makePart(Vector3.new(0.4, 7.2, 0.5), CFrame.new(O + Vector3.new(-2.75, 3.6, -ROOM_D * 0.5)), Color3.fromRGB(60, 40, 20), 0, folder).Name = "DoorFrameL"
+        makePart(Vector3.new(0.4, 7.2, 0.5), CFrame.new(O + Vector3.new(2.75, 3.6, -ROOM_D * 0.5)), Color3.fromRGB(60, 40, 20), 0, folder).Name = "DoorFrameR"
     end
 
     local doorsToUnlock = {}
@@ -696,7 +594,7 @@ generateRoom = function(doorNum)
         for _, lp in ipairs(lightPos) do
             local bulb = makePart(Vector3.new(1.2, 0.4, 1.2), CFrame.new(O + lp), Color3.fromRGB(255, 255, 220), 0, folder)
             bulb.Name = "LightBulb"
-            makeLight(bulb, 1.8, 26, Color3.fromRGB(255, 238, 180))
+            makeLight(bulb, 1.8, 26, isIceRoom and Color3.fromRGB(200, 255, 255) or Color3.fromRGB(255, 238, 180))
             makePart(Vector3.new(0.1, 0.6, 0.1), CFrame.new(O + lp + Vector3.new(0, 0.5, 0)), Color3.fromRGB(30, 30, 30), 0, folder).Name = "LightWire"
         end
     end
@@ -801,7 +699,7 @@ generateRoom = function(doorNum)
 
             showWarning("You searched Drawer and found: " .. loot, 2)
 
-            if loot \~= "Nothing" then
+            if loot ~= "Nothing" then
                 if #inventory >= MAX_ITEMS then
                     showWarning("Inventory full! Max 3 items.", 2)
                     return
@@ -832,7 +730,7 @@ generateRoom = function(doorNum)
                         end
                         ecstasyActive = true
                         ecstasyEndTime = tick() + 180
-                        if humanoid then humanoid.WalkSpeed = 23 end
+                        if humanoid then humanoid.WalkSpeed = snowWhiteActive and 16 or 23 end
                         local cc = game.Lighting:FindFirstChild("EcstasyCC") or Instance.new("ColorCorrectionEffect", game.Lighting)
                         cc.Name = "EcstasyCC"
                         cc.Saturation = 1.5
@@ -982,7 +880,6 @@ end
 exitLocker = function()
     if not isHiding or not humanoid then return end
     isHiding = false
-    humanoid.WalkSpeed = ecstasyActive and (diseaseActive and 16 or 23) or 16
     humanoid.JumpPower = 50
     for part, trans in pairs(hiddenParts) do
         if part and part.Parent then part.Transparency = trans end
@@ -1011,6 +908,15 @@ onDeath = function()
     isDead = true
     gameStarted = false
     isHiding = false
+    snowWhiteActive = false
+    lockerTime = 0
+    if freezeOverlay then freezeOverlay.BackgroundTransparency = 1 end
+    
+    if snowWhitePart and snowWhitePart.Parent then 
+        snowWhitePart.Parent:Destroy()
+        snowWhitePart = nil
+    end
+
     if humanoid then humanoid.CameraOffset = Vector3.new(0, 0, 0) end
     if stemEyeContainer then stemEyeContainer.Visible = false end
     inventory = {}
@@ -1070,11 +976,19 @@ onDeath = function()
     for i = checkpointDoor, checkpointDoor + GEN_AHEAD do
         if i <= DOOR_MAX then generateRoom(i) end
     end
+    
+    if currentDoor >= SNOW_WHITE_DOOR and currentDoor < SNOW_WHITE_END then
+        game.Lighting.FogColor = Color3.fromRGB(0, 200, 255)
+        spawnSnowWhite(currentDoor)
+    else
+        game.Lighting.FogColor = Color3.fromRGB(0, 0, 0)
+    end
 end
 
 -- =================================================================
--- STEM ENTITY
+-- ENTITY FUNCTIONS
 -- =================================================================
+
 spawnStem = function(bypassCooldown)
     if stemActive then return end
     if stemOnCooldown and not bypassCooldown then return end
@@ -1162,9 +1076,6 @@ spawnStem = function(bypassCooldown)
     end)
 end
 
--- =================================================================
--- PLANTERA ENTITY
--- =================================================================
 spawnPlantera = function(doorNum)
     if planteraActive or diseaseActive or malwareActive then return end
     if planteraOnCooldown then return end
@@ -1270,9 +1181,6 @@ spawnPlantera = function(doorNum)
     end)
 end
 
--- =================================================================
--- DISEASE ENTITY
--- =================================================================
 spawnDisease = function(doorNum)
     if planteraActive or diseaseActive or malwareActive then return end
     if diseaseOnCooldown then return end
@@ -1327,11 +1235,9 @@ spawnDisease = function(doorNum)
         if rootPart and humanoid and not isDead then
             local distZ = math.abs(rootPart.Position.Z - entityPart.Position.Z)
             if distZ < 150 then
-                if ecstasyActive and not isHiding then humanoid.WalkSpeed = 16 end
                 local intensity = (150 - distZ) / 150
                 humanoid.CameraOffset = Vector3.new(math.random(-10,10)*0.06*intensity, math.random(-10,10)*0.06*intensity, 0)
             else
-                if ecstasyActive and not isHiding then humanoid.WalkSpeed = 23 end
                 humanoid.CameraOffset = Vector3.new(0,0,0)
             end
             if not isHiding and distZ < ROOM_D * 0.5 then
@@ -1349,9 +1255,6 @@ spawnDisease = function(doorNum)
     end)
 end
 
--- =================================================================
--- MALWARE ENTITY (UPDATED: destroys only 3-5 random decors)
--- =================================================================
 spawnMalware = function(doorNum)
     if planteraActive or diseaseActive or malwareActive then return end
     if malwareOnCooldown then return end
@@ -1434,25 +1337,28 @@ spawnMalware = function(doorNum)
         slice2.CFrame = CFrame.new(0, ROOM_H * 0.3, newZ + 4 + math.random(-2, 2) * 0.5)
 
         local passingDoor = math.max(0, math.floor(-newZ / ROOM_D + 0.5))
+        
+        -- MODIFIED MALWARE DESTRUCTION: 3-5 DECOS ONLY
         if not destroyedRooms[passingDoor] then
             destroyedRooms[passingDoor] = true
             if rooms[passingDoor] then
-                local decors = {}
+                local decorList = {}
                 for _, part in ipairs(rooms[passingDoor]:GetDescendants()) do
                     if part:IsA("BasePart") and DECOR_NAMES[part.Name] then
-                        table.insert(decors, part)
+                        table.insert(decorList, part)
                     end
                 end
-                local numToDestroy = math.random(3, 5)
-                for i = 1, math.min(numToDestroy, #decors) do
-                    local idx = math.random(1, #decors)
-                    local part = decors[idx]
+                
+                local toDestroy = math.random(3, 5)
+                for i = 1, math.min(toDestroy, #decorList) do
+                    local idx = math.random(1, #decorList)
+                    local part = decorList[idx]
+                    table.remove(decorList, idx)
                     part.Color = Color3.fromRGB(0, 255, 255)
                     part.Material = Enum.Material.Neon
                     task.delay(0.06, function()
                         if part and part.Parent then part:Destroy() end
                     end)
-                    table.remove(decors, idx)
                 end
             end
         end
@@ -1513,9 +1419,6 @@ spawnMalware = function(doorNum)
     end)
 end
 
--- =================================================================
--- HER ENTITY (DAOAC-50)
--- =================================================================
 spawnHer = function(doorNum)
     if herActive or herOnCooldown then return end
     herActive = true
@@ -1615,6 +1518,95 @@ spawnHer = function(doorNum)
     end)
 end
 
+-- NEW BOSS ENTITY
+spawnSnowWhite = function(doorNum)
+    if snowWhiteActive then return end
+    snowWhiteActive = true
+
+    local entityFolder = Instance.new("Folder")
+    entityFolder.Name = "SnowWhiteEntity"
+    entityFolder.Parent = workspace
+
+    snowWhitePart = makePart(Vector3.new(2, 7.5, 2), CFrame.new(0, 3.75, -(doorNum * ROOM_D)), Color3.fromRGB(0, 255, 255), 0, entityFolder, Enum.Material.Neon)
+    snowWhitePart.Name = "SnowWhiteBody"
+    snowWhitePart.CanCollide = false
+
+    local sound = Instance.new("Sound")
+    sound.SoundId = "rbxassetid://127541805467143"
+    sound.PlaybackSpeed = 1.3
+    sound.Volume = 2
+    sound.Looped = true
+    sound.RollOffMaxDistance = 150
+    sound.Parent = snowWhitePart
+    sound:Play()
+
+    -- Ice Ball Attack Loop
+    task.spawn(function()
+        while snowWhiteActive and not isDead and snowWhitePart.Parent do
+            task.wait(5)
+            if not isHiding and snowWhitePart.Parent then
+                local throwSound = Instance.new("Sound", snowWhitePart)
+                throwSound.SoundId = "rbxassetid://139748755504027"
+                throwSound.Volume = 1.5
+                throwSound:Play()
+
+                local iceBall = makePart(Vector3.new(1.5, 1.5, 1.5), snowWhitePart.CFrame, Color3.fromRGB(150, 255, 255), 0.2, entityFolder, Enum.Material.Neon)
+                iceBall.Shape = Enum.PartType.Ball
+                iceBall.CanCollide = false
+
+                local toPlayer = (rootPart.Position - iceBall.Position).Unit
+                local speed = 40
+                local bv = Instance.new("BodyVelocity")
+                bv.Velocity = toPlayer * speed
+                bv.MaxForce = Vector3.new(1e5, 1e5, 1e5)
+                bv.Parent = iceBall
+
+                local hitConn
+                hitConn = iceBall.Touched:Connect(function(hit)
+                    if hit.Parent == character then
+                        hitConn:Disconnect()
+                        iceBall:Destroy()
+                        if humanoid then
+                            humanoid:TakeDamage(30)
+                            speedPenaltyEnd = tick() + 10
+                            local hitSound = Instance.new("Sound", workspace)
+                            hitSound.SoundId = "rbxassetid://138083803229439"
+                            hitSound:Play()
+                        end
+                    elseif hit.Name ~= "SnowWhiteBody" and not hit.Parent:IsDescendantOf(character) then
+                        hitConn:Disconnect()
+                        task.delay(0.1, function() iceBall:Destroy() end)
+                    end
+                end)
+                task.delay(4, function() if iceBall and iceBall.Parent then iceBall:Destroy() end end)
+            end
+        end
+    end)
+
+    local snowConn
+    snowConn = RunService.Heartbeat:Connect(function(dt)
+        if not snowWhitePart or not snowWhitePart.Parent or isDead then
+            snowConn:Disconnect()
+            return
+        end
+
+        if not isHiding and rootPart then
+            local cframeLook = CFrame.lookAt(snowWhitePart.Position, rootPart.Position)
+            snowWhitePart.CFrame = cframeLook + cframeLook.LookVector * 13 * dt
+            snowWhitePart.CFrame = CFrame.new(snowWhitePart.Position.X, 3.75, snowWhitePart.Position.Z)
+
+            local dist = (rootPart.Position - snowWhitePart.Position).Magnitude
+            if dist < 4 and humanoid.Health > 0 then
+                local deathSound = Instance.new("Sound", workspace)
+                deathSound.SoundId = "rbxassetid://137069306202776"
+                deathSound:Play()
+                humanoid.Health = 0
+                onDeath()
+            end
+        end
+    end)
+end
+
 -- =================================================================
 -- DOOR REACHED
 -- =================================================================
@@ -1627,6 +1619,24 @@ onDoorReached = function(doorNum)
         planteraSpawnedThisCheckpoint = false
         showWarning("CHECKPOINT SAVED  -  Door " .. doorNum, 3)
     end
+    
+    -- Boss Logic
+    if doorNum >= SNOW_WHITE_DOOR and doorNum < SNOW_WHITE_END then
+        game.Lighting.FogColor = Color3.fromRGB(0, 200, 255)
+    else
+        game.Lighting.FogColor = Color3.fromRGB(0, 0, 0)
+    end
+
+    if doorNum == SNOW_WHITE_DOOR and not snowWhiteActive then
+        spawnSnowWhite(doorNum)
+    end
+
+    if doorNum == SNOW_WHITE_END and snowWhiteActive then
+        snowWhiteActive = false
+        if snowWhitePart and snowWhitePart.Parent then
+            snowWhitePart.Parent:Destroy()
+        end
+    end
 
     for i = doorNum + 1, doorNum + GEN_AHEAD do
         if i <= DOOR_MAX then generateRoom(i) end
@@ -1637,28 +1647,30 @@ onDoorReached = function(doorNum)
         roomIsDark[i] = nil
     end
 
+    local entityMultiplier = snowWhiteActive and 0.1 or 1
+
     if doorNum >= HER_START and not herActive and not herOnCooldown then
-        if roomIsDark[doorNum] and math.random(1, 100) <= 25 then
+        if roomIsDark[doorNum] and math.random(1, 100) <= (25 * entityMultiplier) then
             task.spawn(function() spawnHer(doorNum) end)
         end
     end
 
     if doorNum >= STEM_START and not stemActive and not stemOnCooldown then
-        if math.random(1, 100) <= 85 then
+        if math.random(1, 100) <= (85 * entityMultiplier) then
             task.spawn(function() spawnStem(false) end)
         end
     end
 
     if doorNum >= 5 and not planteraActive and not diseaseActive and not malwareActive and not planteraOnCooldown and not planteraSpawnedThisCheckpoint then
-        if math.random(1, 100) <= 50 then spawnPlantera(doorNum) end
+        if math.random(1, 100) <= (50 * entityMultiplier) then spawnPlantera(doorNum) end
     end
 
     if doorNum >= 35 and not planteraActive and not diseaseActive and not malwareActive and not diseaseOnCooldown then
-        if math.random(1, 100) <= 30 then spawnDisease(doorNum) end
+        if math.random(1, 100) <= (30 * entityMultiplier) then spawnDisease(doorNum) end
     end
 
     if doorNum >= MALWARE_START and not planteraActive and not diseaseActive and not malwareActive and not malwareOnCooldown then
-        if math.random(1, 100) <= 30 then
+        if math.random(1, 100) <= (30 * entityMultiplier) then
             task.spawn(function() spawnMalware(doorNum) end)
         end
     end
@@ -1697,20 +1709,56 @@ end
 mainLoop = function()
     RunService.Heartbeat:Connect(function(dt)
         if not gameStarted or not rootPart then return end
-
+        
+        -- WalkSpeed Logic
+        local targetSpeed = 16
+        if snowWhiteActive then targetSpeed = 14 end
         if ecstasyActive then
             if tick() > ecstasyEndTime then
                 ecstasyActive = false
-                if not isHiding then humanoid.WalkSpeed = 16 end
                 local cc = game.Lighting:FindFirstChild("EcstasyCC")
                 if cc then cc:Destroy() end
-            elseif not diseaseActive and not isHiding then
-                humanoid.WalkSpeed = 23
+            else
+                targetSpeed = snowWhiteActive and 16 or 23
             end
         end
 
+        if tick() < speedPenaltyEnd then
+            targetSpeed = targetSpeed - 3
+        end
+
+        if not isHiding and humanoid and not diseaseActive then
+            humanoid.WalkSpeed = targetSpeed
+        end
+        
+        -- Locker Freeze Logic (Snow White)
+        if isHiding and snowWhiteActive then
+            lockerTime = lockerTime + dt
+            if lockerTime >= 5 then
+                local freezeRatio = math.min(1, (lockerTime - 5) / 3) 
+                if freezeOverlay then
+                    freezeOverlay.BackgroundTransparency = 1 - (freezeRatio * 0.8)
+                end
+                
+                -- Trigger sound exactly once near the 5s mark
+                if lockerTime >= 5 and lockerTime - dt < 5 then
+                    local fzSound = Instance.new("Sound", workspace)
+                    fzSound.SoundId = "rbxassetid://124506007378500"
+                    fzSound:Play()
+                end
+
+                if lockerTime >= 8 and not isDead then
+                    humanoid.Health = 0
+                    onDeath()
+                end
+            end
+        else
+            lockerTime = 0
+            if freezeOverlay then freezeOverlay.BackgroundTransparency = 1 end
+        end
+
         local hasFlashlight = character and character:FindFirstChild("Flashlight")
-        if batteryGui then batteryGui.Visible = hasFlashlight \~= nil end
+        if batteryGui then batteryGui.Visible = hasFlashlight ~= nil end
         if hasFlashlight then
             flashlightBattery = math.max(0, flashlightBattery - dt)
             batteryFill.Size = UDim2.new(flashlightBattery / 420, 0, 1, 0)
@@ -1722,7 +1770,7 @@ mainLoop = function()
             if bat.Name == "Battery" and bat:IsA("BasePart") then
                 bat.Transparency = hasFlashlight and 0 or 1
                 local p = bat:FindFirstChildOfClass("ProximityPrompt")
-                if p then p.Enabled = hasFlashlight \~= nil end
+                if p then p.Enabled = hasFlashlight ~= nil end
             end
         end
 
