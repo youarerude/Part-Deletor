@@ -1,6 +1,6 @@
 -- ============================================================
 -- DOORS INSPIRED GAME - LocalScript Executor
--- Devious Goober - Modded (Snow White Boss & Malware Fix)
+-- Devious Goober - Modded (Snow White Boss, Malware Fix & VOID)
 -- + GARDEN ROOMS & DOOR 100 SPAWN OVERRIDES
 -- ============================================================
 
@@ -44,6 +44,11 @@ local SNOW_WHITE_END    = 170
 local GARDEN_START      = 175
 local GARDEN_CHANCE     = 30
 
+-- NEW VOID CONSTANTS
+local VOID_START        = 180
+local VOID_CHANCE       = 20
+local VOID_COOLDOWN     = 30
+
 -- Decoration part names that Malware targets
 local DECOR_NAMES = {
     TableTop=true, TableLeg=true, PlantPot=true, PlantBush=true,
@@ -76,6 +81,8 @@ local malwareActive  = false
 local malwareOnCooldown = false
 local herActive      = false
 local herOnCooldown  = false
+local voidActive     = false
+local voidOnCooldown = false
 local planteraSpawnedThisCheckpoint = false
 local isDead         = false
 local hiddenParts    = {}
@@ -91,12 +98,17 @@ local snowWhitePart     = nil
 local lockerTime        = 0
 local speedPenaltyEnd   = 0
 
+-- FOOTSTEP STATES
+local floorStepSound    = nil
+local grassStepSound    = nil
+local lastStepTime      = 0
+
 -- ===== FORWARD DECLARATIONS =====
 local setupLighting, createHUD, makePart, makeLight, makeTableDecor
 local makePlant, makeDrawerTable, makeBed, makeLocker, makeVineDecor
 local generateRoom, createLobby, startGame, showWarning, hideInLocker
 local exitLocker, spawnPlantera, spawnDisease, spawnStem, spawnMalware
-local spawnHer, spawnSnowWhite, onDoorReached, onDeath, updateCharRef, mainLoop
+local spawnHer, spawnSnowWhite, spawnVoid, onDoorReached, onDeath, updateCharRef, mainLoop
 
 -- ===== GUI REFS =====
 local screenGui, doorLabel, coinLabel, warningFrame, warningLabel
@@ -471,7 +483,6 @@ makeVineDecor = function(folder, roomOrigin, heavy)
         local vineCF
 
         if isFloorVine then
-            -- Spawns flat on the floor to signal Plantera
             vineCF = CFrame.new(roomOrigin + Vector3.new(math.random(-ROOM_W*0.4, ROOM_W*0.4), -0.4, math.random(-ROOM_D*0.4, ROOM_D*0.4))) * CFrame.Angles(0, math.rad(math.random(0,360)), math.rad(90))
         else
             local side = math.random(1, 4)
@@ -528,29 +539,24 @@ generateRoom = function(doorNum)
     local bwSideW = (ROOM_W - 5) * 0.5
 
     if isGarden then
-        -- GARDEN GEOMETRY
         makePart(Vector3.new(ROOM_W * 3, 1, ROOM_D), CFrame.new(O + Vector3.new(0, -0.5, 0)), Color3.fromRGB(34, 139, 34), 0, folder, Enum.Material.Grass).Name = "GardenGrass"
         makePart(Vector3.new(10, 1.05, ROOM_D), CFrame.new(O + Vector3.new(0, -0.45, 0)), Color3.fromRGB(100, 100, 100), 0, folder, Enum.Material.Cobblestone).Name = "HallwayPath"
         makePart(Vector3.new(10, 1, ROOM_D), CFrame.new(O + Vector3.new(0, ROOM_H + 0.5, 0)), ceilingColor, 0, folder, wallMat).Name = "HallwayCeiling"
 
-        -- Pillars instead of solid walls
         for z = -ROOM_D*0.45, ROOM_D*0.45, 12 do
             makePart(Vector3.new(1, ROOM_H, 1), CFrame.new(O + Vector3.new(-4.5, ROOM_H * 0.5, z)), wallColor, 0, folder, wallMat).Name = "PillarL"
             makePart(Vector3.new(1, ROOM_H, 1), CFrame.new(O + Vector3.new(4.5, ROOM_H * 0.5, z)), wallColor, 0, folder, wallMat).Name = "PillarR"
         end
 
-        -- Sealing boundary walls
         makePart(Vector3.new(ROOM_W * 3, ROOM_H, 1), CFrame.new(O + Vector3.new(0, ROOM_H * 0.5, ROOM_D * 0.5)), wallColor, 0, folder, wallMat).Name = "BackWall"
         makePart(Vector3.new(ROOM_W * 3, ROOM_H, 1), CFrame.new(O + Vector3.new(0, ROOM_H * 0.5, -ROOM_D * 0.5)), wallColor, 0, folder, wallMat).Name = "FrontWall"
         makePart(Vector3.new(1, ROOM_H, ROOM_D), CFrame.new(O + Vector3.new(-ROOM_W * 1.5, ROOM_H * 0.5, 0)), wallColor, 0, folder, wallMat).Name = "BoundaryL"
         makePart(Vector3.new(1, ROOM_H, ROOM_D), CFrame.new(O + Vector3.new(ROOM_W * 1.5, ROOM_H * 0.5, 0)), wallColor, 0, folder, wallMat).Name = "BoundaryR"
 
-        -- Door frames
         makePart(Vector3.new(5.5, 0.4, 0.5), CFrame.new(O + Vector3.new(0, 7.2, -ROOM_D * 0.5)), Color3.fromRGB(60, 40, 20), 0, folder).Name = "DoorFrameTop"
         makePart(Vector3.new(0.4, 7.2, 0.5), CFrame.new(O + Vector3.new(-2.75, 3.6, -ROOM_D * 0.5)), Color3.fromRGB(60, 40, 20), 0, folder).Name = "DoorFrameL"
         makePart(Vector3.new(0.4, 7.2, 0.5), CFrame.new(O + Vector3.new(2.75, 3.6, -ROOM_D * 0.5)), Color3.fromRGB(60, 40, 20), 0, folder).Name = "DoorFrameR"
     else
-        -- STANDARD GEOMETRY
         local floor = makePart(Vector3.new(ROOM_W, 1, ROOM_D), CFrame.new(O + Vector3.new(0, -0.5, 0)), floorColor, 0, folder, floorMat)
         floor.Name = "Floor"
         if isIceRoom then
@@ -676,7 +682,6 @@ generateRoom = function(doorNum)
     end
 
     if isGarden then
-        -- GARDEN DECORATIONS
         local bushes = {}
         for i = 1, 12 do
             local bx = (math.random(1, 2) == 1 and 1 or -1) * math.random(10, 35)
@@ -686,7 +691,6 @@ generateRoom = function(doorNum)
             bush.Name = "SunflowerBush"
             table.insert(bushes, bush)
         end
-        -- Randomly make 3 bushes hideable
         for i = 1, 3 do
             if bushes[i] then bushes[i]:SetAttribute("IsLocker", true) end
         end
@@ -735,7 +739,6 @@ generateRoom = function(doorNum)
         end
 
     else
-        -- STANDARD DECORATIONS
         local lSide = math.random(1, 2) == 1 and 1 or -1
         local lZ = math.random(-18, 18)
         makeLocker(folder, O + Vector3.new(lSide * (ROOM_W * 0.42), 0, lZ))
@@ -1637,7 +1640,6 @@ spawnHer = function(doorNum)
     end)
 end
 
--- NEW BOSS ENTITY
 spawnSnowWhite = function(doorNum)
     if snowWhiteActive then return end
     snowWhiteActive = true
@@ -1659,7 +1661,6 @@ spawnSnowWhite = function(doorNum)
     sound.Parent = snowWhitePart
     sound:Play()
 
-    -- Ice Ball Attack Loop
     task.spawn(function()
         while snowWhiteActive and not isDead and snowWhitePart.Parent do
             task.wait(5)
@@ -1726,6 +1727,81 @@ spawnSnowWhite = function(doorNum)
     end)
 end
 
+-- NEW VOID ENTITY
+spawnVoid = function(doorNum)
+    if voidActive or voidOnCooldown then return end
+    voidActive = true
+    voidOnCooldown = true
+
+    local roomZ = -(doorNum * ROOM_D)
+    
+    local voidPart = makePart(Vector3.new(5, 0.1, 5), CFrame.new(0, -0.4, roomZ), Color3.fromRGB(5, 5, 5), 0, workspace, Enum.Material.Neon)
+    voidPart.Name = "VoidSubstance"
+    voidPart.CanCollide = false
+
+    local particles = Instance.new("ParticleEmitter", voidPart)
+    particles.Color = ColorSequence.new(Color3.fromRGB(0, 0, 0))
+    particles.Size = NumberSequence.new({NumberSequenceKeypoint.new(0, 2), NumberSequenceKeypoint.new(1, 6)})
+    particles.Rate = 60
+    particles.Speed = NumberRange.new(5, 12)
+
+    local expSound = Instance.new("Sound", voidPart)
+    expSound.SoundId = "rbxassetid://140328974468167"
+    expSound.Looped = true
+    expSound.PlaybackSpeed = 0.01
+    expSound.Volume = 2
+    expSound.RollOffMaxDistance = 200
+    expSound:Play()
+
+    local expansionTime = 13
+    local maxExpansion = 100 -- Large enough for Garden rooms too
+    local startTime = tick()
+
+    local voidConn
+    voidConn = RunService.Heartbeat:Connect(function()
+        if not voidPart or not voidPart.Parent then 
+            voidConn:Disconnect()
+            return 
+        end
+
+        local elapsed = tick() - startTime
+        local progress = math.min(1, elapsed / expansionTime)
+
+        local currentSize = 5 + (maxExpansion - 5) * progress
+        voidPart.Size = Vector3.new(currentSize, 0.1, currentSize)
+        
+        -- Sound gets faster and faster
+        expSound.PlaybackSpeed = 0.01 + (1.99 * progress)
+
+        -- Kill Detection (Noclip through floor into the void)
+        if rootPart and humanoid and humanoid.Health > 0 and not isDead and not isHiding then
+            local pPos = rootPart.Position
+            local vPos = voidPart.Position
+            local dist = math.sqrt((pPos.X - vPos.X)^2 + (pPos.Z - vPos.Z)^2)
+            
+            if dist <= (currentSize / 2) and math.abs(pPos.Y - vPos.Y) < 10 then
+                humanoid.Health = 0
+                for _, pt in ipairs(character:GetDescendants()) do
+                    if pt:IsA("BasePart") then pt.CanCollide = false end
+                end
+                humanoid:ChangeState(Enum.HumanoidStateType.Physics)
+                rootPart.Velocity = Vector3.new(0, -50, 0) -- Plunge them into the darkness
+                onDeath()
+            end
+        end
+    end)
+
+    task.delay(25, function()
+        voidActive = false
+        if voidConn then voidConn:Disconnect() end
+        if voidPart then voidPart:Destroy() end
+    end)
+
+    task.delay(VOID_COOLDOWN, function()
+        voidOnCooldown = false
+    end)
+end
+
 -- =================================================================
 -- DOOR REACHED
 -- =================================================================
@@ -1757,6 +1833,13 @@ onDoorReached = function(doorNum)
         end
     end
 
+    -- Spawn Void
+    if doorNum >= VOID_START and not voidActive and not voidOnCooldown then
+        if math.random(1, 100) <= VOID_CHANCE then
+            task.spawn(function() spawnVoid(doorNum) end)
+        end
+    end
+
     for i = doorNum + 1, doorNum + GEN_AHEAD do
         if i <= DOOR_MAX then generateRoom(i) end
     end
@@ -1769,7 +1852,6 @@ onDoorReached = function(doorNum)
     local entityMultiplier = snowWhiteActive and 0.1 or 1
 
     if doorNum == 100 then
-        -- DOOR 100 SPAWN OVERRIDES
         if not herActive and not herOnCooldown and roomIsDark[doorNum] and math.random(1, 100) <= (25 * entityMultiplier) then
             task.spawn(function() spawnHer(doorNum) end)
         end
@@ -1789,7 +1871,6 @@ onDoorReached = function(doorNum)
             end
         end
     else
-        -- STANDARD SPAWN RATES
         if doorNum >= HER_START and not herActive and not herOnCooldown then
             if roomIsDark[doorNum] and math.random(1, 100) <= (25 * entityMultiplier) then
                 task.spawn(function() spawnHer(doorNum) end)
@@ -1842,6 +1923,24 @@ updateCharRef = function(newChar)
     character = newChar
     humanoid  = newChar:WaitForChild("Humanoid")
     rootPart  = newChar:WaitForChild("HumanoidRootPart")
+    
+    -- Mute default run sound
+    task.spawn(function()
+        local runSound = rootPart:WaitForChild("Running", 3)
+        if runSound then runSound.Volume = 0 end
+    end)
+    
+    -- Setup Custom Footsteps
+    floorStepSound = Instance.new("Sound")
+    floorStepSound.SoundId = "rbxassetid://138898236956764"
+    floorStepSound.Volume = 1
+    floorStepSound.Parent = rootPart
+
+    grassStepSound = Instance.new("Sound")
+    grassStepSound.SoundId = "rbxassetid://140563218459039"
+    grassStepSound.Volume = 1
+    grassStepSound.Parent = rootPart
+    
     humanoid.Died:Connect(function() onDeath() end)
 end
 
@@ -1873,6 +1972,27 @@ mainLoop = function()
             humanoid.WalkSpeed = targetSpeed
         end
         
+        -- CUSTOM FOOTSTEP LOGIC
+        if humanoid.Health > 0 and not isHiding then
+            local isMoving = humanoid.MoveDirection.Magnitude > 0
+            if isMoving and humanoid.FloorMaterial ~= Enum.Material.Air then
+                local speedRatio = humanoid.WalkSpeed / 16
+                local stepInterval = 0.35 / math.max(0.1, speedRatio)
+                if tick() - lastStepTime >= stepInterval then
+                    lastStepTime = tick()
+                    if humanoid.FloorMaterial == Enum.Material.Grass then
+                        grassStepSound.PlaybackSpeed = speedRatio
+                        grassStepSound:Play()
+                    else
+                        floorStepSound.PlaybackSpeed = speedRatio
+                        floorStepSound:Play()
+                    end
+                end
+            else
+                lastStepTime = 0
+            end
+        end
+        
         -- Locker Freeze Logic (Snow White)
         if isHiding and snowWhiteActive then
             lockerTime = lockerTime + dt
@@ -1882,7 +2002,6 @@ mainLoop = function()
                     freezeOverlay.BackgroundTransparency = 1 - (freezeRatio * 0.8)
                 end
                 
-                -- Trigger sound exactly once near the 5s mark
                 if lockerTime >= 5 and lockerTime - dt < 5 then
                     local fzSound = Instance.new("Sound", workspace)
                     fzSound.SoundId = "rbxassetid://124506007378500"
