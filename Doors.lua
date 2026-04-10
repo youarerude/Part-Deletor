@@ -1,6 +1,7 @@
 -- ============================================================
 -- DOORS INSPIRED GAME - LocalScript Executor
 -- Devious Goober - Modded (Snow White Boss & Malware Fix)
+-- + GARDEN ROOMS & DOOR 100 SPAWN OVERRIDES
 -- ============================================================
 
 local Players = game:GetService("Players")
@@ -39,6 +40,9 @@ local MAX_ITEMS         = 3
 
 local SNOW_WHITE_DOOR   = 135
 local SNOW_WHITE_END    = 170
+
+local GARDEN_START      = 175
+local GARDEN_CHANCE     = 30
 
 -- Decoration part names that Malware targets
 local DECOR_NAMES = {
@@ -231,7 +235,7 @@ createHUD = function()
     hideBtn.TextColor3 = Color3.fromRGB(255, 255, 80)
     hideBtn.TextScaled = true
     hideBtn.Font = Enum.Font.GothamBold
-    hideBtn.Text = "[HIDE IN LOCKER]"
+    hideBtn.Text = "[HIDE]"
     hideBtn.Parent = hidePrompt
     hideBtnLabel = hideBtn
 
@@ -460,22 +464,30 @@ makeLocker = function(folder, pos)
 end
 
 makeVineDecor = function(folder, roomOrigin, heavy)
-    local count = heavy and math.random(15, 25) or math.random(6, 11)
+    local count = heavy and math.random(25, 40) or math.random(6, 11)
     for i = 1, count do
-        local side = math.random(1, 4)
-        local offset = math.random(-12, 12)
-        local yOff = math.random(1, ROOM_H - 2)
-        local vineLen = math.random(3, 8)
+        local isFloorVine = (math.random(1, 3) == 1)
+        local vineLen = math.random(4, 10)
         local vineCF
-        if side == 1 then
-            vineCF = CFrame.new(roomOrigin + Vector3.new(offset, yOff, ROOM_D * 0.5 - 0.3))
-        elseif side == 2 then
-            vineCF = CFrame.new(roomOrigin + Vector3.new(offset, yOff, -ROOM_D * 0.5 + 0.3))
-        elseif side == 3 then
-            vineCF = CFrame.new(roomOrigin + Vector3.new(ROOM_W * 0.5 - 0.3, yOff, offset))
+
+        if isFloorVine then
+            -- Spawns flat on the floor to signal Plantera
+            vineCF = CFrame.new(roomOrigin + Vector3.new(math.random(-ROOM_W*0.4, ROOM_W*0.4), -0.4, math.random(-ROOM_D*0.4, ROOM_D*0.4))) * CFrame.Angles(0, math.rad(math.random(0,360)), math.rad(90))
         else
-            vineCF = CFrame.new(roomOrigin + Vector3.new(-ROOM_W * 0.5 + 0.3, yOff, offset))
+            local side = math.random(1, 4)
+            local offset = math.random(-12, 12)
+            local yOff = math.random(1, ROOM_H - 2)
+            if side == 1 then
+                vineCF = CFrame.new(roomOrigin + Vector3.new(offset, yOff, ROOM_D * 0.5 - 0.3))
+            elseif side == 2 then
+                vineCF = CFrame.new(roomOrigin + Vector3.new(offset, yOff, -ROOM_D * 0.5 + 0.3))
+            elseif side == 3 then
+                vineCF = CFrame.new(roomOrigin + Vector3.new(ROOM_W * 0.5 - 0.3, yOff, offset))
+            else
+                vineCF = CFrame.new(roomOrigin + Vector3.new(-ROOM_W * 0.5 + 0.3, yOff, offset))
+            end
         end
+
         local vine = makePart(Vector3.new(0.35, vineLen, 0.35), vineCF, Color3.fromRGB(22, 115, 22), 0.1, folder, Enum.Material.Grass)
         vine.Name = "Vine"
         vine.CanCollide = false
@@ -496,11 +508,14 @@ generateRoom = function(doorNum)
     local O = Vector3.new(0, 0, originZ)
     local roomDrawers = {}
 
+    local isGarden = (doorNum >= GARDEN_START) and (math.random(1, 100) <= GARDEN_CHANCE)
+
     local isLocked = math.random(1, 100) <= 40
     local isDark   = math.random(1, 100) <= 38
     roomIsDark[doorNum] = isDark
-    local isLeft   = math.random(1, 100) <= 55
-    local isRight  = math.random(1, 100) <= 55
+    
+    local isLeft   = not isGarden and (math.random(1, 100) <= 55)
+    local isRight  = not isGarden and (math.random(1, 100) <= 55)
 
     local isIceRoom = (doorNum >= SNOW_WHITE_DOOR and doorNum < SNOW_WHITE_END)
     local floorMat  = isIceRoom and Enum.Material.Ice or Enum.Material.SmoothPlastic
@@ -510,65 +525,109 @@ generateRoom = function(doorNum)
     local ceilingColor = isIceRoom and Color3.fromRGB(120, 220, 255) or Color3.fromRGB(30, 30, 40)
     local wallColor    = isIceRoom and Color3.fromRGB(130, 230, 255) or Color3.fromRGB(40, 40, 52)
 
-    local floor = makePart(Vector3.new(ROOM_W, 1, ROOM_D), CFrame.new(O + Vector3.new(0, -0.5, 0)), floorColor, 0, folder, floorMat)
-    floor.Name = "Floor"
-    if isIceRoom then
-        floor.CustomPhysicalProperties = PhysicalProperties.new(0.05, 0.05, 0.5, 1, 1)
-    end
-    
-    makePart(Vector3.new(ROOM_W, 1, ROOM_D), CFrame.new(O + Vector3.new(0, ROOM_H + 0.5, 0)), ceilingColor, 0, folder, wallMat).Name = "Ceiling"
-    makePart(Vector3.new(1, ROOM_H, ROOM_D), CFrame.new(O + Vector3.new(-ROOM_W * 0.5 - 0.5, ROOM_H * 0.5, 0)), wallColor, 0, folder, wallMat).Name = "WallLeft"
-    makePart(Vector3.new(1, ROOM_H, ROOM_D), CFrame.new(O + Vector3.new(ROOM_W * 0.5 + 0.5, ROOM_H * 0.5, 0)), wallColor, 0, folder, wallMat).Name = "WallRight"
-
     local bwSideW = (ROOM_W - 5) * 0.5
-    makePart(Vector3.new(bwSideW, ROOM_H, 1), CFrame.new(O + Vector3.new(-(ROOM_W + 5) * 0.25, ROOM_H * 0.5, ROOM_D * 0.5)), wallColor, 0, folder, wallMat).Name = "BackWallL"
-    makePart(Vector3.new(bwSideW, ROOM_H, 1), CFrame.new(O + Vector3.new((ROOM_W + 5) * 0.25, ROOM_H * 0.5, ROOM_D * 0.5)), wallColor, 0, folder, wallMat).Name = "BackWallR"
-    makePart(Vector3.new(5, ROOM_H - 7, 1), CFrame.new(O + Vector3.new(0, ROOM_H - (ROOM_H - 7) * 0.5, ROOM_D * 0.5)), wallColor, 0, folder, wallMat).Name = "BackWallTop"
 
-    if isLeft and not isRight then
-        makePart(Vector3.new(ROOM_W * 0.65, ROOM_H, 2), CFrame.new(O + Vector3.new(ROOM_W * 0.175, ROOM_H * 0.5, -ROOM_D * 0.3)), wallColor, 0, folder, wallMat)
-        makePart(Vector3.new(ROOM_W * 0.65, ROOM_H, 2), CFrame.new(O + Vector3.new(-ROOM_W * 0.175, ROOM_H * 0.5, -ROOM_D * 0.7)), wallColor, 0, folder, wallMat)
-    elseif isRight and not isLeft then
-        makePart(Vector3.new(ROOM_W * 0.65, ROOM_H, 2), CFrame.new(O + Vector3.new(-ROOM_W * 0.175, ROOM_H * 0.5, -ROOM_D * 0.3)), wallColor, 0, folder, wallMat)
-        makePart(Vector3.new(ROOM_W * 0.65, ROOM_H, 2), CFrame.new(O + Vector3.new(ROOM_W * 0.175, ROOM_H * 0.5, -ROOM_D * 0.7)), wallColor, 0, folder, wallMat)
-    elseif isLeft and isRight then
-        makePart(Vector3.new(ROOM_W * 0.3, ROOM_H, ROOM_D * 0.6), CFrame.new(O + Vector3.new(0, ROOM_H * 0.5, -ROOM_D * 0.5)), wallColor, 0, folder, wallMat)
-    else
-        makePart(Vector3.new(bwSideW, ROOM_H, 1), CFrame.new(O + Vector3.new(-(ROOM_W + 5) * 0.25, ROOM_H * 0.5, -ROOM_D * 0.5)), wallColor, 0, folder, wallMat).Name = "FrontWallL"
-        makePart(Vector3.new(bwSideW, ROOM_H, 1), CFrame.new(O + Vector3.new((ROOM_W + 5) * 0.25, ROOM_H * 0.5, -ROOM_D * 0.5)), wallColor, 0, folder, wallMat).Name = "FrontWallR"
-        makePart(Vector3.new(5, ROOM_H - 7, 1), CFrame.new(O + Vector3.new(0, ROOM_H - (ROOM_H - 7) * 0.5, -ROOM_D * 0.5)), wallColor, 0, folder, wallMat).Name = "FrontWallTop"
+    if isGarden then
+        -- GARDEN GEOMETRY
+        makePart(Vector3.new(ROOM_W * 3, 1, ROOM_D), CFrame.new(O + Vector3.new(0, -0.5, 0)), Color3.fromRGB(34, 139, 34), 0, folder, Enum.Material.Grass).Name = "GardenGrass"
+        makePart(Vector3.new(10, 1.05, ROOM_D), CFrame.new(O + Vector3.new(0, -0.45, 0)), Color3.fromRGB(100, 100, 100), 0, folder, Enum.Material.Cobblestone).Name = "HallwayPath"
+        makePart(Vector3.new(10, 1, ROOM_D), CFrame.new(O + Vector3.new(0, ROOM_H + 0.5, 0)), ceilingColor, 0, folder, wallMat).Name = "HallwayCeiling"
+
+        -- Pillars instead of solid walls
+        for z = -ROOM_D*0.45, ROOM_D*0.45, 12 do
+            makePart(Vector3.new(1, ROOM_H, 1), CFrame.new(O + Vector3.new(-4.5, ROOM_H * 0.5, z)), wallColor, 0, folder, wallMat).Name = "PillarL"
+            makePart(Vector3.new(1, ROOM_H, 1), CFrame.new(O + Vector3.new(4.5, ROOM_H * 0.5, z)), wallColor, 0, folder, wallMat).Name = "PillarR"
+        end
+
+        -- Sealing boundary walls
+        makePart(Vector3.new(ROOM_W * 3, ROOM_H, 1), CFrame.new(O + Vector3.new(0, ROOM_H * 0.5, ROOM_D * 0.5)), wallColor, 0, folder, wallMat).Name = "BackWall"
+        makePart(Vector3.new(ROOM_W * 3, ROOM_H, 1), CFrame.new(O + Vector3.new(0, ROOM_H * 0.5, -ROOM_D * 0.5)), wallColor, 0, folder, wallMat).Name = "FrontWall"
+        makePart(Vector3.new(1, ROOM_H, ROOM_D), CFrame.new(O + Vector3.new(-ROOM_W * 1.5, ROOM_H * 0.5, 0)), wallColor, 0, folder, wallMat).Name = "BoundaryL"
+        makePart(Vector3.new(1, ROOM_H, ROOM_D), CFrame.new(O + Vector3.new(ROOM_W * 1.5, ROOM_H * 0.5, 0)), wallColor, 0, folder, wallMat).Name = "BoundaryR"
+
+        -- Door frames
         makePart(Vector3.new(5.5, 0.4, 0.5), CFrame.new(O + Vector3.new(0, 7.2, -ROOM_D * 0.5)), Color3.fromRGB(60, 40, 20), 0, folder).Name = "DoorFrameTop"
         makePart(Vector3.new(0.4, 7.2, 0.5), CFrame.new(O + Vector3.new(-2.75, 3.6, -ROOM_D * 0.5)), Color3.fromRGB(60, 40, 20), 0, folder).Name = "DoorFrameL"
         makePart(Vector3.new(0.4, 7.2, 0.5), CFrame.new(O + Vector3.new(2.75, 3.6, -ROOM_D * 0.5)), Color3.fromRGB(60, 40, 20), 0, folder).Name = "DoorFrameR"
+    else
+        -- STANDARD GEOMETRY
+        local floor = makePart(Vector3.new(ROOM_W, 1, ROOM_D), CFrame.new(O + Vector3.new(0, -0.5, 0)), floorColor, 0, folder, floorMat)
+        floor.Name = "Floor"
+        if isIceRoom then
+            floor.CustomPhysicalProperties = PhysicalProperties.new(0.05, 0.05, 0.5, 1, 1)
+        end
+        makePart(Vector3.new(ROOM_W, 1, ROOM_D), CFrame.new(O + Vector3.new(0, ROOM_H + 0.5, 0)), ceilingColor, 0, folder, wallMat).Name = "Ceiling"
+        makePart(Vector3.new(1, ROOM_H, ROOM_D), CFrame.new(O + Vector3.new(-ROOM_W * 0.5 - 0.5, ROOM_H * 0.5, 0)), wallColor, 0, folder, wallMat).Name = "WallLeft"
+        makePart(Vector3.new(1, ROOM_H, ROOM_D), CFrame.new(O + Vector3.new(ROOM_W * 0.5 + 0.5, ROOM_H * 0.5, 0)), wallColor, 0, folder, wallMat).Name = "WallRight"
+
+        makePart(Vector3.new(bwSideW, ROOM_H, 1), CFrame.new(O + Vector3.new(-(ROOM_W + 5) * 0.25, ROOM_H * 0.5, ROOM_D * 0.5)), wallColor, 0, folder, wallMat).Name = "BackWallL"
+        makePart(Vector3.new(bwSideW, ROOM_H, 1), CFrame.new(O + Vector3.new((ROOM_W + 5) * 0.25, ROOM_H * 0.5, ROOM_D * 0.5)), wallColor, 0, folder, wallMat).Name = "BackWallR"
+        makePart(Vector3.new(5, ROOM_H - 7, 1), CFrame.new(O + Vector3.new(0, ROOM_H - (ROOM_H - 7) * 0.5, ROOM_D * 0.5)), wallColor, 0, folder, wallMat).Name = "BackWallTop"
+
+        if isLeft and not isRight then
+            makePart(Vector3.new(ROOM_W * 0.65, ROOM_H, 2), CFrame.new(O + Vector3.new(ROOM_W * 0.175, ROOM_H * 0.5, -ROOM_D * 0.3)), wallColor, 0, folder, wallMat)
+            makePart(Vector3.new(ROOM_W * 0.65, ROOM_H, 2), CFrame.new(O + Vector3.new(-ROOM_W * 0.175, ROOM_H * 0.5, -ROOM_D * 0.7)), wallColor, 0, folder, wallMat)
+        elseif isRight and not isLeft then
+            makePart(Vector3.new(ROOM_W * 0.65, ROOM_H, 2), CFrame.new(O + Vector3.new(-ROOM_W * 0.175, ROOM_H * 0.5, -ROOM_D * 0.3)), wallColor, 0, folder, wallMat)
+            makePart(Vector3.new(ROOM_W * 0.65, ROOM_H, 2), CFrame.new(O + Vector3.new(ROOM_W * 0.175, ROOM_H * 0.5, -ROOM_D * 0.7)), wallColor, 0, folder, wallMat)
+        elseif isLeft and isRight then
+            makePart(Vector3.new(ROOM_W * 0.3, ROOM_H, ROOM_D * 0.6), CFrame.new(O + Vector3.new(0, ROOM_H * 0.5, -ROOM_D * 0.5)), wallColor, 0, folder, wallMat)
+        else
+            makePart(Vector3.new(bwSideW, ROOM_H, 1), CFrame.new(O + Vector3.new(-(ROOM_W + 5) * 0.25, ROOM_H * 0.5, -ROOM_D * 0.5)), wallColor, 0, folder, wallMat).Name = "FrontWallL"
+            makePart(Vector3.new(bwSideW, ROOM_H, 1), CFrame.new(O + Vector3.new((ROOM_W + 5) * 0.25, ROOM_H * 0.5, -ROOM_D * 0.5)), wallColor, 0, folder, wallMat).Name = "FrontWallR"
+            makePart(Vector3.new(5, ROOM_H - 7, 1), CFrame.new(O + Vector3.new(0, ROOM_H - (ROOM_H - 7) * 0.5, -ROOM_D * 0.5)), wallColor, 0, folder, wallMat).Name = "FrontWallTop"
+            makePart(Vector3.new(5.5, 0.4, 0.5), CFrame.new(O + Vector3.new(0, 7.2, -ROOM_D * 0.5)), Color3.fromRGB(60, 40, 20), 0, folder).Name = "DoorFrameTop"
+            makePart(Vector3.new(0.4, 7.2, 0.5), CFrame.new(O + Vector3.new(-2.75, 3.6, -ROOM_D * 0.5)), Color3.fromRGB(60, 40, 20), 0, folder).Name = "DoorFrameL"
+            makePart(Vector3.new(0.4, 7.2, 0.5), CFrame.new(O + Vector3.new(2.75, 3.6, -ROOM_D * 0.5)), Color3.fromRGB(60, 40, 20), 0, folder).Name = "DoorFrameR"
+        end
     end
 
     local doorsToUnlock = {}
     if isLocked then
-        if isLeft and isRight then
-            local doorL = makePart(Vector3.new(ROOM_W * 0.35, ROOM_H, 1), CFrame.new(O + Vector3.new(-ROOM_W * 0.325, ROOM_H * 0.5, -ROOM_D * 0.5)), Color3.fromRGB(70, 30, 30), 0, folder)
-            local doorR = makePart(Vector3.new(ROOM_W * 0.35, ROOM_H, 1), CFrame.new(O + Vector3.new(ROOM_W * 0.325, ROOM_H * 0.5, -ROOM_D * 0.5)), Color3.fromRGB(70, 30, 30), 0, folder)
-            table.insert(doorsToUnlock, doorL)
-            table.insert(doorsToUnlock, doorR)
+        if isGarden then
+            local vineDoor = makePart(Vector3.new(6.5, 8.2, 1), CFrame.new(O + Vector3.new(0, 4.1, -ROOM_D * 0.5)), Color3.fromRGB(22, 115, 22), 0, folder, Enum.Material.Grass)
+            vineDoor.Name = "LockedVines"
+            table.insert(doorsToUnlock, vineDoor)
         else
-            local lockedDoor = makePart(Vector3.new(6.5, 8.2, 1), CFrame.new(O + Vector3.new(0, 4.1, -ROOM_D * 0.5)), Color3.fromRGB(70, 30, 30), 0, folder)
-            lockedDoor.Name = "LockedDoor"
-            table.insert(doorsToUnlock, lockedDoor)
+            if isLeft and isRight then
+                local doorL = makePart(Vector3.new(ROOM_W * 0.35, ROOM_H, 1), CFrame.new(O + Vector3.new(-ROOM_W * 0.325, ROOM_H * 0.5, -ROOM_D * 0.5)), Color3.fromRGB(70, 30, 30), 0, folder)
+                local doorR = makePart(Vector3.new(ROOM_W * 0.35, ROOM_H, 1), CFrame.new(O + Vector3.new(ROOM_W * 0.325, ROOM_H * 0.5, -ROOM_D * 0.5)), Color3.fromRGB(70, 30, 30), 0, folder)
+                table.insert(doorsToUnlock, doorL)
+                table.insert(doorsToUnlock, doorR)
+            else
+                local lockedDoor = makePart(Vector3.new(6.5, 8.2, 1), CFrame.new(O + Vector3.new(0, 4.1, -ROOM_D * 0.5)), Color3.fromRGB(70, 30, 30), 0, folder)
+                lockedDoor.Name = "LockedDoor"
+                table.insert(doorsToUnlock, lockedDoor)
+            end
         end
+
         for _, d in ipairs(doorsToUnlock) do
             local prompt = Instance.new("ProximityPrompt")
-            prompt.ActionText = "Unlock"
+            prompt.ActionText = isGarden and "Cut Vines" or "Unlock"
             prompt.RequiresLineOfSight = false
             prompt.Parent = d
             prompt.Triggered:Connect(function()
                 local char = player.Character
-                if char and char:FindFirstChild("Key") then
-                    char.Key:Destroy()
-                    d:Destroy()
-                    for i, v in ipairs(inventory) do
-                        if v == "Key" then table.remove(inventory, i) break end
+                if isGarden then
+                    if char and char:FindFirstChild("Lopper") then
+                        char.Lopper:Destroy()
+                        d:Destroy()
+                        for i, v in ipairs(inventory) do
+                            if v == "Lopper" then table.remove(inventory, i) break end
+                        end
+                    else
+                        showWarning("You need to hold a Lopper to cut this!", 2)
                     end
                 else
-                    showWarning("You need to hold a Key to unlock this!", 2)
+                    if char and char:FindFirstChild("Key") then
+                        char.Key:Destroy()
+                        d:Destroy()
+                        for i, v in ipairs(inventory) do
+                            if v == "Key" then table.remove(inventory, i) break end
+                        end
+                    else
+                        showWarning("You need to hold a Key to unlock this!", 2)
+                    end
                 end
             end)
         end
@@ -590,7 +649,8 @@ generateRoom = function(doorNum)
 
     if not isDark then
         local lightY = ROOM_H - 0.6
-        local lightPos = {Vector3.new(-8, lightY, -12), Vector3.new(8, lightY, -12), Vector3.new(-8, lightY, 12), Vector3.new(8, lightY, 12)}
+        local hlx = isGarden and 3 or 8
+        local lightPos = {Vector3.new(-hlx, lightY, -12), Vector3.new(hlx, lightY, -12), Vector3.new(-hlx, lightY, 12), Vector3.new(hlx, lightY, 12)}
         for _, lp in ipairs(lightPos) do
             local bulb = makePart(Vector3.new(1.2, 0.4, 1.2), CFrame.new(O + lp), Color3.fromRGB(255, 255, 220), 0, folder)
             bulb.Name = "LightBulb"
@@ -615,133 +675,193 @@ generateRoom = function(doorNum)
         cpLabel2.Parent = cpGui
     end
 
-    local lSide = math.random(1, 2) == 1 and 1 or -1
-    local lZ = math.random(-18, 18)
-    makeLocker(folder, O + Vector3.new(lSide * (ROOM_W * 0.42), 0, lZ))
-
-    local roll = math.random(1, 10)
-    if roll <= 7 then makeTableDecor(folder, O + Vector3.new(math.random(-8, 8), 0, math.random(-18, 18))) end
-    if roll <= 7 then makePlant(folder, O + Vector3.new(math.random(-10, 10), 0, math.random(-18, 18))) end
-    if roll <= 5 then makeDrawerTable(folder, O + Vector3.new(math.random(-8, 8), 0, math.random(-18, 18)), roomDrawers) end
-    if roll <= 4 then makeBed(folder, O + Vector3.new(math.random(-8, 8), 0, math.random(-14, 14)), math.random(0, 1) * 90) end
-    if roll <= 3 then makeLocker(folder, O + Vector3.new(-lSide * (ROOM_W * 0.42), 0, lZ - 6)) end
-    if roll <= 2 then
-        makePlant(folder, O + Vector3.new(math.random(-10, 10), 0, math.random(-18, 18)))
-        makeTableDecor(folder, O + Vector3.new(math.random(-8, 8), 0, math.random(-18, 18)))
-    end
-    if roll <= 5 then
-        local shelf = makePart(Vector3.new(0.3, 5, 3.5), CFrame.new(O + Vector3.new(math.random(-12, 12), 2.5, math.random(-18, 18))), Color3.fromRGB(90, 62, 32), 0, folder)
-        shelf.Name = "Shelf"
-        for s = 1, 3 do
-            makePart(Vector3.new(0.32, 0.2, 3.5), CFrame.new(shelf.CFrame.Position + Vector3.new(0, s * 1.4 - 2, 0)), Color3.fromRGB(80, 55, 28), 0, folder).Name = "ShelfBoard"
+    if isGarden then
+        -- GARDEN DECORATIONS
+        local bushes = {}
+        for i = 1, 12 do
+            local bx = (math.random(1, 2) == 1 and 1 or -1) * math.random(10, 35)
+            local bz = math.random(-ROOM_D*0.45, ROOM_D*0.45)
+            local bush = makePart(Vector3.new(4, 4, 4), CFrame.new(O + Vector3.new(bx, 1.5, bz)), Color3.fromRGB(34, 139, 34), 0, folder, Enum.Material.Grass)
+            bush.Shape = Enum.PartType.Ball
+            bush.Name = "SunflowerBush"
+            table.insert(bushes, bush)
         end
-    end
-    if roll >= 5 then
-        makePart(Vector3.new(2, 2, 2), CFrame.new(O + Vector3.new(math.random(-10, 10), 1, math.random(-18, 18))), Color3.fromRGB(100, 80, 50), 0, folder, Enum.Material.Wood).Name = "Crate"
-    end
-    if roll >= 4 and not isDark then
-        local sconce = makePart(Vector3.new(0.5, 1, 0.4), CFrame.new(O + Vector3.new(lSide * (ROOM_W * 0.48), ROOM_H - 3, math.random(-15, 15))), Color3.fromRGB(80, 70, 50), 0, folder)
-        sconce.Name = "WallSconce"
-        makeLight(sconce, 1, 14, Color3.fromRGB(255, 200, 120))
-    end
-
-    if math.random(1, 100) <= 20 then
-        local batPart = makePart(Vector3.new(0.4, 0.8, 0.4), CFrame.new(O + Vector3.new(math.random(-5, 5), 3, math.random(-10, 10))), Color3.fromRGB(30, 30, 30), 1, folder)
-        batPart.Name = "Battery"
-        local batPrompt = Instance.new("ProximityPrompt")
-        batPrompt.ActionText = "Take Battery (+2 min)"
-        batPrompt.RequiresLineOfSight = false
-        batPrompt.Enabled = false
-        batPrompt.Parent = batPart
-        batPrompt.Triggered:Connect(function()
-            flashlightBattery = math.min(420, flashlightBattery + 120)
-            showWarning("Refilled Flashlight Battery!", 2)
-            batPart:Destroy()
-        end)
-    end
-
-    local keysNeeded = isLocked and 1 or 0
-    if isLeft and isRight and isLocked then keysNeeded = 2 end
-
-    for i = 1, keysNeeded do
-        if #roomDrawers == 0 then makeDrawerTable(folder, O + Vector3.new(0, 0, 0), roomDrawers) end
-        local available = {}
-        for _, d in ipairs(roomDrawers) do
-            if not d:GetAttribute("Loot") then table.insert(available, d) end
+        -- Randomly make 3 bushes hideable
+        for i = 1, 3 do
+            if bushes[i] then bushes[i]:SetAttribute("IsLocker", true) end
         end
-        if #available > 0 then available[math.random(1, #available)]:SetAttribute("Loot", "Key") end
-    end
 
-    for _, drawer in ipairs(roomDrawers) do
-        local prompt = Instance.new("ProximityPrompt")
-        prompt.ActionText = "Search"
-        prompt.RequiresLineOfSight = false
-        prompt.Parent = drawer
-        prompt.Triggered:Connect(function(plr)
-            prompt:Destroy()
-
-            local loot = drawer:GetAttribute("Loot")
-            if not loot then
-                local r = math.random(1, 100)
-                if r <= 10 then loot = "Flashlight"
-                elseif r <= 35 then loot = "Ecstasy"
-                elseif r <= 60 then loot = "Coin"
-                else loot = "Nothing" end
+        if not isDark then
+            for i = 1, 4 do
+                local lx = (i % 2 == 0 and 1 or -1) * math.random(10, 20)
+                local lz = math.random(-ROOM_D*0.4, ROOM_D*0.4)
+                local post = makePart(Vector3.new(0.5, 9, 0.5), CFrame.new(O + Vector3.new(lx, 4.5, lz)), Color3.fromRGB(20, 20, 20), 0, folder)
+                local bulb = makePart(Vector3.new(1.5, 1.5, 1.5), CFrame.new(O + Vector3.new(lx, 9, lz)), Color3.fromRGB(255, 255, 200), 0, folder, Enum.Material.Neon)
+                makeLight(bulb, 2, 45, Color3.fromRGB(255, 255, 200))
             end
+        end
 
-            if loot == "Coin" then
-                local amt = math.random(1, 5)
-                coins = coins + amt
-                if coinLabel then coinLabel.Text = tostring(coins) .. " Coins" end
-                showWarning("Found " .. amt .. " Coin" .. (amt > 1 and "s" or "") .. "!  Total: " .. coins, 2.5)
-                return
-            end
-
-            showWarning("You searched Drawer and found: " .. loot, 2)
-
-            if loot ~= "Nothing" then
-                if #inventory >= MAX_ITEMS then
-                    showWarning("Inventory full! Max 3 items.", 2)
-                    return
-                end
-                table.insert(inventory, loot)
+        if isLocked then
+            local lopper = makePart(Vector3.new(2, 0.2, 0.6), CFrame.new(O + Vector3.new(math.random(-25, 25), 0.6, math.random(-15, 15))), Color3.fromRGB(150, 150, 150), 0, folder, Enum.Material.Metal)
+            lopper.Name = "Lopper"
+            local lp = Instance.new("ProximityPrompt", lopper)
+            lp.ActionText = "Take Lopper"
+            lp.Triggered:Connect(function(plr)
+                if #inventory >= MAX_ITEMS then showWarning("Inventory full! Max 3 items.", 2) return end
+                lp:Destroy()
+                table.insert(inventory, "Lopper")
                 local tool = Instance.new("Tool")
-                tool.Name = loot
+                tool.Name = "Lopper"
                 local handle = Instance.new("Part")
                 handle.Name = "Handle"
-                if loot == "Key" then
-                    handle.Size = Vector3.new(1, 0.2, 0.2)
-                    handle.Color = Color3.fromRGB(255, 215, 0)
-                elseif loot == "Flashlight" then
-                    handle.Size = Vector3.new(0.4, 1.2, 0.4)
-                    handle.Color = Color3.fromRGB(20, 20, 20)
-                    local light = Instance.new("SpotLight", handle)
-                    light.Range = 45
-                    light.Brightness = 3
-                    light.Angle = 70
-                elseif loot == "Ecstasy" then
-                    handle.Size = Vector3.new(0.5, 0.5, 0.5)
-                    handle.Color = Color3.fromRGB(200, 50, 200)
-                    handle.Material = Enum.Material.Neon
-                    tool.Activated:Connect(function()
-                        tool:Destroy()
-                        for i, v in ipairs(inventory) do
-                            if v == "Ecstasy" then table.remove(inventory, i) break end
-                        end
-                        ecstasyActive = true
-                        ecstasyEndTime = tick() + 180
-                        if humanoid then humanoid.WalkSpeed = snowWhiteActive and 16 or 23 end
-                        local cc = game.Lighting:FindFirstChild("EcstasyCC") or Instance.new("ColorCorrectionEffect", game.Lighting)
-                        cc.Name = "EcstasyCC"
-                        cc.Saturation = 1.5
-                    end)
-                else
-                    handle.Size = Vector3.new(0.5, 0.5, 0.5)
-                end
+                handle.Size = Vector3.new(2, 0.2, 0.6)
+                handle.Color = Color3.fromRGB(150, 150, 150)
                 handle.Parent = tool
                 tool.Parent = plr.Backpack
+                lopper:Destroy()
+            end)
+        end
+
+        if math.random(1, 100) <= 20 then
+            local batPart = makePart(Vector3.new(0.4, 0.8, 0.4), CFrame.new(O + Vector3.new(math.random(-10, 10), 1, math.random(-10, 10))), Color3.fromRGB(30, 30, 30), 1, folder)
+            batPart.Name = "Battery"
+            local batPrompt = Instance.new("ProximityPrompt", batPart)
+            batPrompt.ActionText = "Take Battery (+2 min)"
+            batPrompt.Triggered:Connect(function()
+                flashlightBattery = math.min(420, flashlightBattery + 120)
+                showWarning("Refilled Flashlight Battery!", 2)
+                batPart:Destroy()
+            end)
+        end
+
+    else
+        -- STANDARD DECORATIONS
+        local lSide = math.random(1, 2) == 1 and 1 or -1
+        local lZ = math.random(-18, 18)
+        makeLocker(folder, O + Vector3.new(lSide * (ROOM_W * 0.42), 0, lZ))
+
+        local roll = math.random(1, 10)
+        if roll <= 7 then makeTableDecor(folder, O + Vector3.new(math.random(-8, 8), 0, math.random(-18, 18))) end
+        if roll <= 7 then makePlant(folder, O + Vector3.new(math.random(-10, 10), 0, math.random(-18, 18))) end
+        if roll <= 5 then makeDrawerTable(folder, O + Vector3.new(math.random(-8, 8), 0, math.random(-18, 18)), roomDrawers) end
+        if roll <= 4 then makeBed(folder, O + Vector3.new(math.random(-8, 8), 0, math.random(-14, 14)), math.random(0, 1) * 90) end
+        if roll <= 3 then makeLocker(folder, O + Vector3.new(-lSide * (ROOM_W * 0.42), 0, lZ - 6)) end
+        if roll <= 2 then
+            makePlant(folder, O + Vector3.new(math.random(-10, 10), 0, math.random(-18, 18)))
+            makeTableDecor(folder, O + Vector3.new(math.random(-8, 8), 0, math.random(-18, 18)))
+        end
+        if roll <= 5 then
+            local shelf = makePart(Vector3.new(0.3, 5, 3.5), CFrame.new(O + Vector3.new(math.random(-12, 12), 2.5, math.random(-18, 18))), Color3.fromRGB(90, 62, 32), 0, folder)
+            shelf.Name = "Shelf"
+            for s = 1, 3 do
+                makePart(Vector3.new(0.32, 0.2, 3.5), CFrame.new(shelf.CFrame.Position + Vector3.new(0, s * 1.4 - 2, 0)), Color3.fromRGB(80, 55, 28), 0, folder).Name = "ShelfBoard"
             end
-        end)
+        end
+        if roll >= 5 then
+            makePart(Vector3.new(2, 2, 2), CFrame.new(O + Vector3.new(math.random(-10, 10), 1, math.random(-18, 18))), Color3.fromRGB(100, 80, 50), 0, folder, Enum.Material.Wood).Name = "Crate"
+        end
+        if roll >= 4 and not isDark then
+            local sconce = makePart(Vector3.new(0.5, 1, 0.4), CFrame.new(O + Vector3.new(lSide * (ROOM_W * 0.48), ROOM_H - 3, math.random(-15, 15))), Color3.fromRGB(80, 70, 50), 0, folder)
+            sconce.Name = "WallSconce"
+            makeLight(sconce, 1, 14, Color3.fromRGB(255, 200, 120))
+        end
+
+        if math.random(1, 100) <= 20 then
+            local batPart = makePart(Vector3.new(0.4, 0.8, 0.4), CFrame.new(O + Vector3.new(math.random(-5, 5), 3, math.random(-10, 10))), Color3.fromRGB(30, 30, 30), 1, folder)
+            batPart.Name = "Battery"
+            local batPrompt = Instance.new("ProximityPrompt", batPart)
+            batPrompt.ActionText = "Take Battery (+2 min)"
+            batPrompt.Enabled = false
+            batPrompt.Triggered:Connect(function()
+                flashlightBattery = math.min(420, flashlightBattery + 120)
+                showWarning("Refilled Flashlight Battery!", 2)
+                batPart:Destroy()
+            end)
+        end
+
+        local keysNeeded = isLocked and 1 or 0
+        if isLeft and isRight and isLocked then keysNeeded = 2 end
+
+        for i = 1, keysNeeded do
+            if #roomDrawers == 0 then makeDrawerTable(folder, O + Vector3.new(0, 0, 0), roomDrawers) end
+            local available = {}
+            for _, d in ipairs(roomDrawers) do
+                if not d:GetAttribute("Loot") then table.insert(available, d) end
+            end
+            if #available > 0 then available[math.random(1, #available)]:SetAttribute("Loot", "Key") end
+        end
+
+        for _, drawer in ipairs(roomDrawers) do
+            local prompt = Instance.new("ProximityPrompt")
+            prompt.ActionText = "Search"
+            prompt.RequiresLineOfSight = false
+            prompt.Parent = drawer
+            prompt.Triggered:Connect(function(plr)
+                prompt:Destroy()
+
+                local loot = drawer:GetAttribute("Loot")
+                if not loot then
+                    local r = math.random(1, 100)
+                    if r <= 10 then loot = "Flashlight"
+                    elseif r <= 35 then loot = "Ecstasy"
+                    elseif r <= 60 then loot = "Coin"
+                    else loot = "Nothing" end
+                end
+
+                if loot == "Coin" then
+                    local amt = math.random(1, 5)
+                    coins = coins + amt
+                    if coinLabel then coinLabel.Text = tostring(coins) .. " Coins" end
+                    showWarning("Found " .. amt .. " Coin" .. (amt > 1 and "s" or "") .. "!  Total: " .. coins, 2.5)
+                    return
+                end
+
+                showWarning("You searched Drawer and found: " .. loot, 2)
+
+                if loot ~= "Nothing" then
+                    if #inventory >= MAX_ITEMS then
+                        showWarning("Inventory full! Max 3 items.", 2)
+                        return
+                    end
+                    table.insert(inventory, loot)
+                    local tool = Instance.new("Tool")
+                    tool.Name = loot
+                    local handle = Instance.new("Part")
+                    handle.Name = "Handle"
+                    if loot == "Key" then
+                        handle.Size = Vector3.new(1, 0.2, 0.2)
+                        handle.Color = Color3.fromRGB(255, 215, 0)
+                    elseif loot == "Flashlight" then
+                        handle.Size = Vector3.new(0.4, 1.2, 0.4)
+                        handle.Color = Color3.fromRGB(20, 20, 20)
+                        local light = Instance.new("SpotLight", handle)
+                        light.Range = 45
+                        light.Brightness = 3
+                        light.Angle = 70
+                    elseif loot == "Ecstasy" then
+                        handle.Size = Vector3.new(0.5, 0.5, 0.5)
+                        handle.Color = Color3.fromRGB(200, 50, 200)
+                        handle.Material = Enum.Material.Neon
+                        tool.Activated:Connect(function()
+                            tool:Destroy()
+                            for i, v in ipairs(inventory) do
+                                if v == "Ecstasy" then table.remove(inventory, i) break end
+                            end
+                            ecstasyActive = true
+                            ecstasyEndTime = tick() + 180
+                            if humanoid then humanoid.WalkSpeed = snowWhiteActive and 16 or 23 end
+                            local cc = game.Lighting:FindFirstChild("EcstasyCC") or Instance.new("ColorCorrectionEffect", game.Lighting)
+                            cc.Name = "EcstasyCC"
+                            cc.Saturation = 1.5
+                        end)
+                    else
+                        handle.Size = Vector3.new(0.5, 0.5, 0.5)
+                    end
+                    handle.Parent = tool
+                    tool.Parent = plr.Backpack
+                end
+            end)
+        end
     end
 
     rooms[doorNum] = folder
@@ -874,7 +994,7 @@ hideInLocker = function()
             part.Transparency = 1
         end
     end
-    if hideBtnLabel then hideBtnLabel.Text = "[EXIT LOCKER]" end
+    if hideBtnLabel then hideBtnLabel.Text = "[EXIT]" end
 end
 
 exitLocker = function()
@@ -885,7 +1005,7 @@ exitLocker = function()
         if part and part.Parent then part.Transparency = trans end
     end
     table.clear(hiddenParts)
-    if hideBtnLabel then hideBtnLabel.Text = "[HIDE IN LOCKER]" end
+    if hideBtnLabel then hideBtnLabel.Text = "[HIDE]" end
 end
 
 -- =================================================================
@@ -1338,7 +1458,6 @@ spawnMalware = function(doorNum)
 
         local passingDoor = math.max(0, math.floor(-newZ / ROOM_D + 0.5))
         
-        -- MODIFIED MALWARE DESTRUCTION: 3-5 DECOS ONLY
         if not destroyedRooms[passingDoor] then
             destroyedRooms[passingDoor] = true
             if rooms[passingDoor] then
@@ -1649,29 +1768,52 @@ onDoorReached = function(doorNum)
 
     local entityMultiplier = snowWhiteActive and 0.1 or 1
 
-    if doorNum >= HER_START and not herActive and not herOnCooldown then
-        if roomIsDark[doorNum] and math.random(1, 100) <= (25 * entityMultiplier) then
+    if doorNum == 100 then
+        -- DOOR 100 SPAWN OVERRIDES
+        if not herActive and not herOnCooldown and roomIsDark[doorNum] and math.random(1, 100) <= (25 * entityMultiplier) then
             task.spawn(function() spawnHer(doorNum) end)
         end
-    end
-
-    if doorNum >= STEM_START and not stemActive and not stemOnCooldown then
-        if math.random(1, 100) <= (85 * entityMultiplier) then
+        
+        if not stemActive and not stemOnCooldown and math.random(1, 100) <= (20 * entityMultiplier) then
             task.spawn(function() spawnStem(false) end)
         end
-    end
 
-    if doorNum >= 5 and not planteraActive and not diseaseActive and not malwareActive and not planteraOnCooldown and not planteraSpawnedThisCheckpoint then
-        if math.random(1, 100) <= (50 * entityMultiplier) then spawnPlantera(doorNum) end
-    end
+        if not planteraActive and not diseaseActive and not malwareActive then
+            local roll = math.random(1, 100)
+            if roll <= (30 * entityMultiplier) then
+                spawnPlantera(doorNum)
+            elseif roll <= (55 * entityMultiplier) and not diseaseOnCooldown then
+                spawnDisease(doorNum)
+            elseif roll <= (80 * entityMultiplier) and not malwareOnCooldown then
+                task.spawn(function() spawnMalware(doorNum) end)
+            end
+        end
+    else
+        -- STANDARD SPAWN RATES
+        if doorNum >= HER_START and not herActive and not herOnCooldown then
+            if roomIsDark[doorNum] and math.random(1, 100) <= (25 * entityMultiplier) then
+                task.spawn(function() spawnHer(doorNum) end)
+            end
+        end
 
-    if doorNum >= 35 and not planteraActive and not diseaseActive and not malwareActive and not diseaseOnCooldown then
-        if math.random(1, 100) <= (30 * entityMultiplier) then spawnDisease(doorNum) end
-    end
+        if doorNum >= STEM_START and not stemActive and not stemOnCooldown then
+            if math.random(1, 100) <= (85 * entityMultiplier) then
+                task.spawn(function() spawnStem(false) end)
+            end
+        end
 
-    if doorNum >= MALWARE_START and not planteraActive and not diseaseActive and not malwareActive and not malwareOnCooldown then
-        if math.random(1, 100) <= (30 * entityMultiplier) then
-            task.spawn(function() spawnMalware(doorNum) end)
+        if doorNum >= 5 and not planteraActive and not diseaseActive and not malwareActive and not planteraOnCooldown and not planteraSpawnedThisCheckpoint then
+            if math.random(1, 100) <= (50 * entityMultiplier) then spawnPlantera(doorNum) end
+        end
+
+        if doorNum >= 35 and not planteraActive and not diseaseActive and not malwareActive and not diseaseOnCooldown then
+            if math.random(1, 100) <= (30 * entityMultiplier) then spawnDisease(doorNum) end
+        end
+
+        if doorNum >= MALWARE_START and not planteraActive and not diseaseActive and not malwareActive and not malwareOnCooldown then
+            if math.random(1, 100) <= (30 * entityMultiplier) then
+                task.spawn(function() spawnMalware(doorNum) end)
+            end
         end
     end
 
