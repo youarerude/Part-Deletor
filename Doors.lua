@@ -37,6 +37,9 @@ local GEN_AHEAD         = 7
 local CLEAN_BEHIND      = 8
 local MAX_ITEMS         = 3
 
+-- NEW CONSTANTS FOR BREAKER ROOM
+local MAZE_SIZE         = 100
+
 -- Decoration part names that Malware destroys as it passes
 local DECOR_NAMES = {
     TableTop=true, TableLeg=true, PlantPot=true, PlantBush=true,
@@ -79,6 +82,10 @@ local coins          = 0
 local flashlightBattery = 420
 local ecstasyActive     = false
 local ecstasyEndTime    = 0
+
+-- BREAKER ROOM STATE
+local breakerGates      = {}
+local breakerLeverCounts = {}
 
 -- ===== FORWARD DECLARATIONS =====
 local setupLighting
@@ -518,6 +525,7 @@ generateRoom = function(doorNum)
     roomIsDark[doorNum] = isDark
     local isLeft   = math.random(1, 100) <= 55
     local isRight  = math.random(1, 100) <= 55
+    local isBreaker = doorNum > 100 and math.random(1, 100) <= 25
 
     makePart(Vector3.new(ROOM_W, 1, ROOM_D), CFrame.new(O + Vector3.new(0, -0.5, 0)), Color3.fromRGB(36, 36, 46), 0, folder).Name = "Floor"
     makePart(Vector3.new(ROOM_W, 1, ROOM_D), CFrame.new(O + Vector3.new(0, ROOM_H + 0.5, 0)), Color3.fromRGB(30, 30, 40), 0, folder).Name = "Ceiling"
@@ -541,9 +549,99 @@ generateRoom = function(doorNum)
         makePart(Vector3.new(bwSideW, ROOM_H, 1), CFrame.new(O + Vector3.new(-(ROOM_W + 5) * 0.25, ROOM_H * 0.5, -ROOM_D * 0.5)), Color3.fromRGB(40, 40, 52), 0, folder).Name = "FrontWallL"
         makePart(Vector3.new(bwSideW, ROOM_H, 1), CFrame.new(O + Vector3.new((ROOM_W + 5) * 0.25, ROOM_H * 0.5, -ROOM_D * 0.5)), Color3.fromRGB(40, 40, 52), 0, folder).Name = "FrontWallR"
         makePart(Vector3.new(5, ROOM_H - 7, 1), CFrame.new(O + Vector3.new(0, ROOM_H - (ROOM_H - 7) * 0.5, -ROOM_D * 0.5)), Color3.fromRGB(40, 40, 52), 0, folder).Name = "FrontWallTop"
-        makePart(Vector3.new(5.5, 0.4, 0.5), CFrame.new(O + Vector3.new(0, 7.2, -ROOM_D * 0.5)), Color3.fromRGB(60, 40, 20), 0, folder).Name = "DoorFrameTop"
-        makePart(Vector3.new(0.4, 7.2, 0.5), CFrame.new(O + Vector3.new(-2.75, 3.6, -ROOM_D * 0.5)), Color3.fromRGB(60, 40, 20), 0, folder).Name = "DoorFrameL"
-        makePart(Vector3.new(0.4, 7.2, 0.5), CFrame.new(O + Vector3.new(2.75, 3.6, -ROOM_D * 0.5)), Color3.fromRGB(60, 40, 20), 0, folder).Name = "DoorFrameR"
+        if not isBreaker then
+            makePart(Vector3.new(5.5, 0.4, 0.5), CFrame.new(O + Vector3.new(0, 7.2, -ROOM_D * 0.5)), Color3.fromRGB(60, 40, 20), 0, folder).Name = "DoorFrameTop"
+            makePart(Vector3.new(0.4, 7.2, 0.5), CFrame.new(O + Vector3.new(-2.75, 3.6, -ROOM_D * 0.5)), Color3.fromRGB(60, 40, 20), 0, folder).Name = "DoorFrameL"
+            makePart(Vector3.new(0.4, 7.2, 0.5), CFrame.new(O + Vector3.new(2.75, 3.6, -ROOM_D * 0.5)), Color3.fromRGB(60, 40, 20), 0, folder).Name = "DoorFrameR"
+        end
+    end
+
+    -- ===== BREAKER ROOM (after door 100, 25% chance) =====
+    if isBreaker then
+        -- Large gate instead of normal door
+        local gate = makePart(Vector3.new(6, 8.5, 1), CFrame.new(O + Vector3.new(0, 4.25, -ROOM_D * 0.5)), Color3.fromRGB(55, 55, 65), 0, folder, Enum.Material.Metal)
+        gate.Name = "BreakerGate"
+        gate.CanCollide = true
+        breakerGates[doorNum] = gate
+        breakerLeverCounts[doorNum] = 0
+
+        -- Downstairs to hedge maze
+        local stairOrigin = O + Vector3.new(-10, 0, 12)
+        local numSteps = 14
+        local stepHeight = 28 / numSteps
+        local stepDepth = 4
+        for i = 1, numSteps do
+            local y = (i - 1) * stepHeight
+            local z = -(i * stepDepth)
+            makePart(Vector3.new(5, stepHeight * 0.9, stepDepth * 0.9), CFrame.new(stairOrigin + Vector3.new(0, y + stepHeight * 0.45, z)), Color3.fromRGB(65, 50, 35), 0, folder).Name = "BreakerStairs"
+        end
+
+        -- 100x100 hedge maze (below the room)
+        local mazeY = -28
+        local mazeOrigin = O + Vector3.new(0, mazeY, -ROOM_D * 0.5)
+
+        -- Maze floor
+        makePart(Vector3.new(MAZE_SIZE, 1, MAZE_SIZE), CFrame.new(mazeOrigin), Color3.fromRGB(25, 35, 20), 0, folder).Name = "MazeFloor"
+
+        -- Maze boundary walls
+        makePart(Vector3.new(MAZE_SIZE, 12, 2), CFrame.new(mazeOrigin + Vector3.new(0, 6, MAZE_SIZE/2)), Color3.fromRGB(30, 60, 30), 0, folder).Name = "MazeBoundary"
+        makePart(Vector3.new(MAZE_SIZE, 12, 2), CFrame.new(mazeOrigin + Vector3.new(0, 6, -MAZE_SIZE/2)), Color3.fromRGB(30, 60, 30), 0, folder).Name = "MazeBoundary"
+        makePart(Vector3.new(2, 12, MAZE_SIZE), CFrame.new(mazeOrigin + Vector3.new(MAZE_SIZE/2, 6, 0)), Color3.fromRGB(30, 60, 30), 0, folder).Name = "MazeBoundary"
+        makePart(Vector3.new(2, 12, MAZE_SIZE), CFrame.new(mazeOrigin + Vector3.new(-MAZE_SIZE/2, 6, 0)), Color3.fromRGB(30, 60, 30), 0, folder).Name = "MazeBoundary"
+
+        -- Hedge walls (maze feel)
+        for _ = 1, 35 do
+            local posX = math.random(-MAZE_SIZE/2 + 8, MAZE_SIZE/2 - 8)
+            local posZ = math.random(-MAZE_SIZE/2 + 8, MAZE_SIZE/2 - 8)
+            local length = math.random(8, 22)
+            local angle = math.random(0, 3) * 90
+            local hedge = makePart(Vector3.new(2.2, 10, length), CFrame.new(mazeOrigin + Vector3.new(posX, 5, posZ)) * CFrame.Angles(0, math.rad(angle), 0), Color3.fromRGB(25, 70, 25), 0, folder, Enum.Material.Grass)
+            hedge.Name = "Hedge"
+            hedge.CanCollide = true
+        end
+
+        -- Lights only if NOT combined with dark room
+        local mazeDark = isDark
+        if not mazeDark then
+            for _ = 1, 12 do
+                local lx = math.random(-MAZE_SIZE/2 + 12, MAZE_SIZE/2 - 12)
+                local lz = math.random(-MAZE_SIZE/2 + 12, MAZE_SIZE/2 - 12)
+                local lightPart = makePart(Vector3.new(1.5, 1.5, 1.5), CFrame.new(mazeOrigin + Vector3.new(lx, 11, lz)), Color3.fromRGB(240, 240, 180), 0, folder)
+                lightPart.Name = "MazeLightBulb"
+                makeLight(lightPart, 2, 40, Color3.fromRGB(255, 255, 200))
+            end
+        end
+
+        -- 3 levers in the maze
+        for i = 1, 3 do
+            local lx = math.random(-MAZE_SIZE/2 + 18, MAZE_SIZE/2 - 18)
+            local lz = math.random(-MAZE_SIZE/2 + 18, MAZE_SIZE/2 - 18)
+            local leverPos = mazeOrigin + Vector3.new(lx, 2.5, lz)
+
+            local base = makePart(Vector3.new(1.6, 2.8, 1.6), CFrame.new(leverPos), Color3.fromRGB(50, 50, 60), 0, folder)
+            base.Name = "LeverBase"
+
+            local arm = makePart(Vector3.new(0.4, 4.2, 0.4), CFrame.new(leverPos + Vector3.new(0, 2.8, 0)) * CFrame.Angles(math.rad(35), 0, 0), Color3.fromRGB(70, 70, 80), 0, folder)
+            arm.Name = "LeverArm"
+
+            local prompt = Instance.new("ProximityPrompt")
+            prompt.ActionText = "Pull Lever"
+            prompt.RequiresLineOfSight = false
+            prompt.Parent = arm
+
+            local thisDoor = doorNum
+            prompt.Triggered:Connect(function()
+                prompt:Destroy()
+                breakerLeverCounts[thisDoor] = (breakerLeverCounts[thisDoor] or 0) + 1
+                showWarning("Lever pulled! (" .. breakerLeverCounts[thisDoor] .. "/3)", 2)
+                if breakerLeverCounts[thisDoor] >= 3 and breakerGates[thisDoor] then
+                    local g = breakerGates[thisDoor]
+                    g.CanCollide = false
+                    g.Transparency = 0.75
+                    showWarning("GATE OPENED! You can proceed to the next door.", 4)
+                end
+            end)
+        end
     end
 
     local doorsToUnlock = {}
@@ -703,7 +801,7 @@ generateRoom = function(doorNum)
 
             showWarning("You searched Drawer and found: " .. loot, 2)
 
-            if loot ~= "Nothing" then
+            if loot \~= "Nothing" then
                 if #inventory >= MAX_ITEMS then
                     showWarning("Inventory full! Max 3 items.", 2)
                     return
@@ -1252,7 +1350,7 @@ spawnDisease = function(doorNum)
 end
 
 -- =================================================================
--- MALWARE ENTITY
+-- MALWARE ENTITY (UPDATED: destroys only 3-5 random decors)
 -- =================================================================
 spawnMalware = function(doorNum)
     if planteraActive or diseaseActive or malwareActive then return end
@@ -1339,14 +1437,22 @@ spawnMalware = function(doorNum)
         if not destroyedRooms[passingDoor] then
             destroyedRooms[passingDoor] = true
             if rooms[passingDoor] then
+                local decors = {}
                 for _, part in ipairs(rooms[passingDoor]:GetDescendants()) do
                     if part:IsA("BasePart") and DECOR_NAMES[part.Name] then
-                        part.Color = Color3.fromRGB(0, 255, 255)
-                        part.Material = Enum.Material.Neon
-                        task.delay(0.06, function()
-                            if part and part.Parent then part:Destroy() end
-                        end)
+                        table.insert(decors, part)
                     end
+                end
+                local numToDestroy = math.random(3, 5)
+                for i = 1, math.min(numToDestroy, #decors) do
+                    local idx = math.random(1, #decors)
+                    local part = decors[idx]
+                    part.Color = Color3.fromRGB(0, 255, 255)
+                    part.Material = Enum.Material.Neon
+                    task.delay(0.06, function()
+                        if part and part.Parent then part:Destroy() end
+                    end)
+                    table.remove(decors, idx)
                 end
             end
         end
@@ -1604,7 +1710,7 @@ mainLoop = function()
         end
 
         local hasFlashlight = character and character:FindFirstChild("Flashlight")
-        if batteryGui then batteryGui.Visible = hasFlashlight ~= nil end
+        if batteryGui then batteryGui.Visible = hasFlashlight \~= nil end
         if hasFlashlight then
             flashlightBattery = math.max(0, flashlightBattery - dt)
             batteryFill.Size = UDim2.new(flashlightBattery / 420, 0, 1, 0)
@@ -1616,7 +1722,7 @@ mainLoop = function()
             if bat.Name == "Battery" and bat:IsA("BasePart") then
                 bat.Transparency = hasFlashlight and 0 or 1
                 local p = bat:FindFirstChildOfClass("ProximityPrompt")
-                if p then p.Enabled = hasFlashlight ~= nil end
+                if p then p.Enabled = hasFlashlight \~= nil end
             end
         end
 
