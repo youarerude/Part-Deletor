@@ -72,8 +72,8 @@ local floorStepSound  = nil
 
 -- ===== FORWARD DECLARATIONS =====
 local setupLighting, createHUD, makePart, makeLight
-local makeCrate, makeBarrel, makeRockPile, makeStalactite
-local makeMinecart, makeDrawerTable, spawnSpikyRock
+local handleLoot, makeCrate, makeBarrel, makeRockPile, makeStalactite
+local makeMinecart, makeLocker, spawnSpikyRock
 local generateRoom, createLobby, startGame, showWarning
 local hideInCart, exitCart
 local spawnDisease, spawnHer, spawnVoid
@@ -258,21 +258,89 @@ makeLight = function(parent, brightness, range, color)
 end
 
 -- =================================================================
+-- LOOT SYSTEM
+-- =================================================================
+handleLoot = function(plr, forcedLoot)
+    local loot = forcedLoot
+    if not loot then
+        local r = math.random(1, 100)
+        if r <= 15 then
+            loot = "MinerHelmet"
+        elseif r <= 35 then
+            loot = "Ecstasy"
+        elseif r <= 55 then
+            loot = "Coin"
+        elseif r <= 65 then
+            loot = "Key"
+        else
+            loot = "Nothing"
+        end
+    end
+
+    if loot == "Coin" then
+        local amt = math.random(1, 5)
+        coins = coins + amt
+        if coinLabel then coinLabel.Text = tostring(coins) .. " Coins" end
+        showWarning("Found " .. tostring(amt) .. " Cave Coin" .. (amt > 1 and "s" or "") .. "!", 2.5)
+        return
+    end
+
+    showWarning("Searched: Found " .. loot, 2)
+
+    if loot == "Nothing" then return end
+    if loot == "MinerHelmet" then
+        if helmetEquipped then
+            showWarning("You already have a helmet equipped!", 2)
+            return
+        end
+        giveHelmet(plr)
+        return
+    end
+
+    if #inventory >= MAX_ITEMS then
+        showWarning("Inventory full! Max " .. tostring(MAX_ITEMS) .. " items.", 2)
+        return
+    end
+    table.insert(inventory, loot)
+    local tool = Instance.new("Tool")
+    tool.Name = loot
+    local handle = Instance.new("Part")
+    handle.Name = "Handle"
+    if loot == "Key" then
+        handle.Size = Vector3.new(1, 0.2, 0.2)
+        handle.Color = Color3.fromRGB(210, 175, 50)
+    elseif loot == "Ecstasy" then
+        handle.Size = Vector3.new(0.5, 0.5, 0.5)
+        handle.Color = Color3.fromRGB(200, 50, 200)
+        handle.Material = Enum.Material.Neon
+        tool.Activated:Connect(function()
+            tool:Destroy()
+            for idx, v in ipairs(inventory) do
+                if v == "Ecstasy" then table.remove(inventory, idx) break end
+            end
+            ecstasyActive = true
+            ecstasyEndTime = tick() + 180
+            if humanoid then humanoid.WalkSpeed = 22 end
+            local ccc = game.Lighting:FindFirstChild("EcstasyCC") or Instance.new("ColorCorrectionEffect", game.Lighting)
+            ccc.Name = "EcstasyCC"
+            ccc.Saturation = 1.5
+            showWarning("Ecstasy active! Speed boost for 3 minutes.", 3)
+        end)
+    else
+        handle.Size = Vector3.new(0.5, 0.5, 0.5)
+    end
+    handle.Parent = tool
+    tool.Parent = plr.Backpack
+end
+
+-- =================================================================
 -- CAVE DECORATIONS
 -- =================================================================
 makeCrate = function(folder, pos)
-    local body = makePart(
-        Vector3.new(2.5, 2.5, 2.5),
-        CFrame.new(pos + Vector3.new(0, 1.25, 0)),
-        Color3.fromRGB(80, 58, 32), 0, folder, Enum.Material.Wood
-    )
+    local body = makePart(Vector3.new(2.5, 2.5, 2.5), CFrame.new(pos + Vector3.new(0, 1.25, 0)), Color3.fromRGB(80, 58, 32), 0, folder, Enum.Material.Wood)
     body.Name = "Crate"
     for i = 1, 2 do
-        local plank = makePart(
-            Vector3.new(2.6, 0.18, 2.6),
-            CFrame.new(pos + Vector3.new(0, 0.6 + i * 0.85, 0)),
-            Color3.fromRGB(60, 42, 22), 0, folder, Enum.Material.Wood
-        )
+        local plank = makePart(Vector3.new(2.6, 0.18, 2.6), CFrame.new(pos + Vector3.new(0, 0.6 + i * 0.85, 0)), Color3.fromRGB(60, 42, 22), 0, folder, Enum.Material.Wood)
         plank.Name = "CratePlank"
         plank.CanCollide = false
     end
@@ -280,25 +348,13 @@ makeCrate = function(folder, pos)
 end
 
 makeBarrel = function(folder, pos)
-    local body = makePart(
-        Vector3.new(1.8, 2.8, 1.8),
-        CFrame.new(pos + Vector3.new(0, 1.4, 0)),
-        Color3.fromRGB(90, 62, 30), 0, folder, Enum.Material.Wood
-    )
+    local body = makePart(Vector3.new(1.8, 2.8, 1.8), CFrame.new(pos + Vector3.new(0, 1.4, 0)), Color3.fromRGB(90, 62, 30), 0, folder, Enum.Material.Wood)
     body.Name = "Barrel"
     body.Shape = Enum.PartType.Cylinder
-    local ring1 = makePart(
-        Vector3.new(2, 0.2, 2),
-        CFrame.new(pos + Vector3.new(0, 0.8, 0)),
-        Color3.fromRGB(50, 45, 40), 0, folder, Enum.Material.Metal
-    )
+    local ring1 = makePart(Vector3.new(2, 0.2, 2), CFrame.new(pos + Vector3.new(0, 0.8, 0)), Color3.fromRGB(50, 45, 40), 0, folder, Enum.Material.Metal)
     ring1.Name = "BarrelRing"
     ring1.CanCollide = false
-    local ring2 = makePart(
-        Vector3.new(2, 0.2, 2),
-        CFrame.new(pos + Vector3.new(0, 2.0, 0)),
-        Color3.fromRGB(50, 45, 40), 0, folder, Enum.Material.Metal
-    )
+    local ring2 = makePart(Vector3.new(2, 0.2, 2), CFrame.new(pos + Vector3.new(0, 2.0, 0)), Color3.fromRGB(50, 45, 40), 0, folder, Enum.Material.Metal)
     ring2.Name = "BarrelRing"
     ring2.CanCollide = false
     return body
@@ -307,17 +363,11 @@ end
 makeRockPile = function(folder, pos)
     local count = math.random(3, 6)
     for i = 1, count do
-        local rx = math.random(-5, 5) * 0.2
-        local rz = math.random(-5, 5) * 0.2
-        local ry = math.random(2, 5) * 0.2
+        local rx, rz, ry = math.random(-5, 5) * 0.2, math.random(-5, 5) * 0.2, math.random(2, 5) * 0.2
         local s  = math.random(6, 14) * 0.1
         local rock = makePart(
             Vector3.new(s, s * 0.65, s),
-            CFrame.new(pos + Vector3.new(rx, ry, rz)) * CFrame.Angles(
-                math.rad(math.random(0, 30)),
-                math.rad(math.random(0, 360)),
-                math.rad(math.random(0, 20))
-            ),
+            CFrame.new(pos + Vector3.new(rx, ry, rz)) * CFrame.Angles(math.rad(math.random(0, 30)), math.rad(math.random(0, 360)), math.rad(math.random(0, 20))),
             Color3.fromRGB(55, 52, 50), 0, folder, Enum.Material.Slate
         )
         rock.Name = "RockPile"
@@ -330,104 +380,119 @@ makeStalactite = function(folder, ceilingY, x, z)
     local wid = math.random(4, 10) * 0.1
     local spart = makePart(
         Vector3.new(wid, len, wid),
-        CFrame.new(x, ceilingY - len * 0.5, z) * CFrame.Angles(
-            math.rad(math.random(-8, 8)),
-            0,
-            math.rad(math.random(-8, 8))
-        ),
+        CFrame.new(x, ceilingY - len * 0.5, z) * CFrame.Angles(math.rad(math.random(-8, 8)), 0, math.rad(math.random(-8, 8))),
         Color3.fromRGB(50, 48, 46), 0, folder, Enum.Material.Slate
     )
     spart.Name = "Stalactite"
     spart.CanCollide = false
 end
 
-makeDrawerTable = function(folder, pos, drawerList)
-    local numD = math.random(2, 4)
-    makePart(
-        Vector3.new(4, 5, 2.5),
-        CFrame.new(pos + Vector3.new(0, 2.5, 0)),
-        Color3.fromRGB(75, 52, 28), 0, folder, Enum.Material.Wood
-    ).Name = "DrawerBody"
-    local slotH = 4 / numD
-    for i = 1, numD do
-        local dY = (i - 1) * slotH - 1.8 + slotH * 0.5
-        local drawer = makePart(
-            Vector3.new(3.5, slotH - 0.15, 0.15),
-            CFrame.new(pos + Vector3.new(0, 2.5 + dY, -1.33)),
-            Color3.fromRGB(60, 42, 20), 0, folder, Enum.Material.Wood
-        )
-        drawer.Name = "Drawer"
-        makePart(
-            Vector3.new(0.7, 0.25, 0.35),
-            CFrame.new(pos + Vector3.new(0, 2.5 + dY, -1.52)),
-            Color3.fromRGB(160, 140, 80), 0, folder
-        ).Name = "DrawerHandle"
-        if drawerList then table.insert(drawerList, drawer) end
-    end
+makeLocker = function(folder, pos, lockerList)
+    local body = makePart(
+        Vector3.new(3, 7, 3),
+        CFrame.new(pos + Vector3.new(0, 3.5, 0)),
+        Color3.fromRGB(35, 40, 45), 0, folder, Enum.Material.Metal
+    )
+    body.Name = "Locker"
+    
+    local doorDetail = makePart(
+        Vector3.new(2.8, 6.8, 0.2),
+        CFrame.new(pos + Vector3.new(0, 3.5, -1.55)),
+        Color3.fromRGB(45, 50, 55), 0, folder, Enum.Material.Metal
+    )
+    doorDetail.Name = "LockerDoor"
+
+    local searches = math.random(3, 5)
+    body:SetAttribute("SearchesLeft", searches)
+
+    local prompt = Instance.new("ProximityPrompt")
+    prompt.ActionText = "Search Locker (" .. searches .. ")"
+    prompt.RequiresLineOfSight = false
+    prompt.Parent = body
+    prompt.Triggered:Connect(function(plr)
+        local left = body:GetAttribute("SearchesLeft")
+        if left > 0 then
+            left = left - 1
+            body:SetAttribute("SearchesLeft", left)
+            prompt.ActionText = "Search Locker (" .. left .. ")"
+            
+            -- Only dish out guaranteed key if it was assigned on first search
+            handleLoot(plr, body:GetAttribute("Loot"))
+            body:SetAttribute("Loot", nil) 
+
+            if left <= 0 then
+                prompt:Destroy()
+            end
+        end
+    end)
+
+    if lockerList then table.insert(lockerList, body) end
+    return body
 end
 
 makeMinecart = function(folder, pos, isHideCart)
-    -- Body of the cart
-    local body = makePart(
-        Vector3.new(4.5, 2.8, 7),
-        CFrame.new(pos + Vector3.new(0, 1.8, 0)),
-        Color3.fromRGB(55, 52, 52), 0, folder, Enum.Material.Metal
-    )
-    body.Name = "MinecartBody"
-    if isHideCart then
-        body:SetAttribute("IsLocker", true)
-    end
-    -- Interior bottom
-    makePart(
+    local cartModel = Instance.new("Model")
+    cartModel.Name = isHideCart and "HidingCart" or "LootCart"
+    cartModel.Parent = folder
+
+    -- 1 Floor
+    local floor = makePart(
         Vector3.new(4, 0.3, 6.5),
         CFrame.new(pos + Vector3.new(0, 0.65, 0)),
-        Color3.fromRGB(40, 38, 38), 0, folder, Enum.Material.Metal
-    ).Name = "CartFloor"
-    -- Front & back walls
-    makePart(
-        Vector3.new(4.5, 2.8, 0.25),
-        CFrame.new(pos + Vector3.new(0, 1.8, 3.5)),
-        Color3.fromRGB(55, 52, 52), 0, folder, Enum.Material.Metal
-    ).Name = "CartWall"
-    makePart(
-        Vector3.new(4.5, 2.8, 0.25),
-        CFrame.new(pos + Vector3.new(0, 1.8, -3.5)),
-        Color3.fromRGB(55, 52, 52), 0, folder, Enum.Material.Metal
-    ).Name = "CartWall"
-    -- Wheels
+        Color3.fromRGB(40, 38, 38), 0, cartModel, Enum.Material.Metal
+    )
+    floor.Name = "CartFloor"
+
+    -- 4 Walls
+    makePart(Vector3.new(4.5, 2.8, 0.25), CFrame.new(pos + Vector3.new(0, 1.8, 3.5)), Color3.fromRGB(55, 52, 52), 0, cartModel, Enum.Material.Metal).Name = "CartWallFront"
+    makePart(Vector3.new(4.5, 2.8, 0.25), CFrame.new(pos + Vector3.new(0, 1.8, -3.5)), Color3.fromRGB(55, 52, 52), 0, cartModel, Enum.Material.Metal).Name = "CartWallBack"
+    makePart(Vector3.new(0.25, 2.8, 6.75), CFrame.new(pos + Vector3.new(2.125, 1.8, 0)), Color3.fromRGB(55, 52, 52), 0, cartModel, Enum.Material.Metal).Name = "CartWallRight"
+    makePart(Vector3.new(0.25, 2.8, 6.75), CFrame.new(pos + Vector3.new(-2.125, 1.8, 0)), Color3.fromRGB(55, 52, 52), 0, cartModel, Enum.Material.Metal).Name = "CartWallLeft"
+
+    -- 4 Wheels
     for xi = -1, 1, 2 do
         for zi = -1, 1, 2 do
-            local wheel = makePart(
-                Vector3.new(0.5, 1.4, 1.4),
-                CFrame.new(pos + Vector3.new(xi * 2.2, 0.7, zi * 2.6)),
-                Color3.fromRGB(35, 33, 33), 0, folder, Enum.Material.Metal
-            )
+            local wheel = makePart(Vector3.new(0.5, 1.4, 1.4), CFrame.new(pos + Vector3.new(xi * 2.2, 0.7, zi * 2.6)), Color3.fromRGB(35, 33, 33), 0, cartModel, Enum.Material.Metal)
             wheel.Name = "CartWheel"
             wheel.Shape = Enum.PartType.Cylinder
         end
     end
-    -- Rails under the cart
-    for xi = -1, 1, 2 do
-        local rail = makePart(
-            Vector3.new(0.3, 0.3, CAVE_D * 0.9),
-            CFrame.new(pos + Vector3.new(xi * 1.6, 0.15, 0)),
-            Color3.fromRGB(70, 68, 65), 0, folder, Enum.Material.Metal
+
+    if isHideCart then
+        floor:SetAttribute("IsLocker", true)
+    else
+        -- 1 Dirt Payload
+        local dirt = makePart(
+            Vector3.new(4, 2.2, 6.5),
+            CFrame.new(pos + Vector3.new(0, 1.7, 0)),
+            Color3.fromRGB(50, 40, 30), 0, cartModel, Enum.Material.Slate
         )
+        dirt.Name = "CartDirt"
+
+        local prompt = Instance.new("ProximityPrompt")
+        prompt.ActionText = "Search Dirt"
+        prompt.RequiresLineOfSight = false
+        prompt.Parent = dirt
+        prompt.Triggered:Connect(function(plr)
+            prompt:Destroy()
+            handleLoot(plr)
+        end)
+    end
+
+    -- Rails
+    for xi = -1, 1, 2 do
+        local rail = makePart(Vector3.new(0.3, 0.3, CAVE_D * 0.9), CFrame.new(pos + Vector3.new(xi * 1.6, 0.15, 0)), Color3.fromRGB(70, 68, 65), 0, cartModel, Enum.Material.Metal)
         rail.Name = "Rail"
         rail.CanCollide = false
     end
-    return body
+    return floor
 end
 
 spawnSpikyRock = function(folder, pos)
     local h = math.random(4, 9)
     local spike = makePart(
         Vector3.new(math.random(15, 30) * 0.1, h, math.random(15, 30) * 0.1),
-        CFrame.new(pos + Vector3.new(0, h * 0.5, 0)) * CFrame.Angles(
-            math.rad(math.random(-12, 12)),
-            math.rad(math.random(0, 360)),
-            math.rad(math.random(-12, 12))
-        ),
+        CFrame.new(pos + Vector3.new(0, h * 0.5, 0)) * CFrame.Angles(math.rad(math.random(-12, 12)), math.rad(math.random(0, 360)), math.rad(math.random(-12, 12))),
         Color3.fromRGB(30, 28, 28), 0, folder, Enum.Material.Slate
     )
     spike.Name = "SpikyRock"
@@ -463,7 +528,6 @@ giveHelmet = function(plr)
     handle.Color = Color3.fromRGB(38, 80, 120)
     handle.Material = Enum.Material.Metal
     handle.Parent = tool
-    -- Visor detail
     local visor = Instance.new("Part")
     visor.Name = "Visor"
     visor.Size = Vector3.new(1.3, 0.35, 0.2)
@@ -478,7 +542,6 @@ giveHelmet = function(plr)
     weld.C1 = CFrame.new(0, -0.2, -0.65)
     weld.Parent = handle
     visor.Parent = tool
-    -- Lamp on helmet
     local lamp = Instance.new("Part")
     lamp.Name = "HelmLamp"
     lamp.Size = Vector3.new(0.4, 0.35, 0.4)
@@ -494,20 +557,17 @@ giveHelmet = function(plr)
     lamp.Parent = tool
     tool.Parent = plr.Backpack
 
-    -- Equip proximity prompt via Activated
     tool.Activated:Connect(function()
         if helmetEquipped then
             showWarning("Helmet already equipped!", 1.5)
             return
         end
-        -- Remove from inventory list
         for idx, v in ipairs(inventory) do
             if v == "MinerHelmet" then table.remove(inventory, idx) break end
         end
         tool:Destroy()
         helmetEquipped = true
 
-        -- Build the wearable accessory on the head
         local char = player.Character
         if not char then return end
         local head = char:FindFirstChild("Head")
@@ -521,14 +581,12 @@ giveHelmet = function(plr)
         hatPart.CanCollide = false
         hatPart.Anchored = false
         hatPart.Parent = char
-
         local hatWeld = Instance.new("Weld")
         hatWeld.Part0 = head
         hatWeld.Part1 = hatPart
         hatWeld.C0 = CFrame.new(0, 0.7, 0)
         hatWeld.Parent = hatPart
 
-        -- Brim
         local brim = Instance.new("Part")
         brim.Name = "HatBrim"
         brim.Size = Vector3.new(2, 0.15, 2)
@@ -543,7 +601,6 @@ giveHelmet = function(plr)
         brimWeld.C0 = CFrame.new(0, -0.45, 0)
         brimWeld.Parent = brim
 
-        -- Lamp on hat
         local hatLamp = Instance.new("Part")
         hatLamp.Name = "HatLamp"
         hatLamp.Size = Vector3.new(0.45, 0.4, 0.45)
@@ -558,7 +615,6 @@ giveHelmet = function(plr)
         lampWeld2.C0 = CFrame.new(0, 0.2, -0.65)
         lampWeld2.Parent = hatLamp
 
-        -- The actual PointLight
         helmetLight = Instance.new("PointLight")
         helmetLight.Brightness = 2.5
         helmetLight.Range = 38
@@ -581,7 +637,7 @@ generateRoom = function(doorNum)
 
     local originZ = -(doorNum * CAVE_D)
     local O       = Vector3.new(0, 0, originZ)
-    local drawerList = {}
+    local lockerList = {}
 
     local isDark    = math.random(1, 100) <= 50
     local isLocked  = math.random(1, 100) <= 35
@@ -590,7 +646,6 @@ generateRoom = function(doorNum)
 
     roomIsDark[doorNum] = isDark
 
-    -- Randomise room width slightly for variety
     local roomW = CAVE_W + math.random(0, 2) * 5
     local roomH = CAVE_H
     local roomD = CAVE_D
@@ -599,92 +654,34 @@ generateRoom = function(doorNum)
     local wallColor   = Color3.fromRGB(45, 43, 40)
     local ceilColor   = Color3.fromRGB(33, 31, 30)
 
-    -- Floor
-    makePart(
-        Vector3.new(roomW, 1, roomD),
-        CFrame.new(O + Vector3.new(0, -0.5, 0)),
-        floorColor, 0, folder, Enum.Material.Slate
-    ).Name = "CaveFloor"
+    makePart(Vector3.new(roomW, 1, roomD), CFrame.new(O + Vector3.new(0, -0.5, 0)), floorColor, 0, folder, Enum.Material.Slate).Name = "CaveFloor"
+    makePart(Vector3.new(roomW, 1, roomD), CFrame.new(O + Vector3.new(0, roomH + 0.5, 0)), ceilColor, 0, folder, Enum.Material.Slate).Name = "CaveCeiling"
+    makePart(Vector3.new(1, roomH, roomD), CFrame.new(O + Vector3.new(-roomW * 0.5 - 0.5, roomH * 0.5, 0)), wallColor, 0, folder, Enum.Material.Cobblestone).Name = "CaveWallL"
+    makePart(Vector3.new(1, roomH, roomD), CFrame.new(O + Vector3.new(roomW * 0.5 + 0.5, roomH * 0.5, 0)), wallColor, 0, folder, Enum.Material.Cobblestone).Name = "CaveWallR"
 
-    -- Ceiling
-    makePart(
-        Vector3.new(roomW, 1, roomD),
-        CFrame.new(O + Vector3.new(0, roomH + 0.5, 0)),
-        ceilColor, 0, folder, Enum.Material.Slate
-    ).Name = "CaveCeiling"
-
-    -- Left wall
-    makePart(
-        Vector3.new(1, roomH, roomD),
-        CFrame.new(O + Vector3.new(-roomW * 0.5 - 0.5, roomH * 0.5, 0)),
-        wallColor, 0, folder, Enum.Material.Cobblestone
-    ).Name = "CaveWallL"
-
-    -- Right wall
-    makePart(
-        Vector3.new(1, roomH, roomD),
-        CFrame.new(O + Vector3.new(roomW * 0.5 + 0.5, roomH * 0.5, 0)),
-        wallColor, 0, folder, Enum.Material.Cobblestone
-    ).Name = "CaveWallR"
-
-    -- Back wall (where player comes from)
-    makePart(
-        Vector3.new(roomW + 2, roomH, 1),
-        CFrame.new(O + Vector3.new(0, roomH * 0.5, roomD * 0.5 + 0.5)),
-        wallColor, 0, folder, Enum.Material.Cobblestone
-    ).Name = "CaveWallBack"
-
-    -- Front wall with doorway opening
     local halfGap = 3.5
     local sideW   = (roomW - halfGap * 2) * 0.5
-    makePart(
-        Vector3.new(sideW, roomH, 1),
-        CFrame.new(O + Vector3.new(-(halfGap + sideW * 0.5), roomH * 0.5, -roomD * 0.5 - 0.5)),
-        wallColor, 0, folder, Enum.Material.Cobblestone
-    ).Name = "FrontWallL"
-    makePart(
-        Vector3.new(sideW, roomH, 1),
-        CFrame.new(O + Vector3.new(halfGap + sideW * 0.5, roomH * 0.5, -roomD * 0.5 - 0.5)),
-        wallColor, 0, folder, Enum.Material.Cobblestone
-    ).Name = "FrontWallR"
-    makePart(
-        Vector3.new(halfGap * 2, roomH - 8, 1),
-        CFrame.new(O + Vector3.new(0, roomH - (roomH - 8) * 0.5, -roomD * 0.5 - 0.5)),
-        wallColor, 0, folder, Enum.Material.Cobblestone
-    ).Name = "FrontWallTop"
 
-    -- Door frame stone arch details
-    makePart(
-        Vector3.new(0.8, 9, 1.2),
-        CFrame.new(O + Vector3.new(-halfGap - 0.4, 4.5, -roomD * 0.5 - 0.5)),
-        Color3.fromRGB(62, 58, 54), 0, folder, Enum.Material.Cobblestone
-    ).Name = "DoorFrameL"
-    makePart(
-        Vector3.new(0.8, 9, 1.2),
-        CFrame.new(O + Vector3.new(halfGap + 0.4, 4.5, -roomD * 0.5 - 0.5)),
-        Color3.fromRGB(62, 58, 54), 0, folder, Enum.Material.Cobblestone
-    ).Name = "DoorFrameR"
-    makePart(
-        Vector3.new(halfGap * 2 + 1.6, 0.8, 1.2),
-        CFrame.new(O + Vector3.new(0, 9, -roomD * 0.5 - 0.5)),
-        Color3.fromRGB(62, 58, 54), 0, folder, Enum.Material.Cobblestone
-    ).Name = "DoorFrameTop"
+    -- Back wall with doorway opening hole
+    makePart(Vector3.new(sideW, roomH, 1), CFrame.new(O + Vector3.new(-(halfGap + sideW * 0.5), roomH * 0.5, roomD * 0.5 + 0.5)), wallColor, 0, folder, Enum.Material.Cobblestone).Name = "BackWallL"
+    makePart(Vector3.new(sideW, roomH, 1), CFrame.new(O + Vector3.new(halfGap + sideW * 0.5, roomH * 0.5, roomD * 0.5 + 0.5)), wallColor, 0, folder, Enum.Material.Cobblestone).Name = "BackWallR"
+    makePart(Vector3.new(halfGap * 2, roomH - 8, 1), CFrame.new(O + Vector3.new(0, roomH - (roomH - 8) * 0.5, roomD * 0.5 + 0.5)), wallColor, 0, folder, Enum.Material.Cobblestone).Name = "BackWallTop"
 
-    -- Locked door
+    -- Front wall with doorway opening hole
+    makePart(Vector3.new(sideW, roomH, 1), CFrame.new(O + Vector3.new(-(halfGap + sideW * 0.5), roomH * 0.5, -roomD * 0.5 - 0.5)), wallColor, 0, folder, Enum.Material.Cobblestone).Name = "FrontWallL"
+    makePart(Vector3.new(sideW, roomH, 1), CFrame.new(O + Vector3.new(halfGap + sideW * 0.5, roomH * 0.5, -roomD * 0.5 - 0.5)), wallColor, 0, folder, Enum.Material.Cobblestone).Name = "FrontWallR"
+    makePart(Vector3.new(halfGap * 2, roomH - 8, 1), CFrame.new(O + Vector3.new(0, roomH - (roomH - 8) * 0.5, -roomD * 0.5 - 0.5)), wallColor, 0, folder, Enum.Material.Cobblestone).Name = "FrontWallTop"
+
+    -- Door frame stone arch
+    makePart(Vector3.new(0.8, 9, 1.2), CFrame.new(O + Vector3.new(-halfGap - 0.4, 4.5, -roomD * 0.5 - 0.5)), Color3.fromRGB(62, 58, 54), 0, folder, Enum.Material.Cobblestone).Name = "DoorFrameL"
+    makePart(Vector3.new(0.8, 9, 1.2), CFrame.new(O + Vector3.new(halfGap + 0.4, 4.5, -roomD * 0.5 - 0.5)), Color3.fromRGB(62, 58, 54), 0, folder, Enum.Material.Cobblestone).Name = "DoorFrameR"
+    makePart(Vector3.new(halfGap * 2 + 1.6, 0.8, 1.2), CFrame.new(O + Vector3.new(0, 9, -roomD * 0.5 - 0.5)), Color3.fromRGB(62, 58, 54), 0, folder, Enum.Material.Cobblestone).Name = "DoorFrameTop"
+
     if isLocked then
-        local lockedDoor = makePart(
-            Vector3.new(halfGap * 2, 8.8, 0.6),
-            CFrame.new(O + Vector3.new(0, 4.4, -roomD * 0.5 - 0.5)),
-            Color3.fromRGB(70, 50, 25), 0, folder, Enum.Material.Wood
-        )
+        local lockedDoor = makePart(Vector3.new(halfGap * 2, 8.8, 0.6), CFrame.new(O + Vector3.new(0, 4.4, -roomD * 0.5 - 0.5)), Color3.fromRGB(70, 50, 25), 0, folder, Enum.Material.Wood)
         lockedDoor.Name = "LockedDoor"
-        -- Door plank details
         for pi = 0, 3 do
-            makePart(
-                Vector3.new(halfGap * 2 + 0.1, 0.3, 0.7),
-                CFrame.new(O + Vector3.new(0, 1.2 + pi * 2.1, -roomD * 0.5 - 0.5)),
-                Color3.fromRGB(55, 38, 18), 0, folder, Enum.Material.Wood
-            ).Name = "DoorPlank"
+            makePart(Vector3.new(halfGap * 2 + 0.1, 0.3, 0.7), CFrame.new(O + Vector3.new(0, 1.2 + pi * 2.1, -roomD * 0.5 - 0.5)), Color3.fromRGB(55, 38, 18), 0, folder, Enum.Material.Wood).Name = "DoorPlank"
         end
 
         local prompt = Instance.new("ProximityPrompt")
@@ -706,12 +703,7 @@ generateRoom = function(doorNum)
         end)
     end
 
-    -- Door number sign carved into stone above arch
-    local signPart = makePart(
-        Vector3.new(halfGap * 2 + 2, 1.6, 0.4),
-        CFrame.new(O + Vector3.new(0, 10.2, -roomD * 0.5 - 0.2)),
-        Color3.fromRGB(28, 26, 24), 0, folder, Enum.Material.Slate
-    )
+    local signPart = makePart(Vector3.new(halfGap * 2 + 2, 1.6, 0.4), CFrame.new(O + Vector3.new(0, 10.2, -roomD * 0.5 - 0.2)), Color3.fromRGB(28, 26, 24), 0, folder, Enum.Material.Slate)
     signPart.Name = "DoorSign"
     local signGui = Instance.new("SurfaceGui")
     signGui.Face = Enum.NormalId.Front
@@ -725,13 +717,8 @@ generateRoom = function(doorNum)
     signLabel.Font = Enum.Font.GothamBold
     signLabel.Parent = signGui
 
-    -- Checkpoint sign
     if doorNum > DOOR_START and (doorNum - DOOR_START) % CHECKPOINT_EVERY == 0 then
-        local cpPart = makePart(
-            Vector3.new(10, 2.5, 0.4),
-            CFrame.new(O + Vector3.new(0, 6, 0)),
-            Color3.fromRGB(12, 80, 12), 0, folder, Enum.Material.Neon
-        )
+        local cpPart = makePart(Vector3.new(10, 2.5, 0.4), CFrame.new(O + Vector3.new(0, 6, 0)), Color3.fromRGB(12, 80, 12), 0, folder, Enum.Material.Neon)
         cpPart.Name = "CheckpointSign"
         local cpGui = Instance.new("SurfaceGui")
         cpGui.Face = Enum.NormalId.Front
@@ -746,173 +733,60 @@ generateRoom = function(doorNum)
         cpLabel.Parent = cpGui
     end
 
-    -- Ceiling lights (lanterns on chains)
     if not isDark then
         local numLights = math.random(2, 4)
         for li = 1, numLights do
             local lx = math.random(-math.floor(roomW * 0.35), math.floor(roomW * 0.35))
             local lz = math.random(-math.floor(roomD * 0.35), math.floor(roomD * 0.35))
-            -- Chain
-            makePart(
-                Vector3.new(0.15, 2, 0.15),
-                CFrame.new(O + Vector3.new(lx, roomH - 0.5, lz)),
-                Color3.fromRGB(60, 55, 50), 0, folder, Enum.Material.Metal
-            ).Name = "LanternChain"
-            -- Lantern cage
-            local lantern = makePart(
-                Vector3.new(1.2, 1.4, 1.2),
-                CFrame.new(O + Vector3.new(lx, roomH - 2.4, lz)),
-                Color3.fromRGB(255, 210, 100), 0, folder, Enum.Material.Neon
-            )
+            makePart(Vector3.new(0.15, 2, 0.15), CFrame.new(O + Vector3.new(lx, roomH - 0.5, lz)), Color3.fromRGB(60, 55, 50), 0, folder, Enum.Material.Metal).Name = "LanternChain"
+            local lantern = makePart(Vector3.new(1.2, 1.4, 1.2), CFrame.new(O + Vector3.new(lx, roomH - 2.4, lz)), Color3.fromRGB(255, 210, 100), 0, folder, Enum.Material.Neon)
             lantern.Name = "Lantern"
             makeLight(lantern, 1.8, 30, Color3.fromRGB(255, 210, 110))
         end
     end
 
-    -- Stalactites hanging from ceiling
-    local numStalac = math.random(4, 9)
-    for si = 1, numStalac do
-        local sx = math.random(-math.floor(roomW * 0.42), math.floor(roomW * 0.42))
-        local sz = math.random(-math.floor(roomD * 0.42), math.floor(roomD * 0.42))
-        makeStalactite(folder, roomH, O.X + sx, O.Z + sz)
+    for si = 1, math.random(4, 9) do
+        makeStalactite(folder, roomH, O.X + math.random(-math.floor(roomW * 0.42), math.floor(roomW * 0.42)), O.Z + math.random(-math.floor(roomD * 0.42), math.floor(roomD * 0.42)))
     end
 
-    -- Spiky floor rocks hazards
-    local numSpikes = math.random(2, 5)
-    for si = 1, numSpikes do
-        local sx = math.random(-math.floor(roomW * 0.38), math.floor(roomW * 0.38))
-        local sz = math.random(-math.floor(roomD * 0.38), math.floor(roomD * 0.38))
-        spawnSpikyRock(folder, O + Vector3.new(sx, 0, sz))
+    for si = 1, math.random(2, 5) do
+        spawnSpikyRock(folder, O + Vector3.new(math.random(-math.floor(roomW * 0.38), math.floor(roomW * 0.38)), 0, math.random(-math.floor(roomD * 0.38), math.floor(roomD * 0.38))))
     end
 
-    -- Rock piles for atmosphere
-    local numPiles = math.random(1, 3)
-    for pi = 1, numPiles do
-        local px = math.random(-math.floor(roomW * 0.4), math.floor(roomW * 0.4))
-        local pz = math.random(-math.floor(roomD * 0.4), math.floor(roomD * 0.4))
-        makeRockPile(folder, O + Vector3.new(px, 0, pz))
+    for pi = 1, math.random(1, 3) do
+        makeRockPile(folder, O + Vector3.new(math.random(-math.floor(roomW * 0.4), math.floor(roomW * 0.4)), 0, math.random(-math.floor(roomD * 0.4), math.floor(roomD * 0.4))))
     end
 
-    -- Crates and barrels scattered around
     local roll = math.random(1, 10)
-    if roll <= 7 then
-        makeCrate(folder, O + Vector3.new(math.random(-12, 12), 0, math.random(-20, 20)))
-    end
-    if roll <= 6 then
-        makeBarrel(folder, O + Vector3.new(math.random(-12, 12), 0, math.random(-20, 20)))
-        makeBarrel(folder, O + Vector3.new(math.random(-12, 12), 0, math.random(-20, 20)))
-    end
-    if roll <= 8 then
-        local dpos = O + Vector3.new(math.random(-10, 10), 0, math.random(-20, 20))
-        makeDrawerTable(folder, dpos, drawerList)
+    if roll <= 7 then makeCrate(folder, O + Vector3.new(math.random(-12, 12), 0, math.random(-20, 20))) end
+    if roll <= 6 then 
+        makeBarrel(folder, O + Vector3.new(math.random(-12, 12), 0, math.random(-20, 20))) 
+        makeBarrel(folder, O + Vector3.new(math.random(-12, 12), 0, math.random(-20, 20))) 
     end
 
-    -- Minecarts (1-2 are hiding carts, rest are decoration/searchable)
+    local numLockers = isLocked and math.random(4, 9) or math.random(1, 3)
+    for _ = 1, numLockers do
+        local lpos = O + Vector3.new(math.random(-10, 10), 0, math.random(-20, 20))
+        makeLocker(folder, lpos, lockerList)
+    end
+
     local hideCartCount = 0
     for ci = 1, numCarts do
         local cx = math.random(-math.floor(roomW * 0.35), math.floor(roomW * 0.35))
         local cz = math.random(-math.floor(roomD * 0.35), math.floor(roomD * 0.35))
         local isThisHide = (hideCartCount < numHide)
-        if isThisHide then
-            hideCartCount = hideCartCount + 1
-        end
+        if isThisHide then hideCartCount = hideCartCount + 1 end
         makeMinecart(folder, O + Vector3.new(cx, 0, cz), isThisHide)
     end
 
-    -- Key loot in a drawer if locked
     local keysNeeded = isLocked and 1 or 0
     for ki = 1, keysNeeded do
-        if #drawerList == 0 then
-            makeDrawerTable(folder, O + Vector3.new(0, 0, 0), drawerList)
+        if #lockerList > 0 then
+            lockerList[math.random(1, #lockerList)]:SetAttribute("Loot", "Key")
+        else
+            local fallbackLocker = makeLocker(folder, O + Vector3.new(0, 0, 0), lockerList)
+            fallbackLocker:SetAttribute("Loot", "Key")
         end
-        local available = {}
-        for _, d in ipairs(drawerList) do
-            if not d:GetAttribute("Loot") then table.insert(available, d) end
-        end
-        if #available > 0 then
-            available[math.random(1, #available)]:SetAttribute("Loot", "Key")
-        end
-    end
-
-    -- Drawer search prompts
-    for _, drawer in ipairs(drawerList) do
-        local dprompt = Instance.new("ProximityPrompt")
-        dprompt.ActionText = "Search Drawer"
-        dprompt.RequiresLineOfSight = false
-        dprompt.Parent = drawer
-        dprompt.Triggered:Connect(function(plr)
-            dprompt:Destroy()
-            local loot = drawer:GetAttribute("Loot")
-            if not loot then
-                local r = math.random(1, 100)
-                if r <= 15 then
-                    loot = "MinerHelmet"
-                elseif r <= 35 then
-                    loot = "Ecstasy"
-                elseif r <= 55 then
-                    loot = "Coin"
-                elseif r <= 65 then
-                    loot = "Key"
-                else
-                    loot = "Nothing"
-                end
-            end
-
-            if loot == "Coin" then
-                local amt = math.random(1, 5)
-                coins = coins + amt
-                if coinLabel then coinLabel.Text = tostring(coins) .. " Coins" end
-                showWarning("Found " .. tostring(amt) .. " Cave Coin" .. (amt > 1 and "s" or "") .. "!", 2.5)
-                return
-            end
-
-            showWarning("Searched drawer: Found " .. loot, 2)
-
-            if loot == "Nothing" then return end
-            if loot == "MinerHelmet" then
-                if helmetEquipped then
-                    showWarning("You already have a helmet equipped!", 2)
-                    return
-                end
-                giveHelmet(plr)
-                return
-            end
-
-            if #inventory >= MAX_ITEMS then
-                showWarning("Inventory full! Max " .. tostring(MAX_ITEMS) .. " items.", 2)
-                return
-            end
-            table.insert(inventory, loot)
-            local tool = Instance.new("Tool")
-            tool.Name = loot
-            local handle = Instance.new("Part")
-            handle.Name = "Handle"
-            if loot == "Key" then
-                handle.Size = Vector3.new(1, 0.2, 0.2)
-                handle.Color = Color3.fromRGB(210, 175, 50)
-            elseif loot == "Ecstasy" then
-                handle.Size = Vector3.new(0.5, 0.5, 0.5)
-                handle.Color = Color3.fromRGB(200, 50, 200)
-                handle.Material = Enum.Material.Neon
-                tool.Activated:Connect(function()
-                    tool:Destroy()
-                    for idx, v in ipairs(inventory) do
-                        if v == "Ecstasy" then table.remove(inventory, idx) break end
-                    end
-                    ecstasyActive = true
-                    ecstasyEndTime = tick() + 180
-                    if humanoid then humanoid.WalkSpeed = 22 end
-                    local ccc = game.Lighting:FindFirstChild("EcstasyCC") or Instance.new("ColorCorrectionEffect", game.Lighting)
-                    ccc.Name = "EcstasyCC"
-                    ccc.Saturation = 1.5
-                    showWarning("Ecstasy active! Speed boost for 3 minutes.", 3)
-                end)
-            else
-                handle.Size = Vector3.new(0.5, 0.5, 0.5)
-            end
-            handle.Parent = tool
-            tool.Parent = plr.Backpack
-        end)
     end
 
     rooms[doorNum] = folder
@@ -926,33 +800,13 @@ createLobby = function()
     folder.Name = "CaveLobby"
     folder.Parent = workspace
 
-    -- Lobby floor
-    makePart(
-        Vector3.new(55, 1, 70),
-        CFrame.new(0, -0.5, 35),
-        Color3.fromRGB(38, 36, 34), 0, folder, Enum.Material.Slate
-    ).Name = "LobbyFloor"
-
-    -- Lobby ceiling
-    makePart(
-        Vector3.new(55, 1, 70),
-        CFrame.new(0, CAVE_H + 0.5, 35),
-        Color3.fromRGB(30, 28, 27), 0, folder, Enum.Material.Slate
-    ).Name = "LobbyCeiling"
-
-    -- Walls
+    makePart(Vector3.new(55, 1, 70), CFrame.new(0, -0.5, 35), Color3.fromRGB(38, 36, 34), 0, folder, Enum.Material.Slate).Name = "LobbyFloor"
+    makePart(Vector3.new(55, 1, 70), CFrame.new(0, CAVE_H + 0.5, 35), Color3.fromRGB(30, 28, 27), 0, folder, Enum.Material.Slate).Name = "LobbyCeiling"
     makePart(Vector3.new(55, CAVE_H, 1), CFrame.new(0, CAVE_H * 0.5, 70.5), Color3.fromRGB(45, 43, 40), 0, folder, Enum.Material.Cobblestone).Name = "LobbyWallBack"
     makePart(Vector3.new(1, CAVE_H, 70), CFrame.new(-27.5, CAVE_H * 0.5, 35), Color3.fromRGB(45, 43, 40), 0, folder, Enum.Material.Cobblestone).Name = "LobbyWallL"
     makePart(Vector3.new(1, CAVE_H, 70), CFrame.new(27.5, CAVE_H * 0.5, 35), Color3.fromRGB(45, 43, 40), 0, folder, Enum.Material.Cobblestone).Name = "LobbyWallR"
 
-    -- Lobby lanterns
-    local lobbyLights = {
-        Vector3.new(-14, CAVE_H - 2, 20),
-        Vector3.new(14, CAVE_H - 2, 20),
-        Vector3.new(-14, CAVE_H - 2, 50),
-        Vector3.new(14, CAVE_H - 2, 50),
-        Vector3.new(0, CAVE_H - 2, 35)
-    }
+    local lobbyLights = {Vector3.new(-14, CAVE_H - 2, 20), Vector3.new(14, CAVE_H - 2, 20), Vector3.new(-14, CAVE_H - 2, 50), Vector3.new(14, CAVE_H - 2, 50), Vector3.new(0, CAVE_H - 2, 35)}
     for _, lp in ipairs(lobbyLights) do
         makePart(Vector3.new(0.15, 2, 0.15), CFrame.new(lp + Vector3.new(0, 1.2, 0)), Color3.fromRGB(60, 55, 50), 0, folder, Enum.Material.Metal)
         local lan = makePart(Vector3.new(1.2, 1.4, 1.2), CFrame.new(lp), Color3.fromRGB(255, 210, 100), 0, folder, Enum.Material.Neon)
@@ -960,12 +814,7 @@ createLobby = function()
         makeLight(lan, 2.2, 40, Color3.fromRGB(255, 210, 110))
     end
 
-    -- Welcome sign
-    local signBoard = makePart(
-        Vector3.new(22, 4.5, 0.5),
-        CFrame.new(0, 14, 69),
-        Color3.fromRGB(22, 20, 18), 0, folder, Enum.Material.Slate
-    )
+    local signBoard = makePart(Vector3.new(22, 4.5, 0.5), CFrame.new(0, 14, 69), Color3.fromRGB(22, 20, 18), 0, folder, Enum.Material.Slate)
     signBoard.Name = "WelcomeSign"
     local wsGui = Instance.new("SurfaceGui")
     wsGui.Face = Enum.NormalId.Front
@@ -988,7 +837,6 @@ createLobby = function()
     wsLine2.Font = Enum.Font.Gotham
     wsLine2.Parent = wsGui
 
-    -- Lobby decor
     makeCrate(folder, Vector3.new(-14, 0, 44))
     makeCrate(folder, Vector3.new(14, 0, 44))
     makeBarrel(folder, Vector3.new(-18, 0, 32))
@@ -999,19 +847,11 @@ createLobby = function()
     makeMinecart(folder, Vector3.new(-14, 0, 54), false)
     makeMinecart(folder, Vector3.new(14, 0, 54), false)
 
-    -- Lobby stalactites
     for i = 1, 12 do
-        local sx = math.random(-24, 24)
-        local sz = math.random(10, 68)
-        makeStalactite(folder, CAVE_H, sx, sz)
+        makeStalactite(folder, CAVE_H, math.random(-24, 24), math.random(10, 68))
     end
 
-    -- Start button (neon ore vein styled)
-    local startBtn = makePart(
-        Vector3.new(8, 3, 3.5),
-        CFrame.new(0, 1.5, 16),
-        Color3.fromRGB(0, 140, 60), 0, folder, Enum.Material.Neon
-    )
+    local startBtn = makePart(Vector3.new(8, 3, 3.5), CFrame.new(0, 1.5, 16), Color3.fromRGB(0, 140, 60), 0, folder, Enum.Material.Neon)
     startBtn.Name = "StartButton"
     local sbGui = Instance.new("SurfaceGui")
     sbGui.Face = Enum.NormalId.Front
@@ -1026,7 +866,6 @@ createLobby = function()
     sbLabel.Parent = sbGui
     makeLight(startBtn, 3, 20, Color3.fromRGB(0, 200, 80))
 
-    -- Touch UI for start
     local startGui = Instance.new("ScreenGui")
     startGui.Name = "CaveStartGui"
     startGui.ResetOnSpawn = false
@@ -1186,7 +1025,6 @@ end
 -- =================================================================
 -- ENTITIES
 -- =================================================================
-
 spawnDisease = function(doorNum)
     if diseaseActive or diseaseOnCooldown then return end
     diseaseActive   = true
@@ -1201,37 +1039,22 @@ spawnDisease = function(doorNum)
     local startZ    = -(startDoor * CAVE_D)
     local stopZ     = -(stopDoor * CAVE_D)
 
-    -- Red smoke emitters along the path
     for d = startDoor, stopDoor do
         if rooms[d] then
             local smoke = Instance.new("ParticleEmitter")
             smoke.Name = "DiseaseSmoke"
             smoke.Color = ColorSequence.new(Color3.fromRGB(180, 0, 0))
-            smoke.Size = NumberSequence.new({
-                NumberSequenceKeypoint.new(0, 8),
-                NumberSequenceKeypoint.new(1, 18)
-            })
+            smoke.Size = NumberSequence.new({NumberSequenceKeypoint.new(0, 8), NumberSequenceKeypoint.new(1, 18)})
             smoke.Rate = 80
             smoke.Speed = NumberRange.new(2, 4)
             smoke.Lifetime = NumberRange.new(3, 5)
-            smoke.Transparency = NumberSequence.new({
-                NumberSequenceKeypoint.new(0, 0.75),
-                NumberSequenceKeypoint.new(1, 1)
-            })
-            local ep = makePart(
-                Vector3.new(CAVE_W, 1, CAVE_D),
-                CFrame.new(0, CAVE_H * 0.5, -(d * CAVE_D)),
-                Color3.new(), 1, ef
-            )
+            smoke.Transparency = NumberSequence.new({NumberSequenceKeypoint.new(0, 0.75), NumberSequenceKeypoint.new(1, 1)})
+            local ep = makePart(Vector3.new(CAVE_W, 1, CAVE_D), CFrame.new(0, CAVE_H * 0.5, -(d * CAVE_D)), Color3.new(), 1, ef)
             smoke.Parent = ep
         end
     end
 
-    local body = makePart(
-        Vector3.new(CAVE_W - 1, CAVE_H, CAVE_D),
-        CFrame.new(0, CAVE_H * 0.5, startZ),
-        Color3.fromRGB(140, 0, 0), 0.45, ef, Enum.Material.Neon
-    )
+    local body = makePart(Vector3.new(CAVE_W - 1, CAVE_H, CAVE_D), CFrame.new(0, CAVE_H * 0.5, startZ), Color3.fromRGB(140, 0, 0), 0.45, ef, Enum.Material.Neon)
     body.Name = "DiseaseBody"
     body.CanCollide = false
 
@@ -1262,11 +1085,7 @@ spawnDisease = function(doorNum)
             local distZ = math.abs(rootPart.Position.Z - newZ)
             if distZ < 140 then
                 local intensity = (140 - distZ) / 140
-                humanoid.CameraOffset = Vector3.new(
-                    math.random(-10, 10) * 0.05 * intensity,
-                    math.random(-10, 10) * 0.05 * intensity,
-                    0
-                )
+                humanoid.CameraOffset = Vector3.new(math.random(-10, 10) * 0.05 * intensity, math.random(-10, 10) * 0.05 * intensity, 0)
             else
                 humanoid.CameraOffset = Vector3.new(0, 0, 0)
             end
@@ -1303,11 +1122,7 @@ spawnHer = function(doorNum)
     ef.Name = "HerEntity"
     ef.Parent = workspace
 
-    local body = makePart(
-        Vector3.new(1.8, 7.5, 1.8),
-        CFrame.new(0, 3.75, roomZ),
-        Color3.fromRGB(0, 0, 0), 0, ef
-    )
+    local body = makePart(Vector3.new(1.8, 7.5, 1.8), CFrame.new(0, 3.75, roomZ), Color3.fromRGB(0, 0, 0), 0, ef)
     body.Name = "HerBody"
     body.CanCollide = false
 
@@ -1366,11 +1181,7 @@ spawnHer = function(doorNum)
                 local dist = (rootPart.Position - body.Position).Magnitude
                 if dist < 90 and humanoid then
                     local intensity = (90 - dist) / 90
-                    humanoid.CameraOffset = Vector3.new(
-                        math.random(-10, 10) * 0.07 * intensity,
-                        math.random(-10, 10) * 0.07 * intensity,
-                        0
-                    )
+                    humanoid.CameraOffset = Vector3.new(math.random(-10, 10) * 0.07 * intensity, math.random(-10, 10) * 0.07 * intensity, 0)
                 end
 
                 if dist < 4 and humanoid and humanoid.Health > 0 then
@@ -1398,20 +1209,13 @@ spawnVoid = function(doorNum)
 
     local roomZ = -(doorNum * CAVE_D)
 
-    local voidPart = makePart(
-        Vector3.new(5, 0.1, 5),
-        CFrame.new(0, -0.4, roomZ),
-        Color3.fromRGB(5, 5, 5), 0, workspace, Enum.Material.Neon
-    )
+    local voidPart = makePart(Vector3.new(5, 0.1, 5), CFrame.new(0, -0.4, roomZ), Color3.fromRGB(5, 5, 5), 0, workspace, Enum.Material.Neon)
     voidPart.Name = "VoidSubstance"
     voidPart.CanCollide = false
 
     local particles = Instance.new("ParticleEmitter", voidPart)
     particles.Color = ColorSequence.new(Color3.fromRGB(0, 0, 0))
-    particles.Size = NumberSequence.new({
-        NumberSequenceKeypoint.new(0, 2),
-        NumberSequenceKeypoint.new(1, 5)
-    })
+    particles.Size = NumberSequence.new({NumberSequenceKeypoint.new(0, 2), NumberSequenceKeypoint.new(1, 5)})
     particles.Rate  = 55
     particles.Speed = NumberRange.new(4, 10)
 
@@ -1474,34 +1278,25 @@ onDoorReached = function(doorNum)
         showWarning("CHECKPOINT SAVED  -  Cave Door " .. tostring(doorNum), 3)
     end
 
-    -- Generate ahead
     for i = doorNum + 1, doorNum + GEN_AHEAD do
         if i <= DOOR_MAX then generateRoom(i) end
     end
 
-    -- Clean behind
     for i = DOOR_START, doorNum - CLEAN_BEHIND do
         if rooms[i] then rooms[i]:Destroy(); rooms[i] = nil end
         roomIsDark[i] = nil
     end
 
-    -- Entity spawns
     if doorNum >= HER_START and not herActive and not herOnCooldown then
-        if roomIsDark[doorNum] and math.random(1, 100) <= 28 then
-            task.spawn(function() spawnHer(doorNum) end)
-        end
+        if roomIsDark[doorNum] and math.random(1, 100) <= 28 then task.spawn(function() spawnHer(doorNum) end) end
     end
 
     if not diseaseActive and not diseaseOnCooldown and doorNum >= DOOR_START + 5 then
-        if math.random(1, 100) <= 40 then
-            spawnDisease(doorNum)
-        end
+        if math.random(1, 100) <= 40 then spawnDisease(doorNum) end
     end
 
     if doorNum >= VOID_START and not voidActive and not voidOnCooldown then
-        if math.random(1, 100) <= VOID_CHANCE then
-            task.spawn(function() spawnVoid(doorNum) end)
-        end
+        if math.random(1, 100) <= VOID_CHANCE then task.spawn(function() spawnVoid(doorNum) end) end
     end
 
     if doorNum >= DOOR_MAX then
@@ -1554,7 +1349,6 @@ mainLoop = function()
     RunService.Heartbeat:Connect(function(dt)
         if not gameStarted or not rootPart then return end
 
-        -- WalkSpeed
         local targetSpeed = 16
         if ecstasyActive then
             if tick() > ecstasyEndTime then
@@ -1572,7 +1366,6 @@ mainLoop = function()
             humanoid.WalkSpeed = targetSpeed
         end
 
-        -- Footstep sounds
         if humanoid and humanoid.Health > 0 and not isHiding then
             local isMoving = humanoid.MoveDirection.Magnitude > 0
             if isMoving and humanoid.FloorMaterial ~= Enum.Material.Air then
@@ -1590,7 +1383,6 @@ mainLoop = function()
             end
         end
 
-        -- Door detection via Z position
         local playerZ   = rootPart.Position.Z
         local approxDoor = math.max(DOOR_START, math.floor(-playerZ / CAVE_D + 0.5))
         if approxDoor > lastDetectedDoor and approxDoor <= DOOR_MAX then
@@ -1598,7 +1390,6 @@ mainLoop = function()
             onDoorReached(approxDoor)
         end
 
-        -- Minecart proximity detection
         nearCart    = false
         currentCart = nil
         for d = currentDoor - 1, currentDoor + 1 do
