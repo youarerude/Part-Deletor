@@ -1,7 +1,7 @@
 -- ============================================================
 -- THE CAVES - LocalScript Executor
 -- Devious Goober  |  Starts at Door 230  |  Stage 2
--- Entities : Disease, Her, Void
+-- Entities : Disease, Her, Void, Drain
 -- Items    : Coins, Ecstasy, Drill, Hammer, Miner Helmet
 -- Hiding   : Empty Minecarts (hollow, 9 parts)
 -- Search   : Lockers (3-5x) + Filled Minecarts (1x, no LOS)
@@ -39,6 +39,10 @@ local VOID_START       = 250
 local VOID_CHANCE      = 18
 local VOID_COOLDOWN    = 35
 
+local DRAIN_START      = 250
+local DRAIN_CHANCE     = 40
+local DRAIN_COOLDOWN   = 35
+
 local CART_DIST        = 5
 local GEN_AHEAD        = 6
 local CLEAN_BEHIND     = 7
@@ -57,12 +61,16 @@ local currentCart      = nil
 local checkpointDoor   = DOOR_START
 local rooms            = {}
 local roomIsDark       = {}
+
 local diseaseActive    = false
 local diseaseOnCooldown = false
 local herActive        = false
 local herOnCooldown    = false
 local voidActive       = false
 local voidOnCooldown   = false
+local drainActive      = false
+local drainOnCooldown  = false
+
 local isDead           = false
 local hiddenParts      = {}
 local inventory        = {}
@@ -81,7 +89,7 @@ local makeCrate, makeBarrel, makeRockPile, makeStalactite
 local makeMinecart, makeLocker, spawnSpikyRock, buildArchWall
 local generateRoom, createLobby, startGame, showWarning
 local hideInCart, exitCart, giveTool, giveHelmet
-local spawnDisease, spawnHer, spawnVoid
+local spawnDisease, spawnHer, spawnVoid, spawnDrain
 local onDoorReached, onDeath, updateCharRef, mainLoop
 
 -- ===== GUI REFS =====
@@ -377,10 +385,9 @@ spawnSpikyRock = function(folder, pos)
 end
 
 -- =================================================================
--- MINECART  (hollow with 4 walls + floor + 4 wheels)
+-- MINECART
 --   "hide"   = empty hollow (9 parts) -> IsLocker for hiding
 --   "filled" = cart + dirt (10 parts) -> 1x search, no LOS req
---   "deco"   = decoration only
 -- =================================================================
 makeMinecart = function(folder, pos, cartType)
     local metalC = Color3.fromRGB(55,52,52)
@@ -423,7 +430,6 @@ makeMinecart = function(folder, pos, cartType)
         rail.Name = "Rail"; rail.CanCollide = false
     end
 
-    -- ---- FILLED CART: part 10 = dirt, searchable 1x through walls ----
     if cartType == "filled" then
         local dirt = makePart(Vector3.new(3.6,1.4,6.6),CFrame.new(pos+Vector3.new(0,1.3,0)),Color3.fromRGB(92,64,30),0,folder,Enum.Material.Mud)
         dirt.Name = "CartDirt"
@@ -481,22 +487,16 @@ makeMinecart = function(folder, pos, cartType)
             end
         end)
 
-    -- ---- EMPTY HIDE CART: IsLocker flag on floor so player can hide ----
     elseif cartType == "hide" then
         floor:SetAttribute("IsLocker", true)
         floor.Name = "CartHideFloor"
-        -- Subtle glow rim so player knows this one is hideable
-        local glow = makePart(Vector3.new(4,0.08,7),CFrame.new(pos+Vector3.new(0,2.66,0)),Color3.fromRGB(80,200,255),0.7,folder,Enum.Material.Neon)
-        glow.Name = "CartRim"; glow.CanCollide = false
-        makeLight(glow,0.5,8,Color3.fromRGB(80,200,255))
     end
 
     return floor
 end
 
 -- =================================================================
--- LOCKER  (cave metal locker, searchable 3-5 times)
---   Loot: Coin, Ecstasy, Drill, MinerHelmet, Nothing
+-- LOCKER
 -- =================================================================
 makeLocker = function(folder, pos)
     local body = makePart(Vector3.new(2.5,6.5,2),CFrame.new(pos+Vector3.new(0,3.25,0)),Color3.fromRGB(50,72,100),0,folder,Enum.Material.Metal)
@@ -568,9 +568,7 @@ makeLocker = function(folder, pos)
 end
 
 -- =================================================================
--- BUILD ARCH WALL  (both entry and exit walls use this)
---   Creates side panels + top panel leaving a DOOR_GAP_W x DOOR_GAP_H
---   hole at ground level.  isSignWall=true adds the door number sign.
+-- BUILD ARCH WALL
 -- =================================================================
 buildArchWall = function(folder, O, zOffset, roomW, roomH, wallColor, isSignWall, doorNum)
     local halfGap = DOOR_GAP_W * 0.5
@@ -578,57 +576,17 @@ buildArchWall = function(folder, O, zOffset, roomW, roomH, wallColor, isSignWall
     local topH    = roomH - DOOR_GAP_H
     local suffix  = (zOffset < 0) and "Front" or "Back"
 
-    -- Left panel
-    makePart(
-        Vector3.new(sideW,roomH,1),
-        CFrame.new(O + Vector3.new(-(halfGap + sideW*0.5), roomH*0.5, zOffset)),
-        wallColor, 0, folder, Enum.Material.Cobblestone
-    ).Name = suffix .. "WallL"
+    makePart(Vector3.new(sideW,roomH,1), CFrame.new(O + Vector3.new(-(halfGap + sideW*0.5), roomH*0.5, zOffset)), wallColor, 0, folder, Enum.Material.Cobblestone).Name = suffix .. "WallL"
+    makePart(Vector3.new(sideW,roomH,1), CFrame.new(O + Vector3.new(halfGap + sideW*0.5, roomH*0.5, zOffset)), wallColor, 0, folder, Enum.Material.Cobblestone).Name = suffix .. "WallR"
+    makePart(Vector3.new(DOOR_GAP_W, topH, 1), CFrame.new(O + Vector3.new(0, roomH - topH*0.5, zOffset)), wallColor, 0, folder, Enum.Material.Cobblestone).Name = suffix .. "WallTop"
+    makePart(Vector3.new(0.9,DOOR_GAP_H,1.3), CFrame.new(O + Vector3.new(-halfGap - 0.45, DOOR_GAP_H*0.5, zOffset)), Color3.fromRGB(62,58,54), 0, folder, Enum.Material.Cobblestone).Name = "ArchPost"
+    makePart(Vector3.new(0.9,DOOR_GAP_H,1.3), CFrame.new(O + Vector3.new(halfGap + 0.45, DOOR_GAP_H*0.5, zOffset)), Color3.fromRGB(62,58,54), 0, folder, Enum.Material.Cobblestone).Name = "ArchPost"
+    makePart(Vector3.new(DOOR_GAP_W + 1.8, 0.9, 1.3), CFrame.new(O + Vector3.new(0, DOOR_GAP_H + 0.45, zOffset)), Color3.fromRGB(62,58,54), 0, folder, Enum.Material.Cobblestone).Name = "ArchLintel"
 
-    -- Right panel
-    makePart(
-        Vector3.new(sideW,roomH,1),
-        CFrame.new(O + Vector3.new(halfGap + sideW*0.5, roomH*0.5, zOffset)),
-        wallColor, 0, folder, Enum.Material.Cobblestone
-    ).Name = suffix .. "WallR"
-
-    -- Top panel (above the gap)
-    makePart(
-        Vector3.new(DOOR_GAP_W, topH, 1),
-        CFrame.new(O + Vector3.new(0, roomH - topH*0.5, zOffset)),
-        wallColor, 0, folder, Enum.Material.Cobblestone
-    ).Name = suffix .. "WallTop"
-
-    -- Left arch post (decorative stone trim)
-    makePart(
-        Vector3.new(0.9,DOOR_GAP_H,1.3),
-        CFrame.new(O + Vector3.new(-halfGap - 0.45, DOOR_GAP_H*0.5, zOffset)),
-        Color3.fromRGB(62,58,54), 0, folder, Enum.Material.Cobblestone
-    ).Name = "ArchPost"
-
-    -- Right arch post
-    makePart(
-        Vector3.new(0.9,DOOR_GAP_H,1.3),
-        CFrame.new(O + Vector3.new(halfGap + 0.45, DOOR_GAP_H*0.5, zOffset)),
-        Color3.fromRGB(62,58,54), 0, folder, Enum.Material.Cobblestone
-    ).Name = "ArchPost"
-
-    -- Lintel (horizontal stone across top of arch)
-    makePart(
-        Vector3.new(DOOR_GAP_W + 1.8, 0.9, 1.3),
-        CFrame.new(O + Vector3.new(0, DOOR_GAP_H + 0.45, zOffset)),
-        Color3.fromRGB(62,58,54), 0, folder, Enum.Material.Cobblestone
-    ).Name = "ArchLintel"
-
-    -- Door number sign above the arch (exit wall only)
     if isSignWall and doorNum then
         local faceDir = (zOffset < 0) and Enum.NormalId.Front or Enum.NormalId.Back
         local signZ   = zOffset + ((zOffset < 0) and 0.3 or -0.3)
-        local signPart = makePart(
-            Vector3.new(DOOR_GAP_W + 2, 1.6, 0.4),
-            CFrame.new(O + Vector3.new(0, DOOR_GAP_H + 1.8, signZ)),
-            Color3.fromRGB(28,26,24), 0, folder, Enum.Material.Slate
-        )
+        local signPart = makePart(Vector3.new(DOOR_GAP_W + 2, 1.6, 0.4), CFrame.new(O + Vector3.new(0, DOOR_GAP_H + 1.8, signZ)), Color3.fromRGB(28,26,24), 0, folder, Enum.Material.Slate)
         signPart.Name = "DoorSign"
         local sg = Instance.new("SurfaceGui"); sg.Face = faceDir; sg.Parent = signPart
         local sl = Instance.new("TextLabel"); sl.Size = UDim2.new(1,0,1,0)
@@ -661,38 +619,25 @@ generateRoom = function(doorNum)
     local floorC = Color3.fromRGB(38,36,34)
     local ceilC  = Color3.fromRGB(33,31,30)
 
-    -- Floor
     makePart(Vector3.new(roomW,1,roomD),CFrame.new(O+Vector3.new(0,-0.5,0)),floorC,0,folder,Enum.Material.Slate).Name="CaveFloor"
-    -- Ceiling
     makePart(Vector3.new(roomW,1,roomD),CFrame.new(O+Vector3.new(0,roomH+0.5,0)),ceilC,0,folder,Enum.Material.Slate).Name="CaveCeiling"
-    -- Side walls
     makePart(Vector3.new(1,roomH,roomD),CFrame.new(O+Vector3.new(-roomW*0.5-0.5,roomH*0.5,0)),wallC,0,folder,Enum.Material.Cobblestone).Name="CaveWallL"
     makePart(Vector3.new(1,roomH,roomD),CFrame.new(O+Vector3.new(roomW*0.5+0.5,roomH*0.5,0)),wallC,0,folder,Enum.Material.Cobblestone).Name="CaveWallR"
 
-    -- ENTRY wall (back, positive Z) - has arch hole so you can see back
     buildArchWall(folder, O, roomD*0.5+0.5, roomW, roomH, wallC, false, nil)
-
-    -- EXIT wall (front, negative Z) - has arch hole + door number sign
     buildArchWall(folder, O, -(roomD*0.5+0.5), roomW, roomH, wallC, true, doorNum)
 
-    -- ---- BARRICADE ----
     if isBarricaded then
         local plankC   = Color3.fromRGB(80,55,25)
         local barF     = Instance.new("Folder"); barF.Name="Barricade"; barF.Parent=folder
-        local halfGap  = DOOR_GAP_W*0.5
         local planks   = {}
         local plankH   = DOOR_GAP_H / 4
 
         for pi = 0,3 do
-            local pk = makePart(
-                Vector3.new(DOOR_GAP_W-0.2, plankH-0.15, 0.5),
-                CFrame.new(O+Vector3.new(0, plankH*0.5+pi*plankH, -(roomD*0.5+0.5))),
-                plankC, 0, barF, Enum.Material.Wood
-            )
+            local pk = makePart(Vector3.new(DOOR_GAP_W-0.2, plankH-0.15, 0.5), CFrame.new(O+Vector3.new(0, plankH*0.5+pi*plankH, -(roomD*0.5+0.5))), plankC, 0, barF, Enum.Material.Wood)
             pk.Name = "BarricadePlank"; table.insert(planks, pk)
         end
 
-        -- Nail visuals if nailed
         local nailFolder = Instance.new("Folder"); nailFolder.Name="NailsFolder"; nailFolder.Parent=barF
         if isNailed then
             for ni = 1,6 do
@@ -712,7 +657,6 @@ generateRoom = function(doorNum)
         prompt.Triggered:Connect(function(plr)
             local char = plr.Character; if not char then return end
 
-            -- STEP 1: If nailed, must drill first
             if not nailsRemoved then
                 if char:FindFirstChild("Drill") then
                     nailsRemoved = true
@@ -727,7 +671,6 @@ generateRoom = function(doorNum)
                 return
             end
 
-            -- STEP 2: Hammer breaks the planks
             if char:FindFirstChild("Hammer") then
                 for _, pk in ipairs(planks) do if pk and pk.Parent then pk:Destroy() end end
                 barF:Destroy(); prompt:Destroy()
@@ -740,7 +683,6 @@ generateRoom = function(doorNum)
         end)
     end
 
-    -- ---- CHECKPOINT SIGN ----
     if doorNum > DOOR_START and (doorNum-DOOR_START) % CHECKPOINT_EVERY == 0 then
         local cpPart = makePart(Vector3.new(10,2.5,0.4),CFrame.new(O+Vector3.new(0,6,0)),Color3.fromRGB(12,80,12),0,folder,Enum.Material.Neon)
         cpPart.Name="CheckpointSign"
@@ -750,7 +692,6 @@ generateRoom = function(doorNum)
         cpL.TextScaled=true; cpL.Font=Enum.Font.GothamBold; cpL.Parent=cpG
     end
 
-    -- ---- LANTERNS ----
     if not isDark then
         for li = 1, math.random(2,4) do
             local lx = math.random(-math.floor(roomW*0.35),math.floor(roomW*0.35))
@@ -761,23 +702,14 @@ generateRoom = function(doorNum)
         end
     end
 
-    -- ---- STALACTITES ----
     for si = 1, math.random(4,9) do
-        makeStalactite(folder, roomH,
-            O.X + math.random(-math.floor(roomW*0.42),math.floor(roomW*0.42)),
-            O.Z + math.random(-math.floor(roomD*0.42),math.floor(roomD*0.42))
-        )
+        makeStalactite(folder, roomH, O.X + math.random(-math.floor(roomW*0.42),math.floor(roomW*0.42)), O.Z + math.random(-math.floor(roomD*0.42),math.floor(roomD*0.42)))
     end
 
-    -- ---- SPIKY ROCKS ----
     for si = 1, math.random(2,5) do
-        spawnSpikyRock(folder, O+Vector3.new(
-            math.random(-math.floor(roomW*0.38),math.floor(roomW*0.38)), 0,
-            math.random(-math.floor(roomD*0.38),math.floor(roomD*0.38))
-        ))
+        spawnSpikyRock(folder, O+Vector3.new(math.random(-math.floor(roomW*0.38),math.floor(roomW*0.38)), 0, math.random(-math.floor(roomD*0.38),math.floor(roomD*0.38))))
     end
 
-    -- ---- ROCK PILES & PROPS ----
     for pi = 1, math.random(1,3) do
         makeRockPile(folder, O+Vector3.new(math.random(-math.floor(roomW*0.4),math.floor(roomW*0.4)),0,math.random(-math.floor(roomD*0.4),math.floor(roomD*0.4))))
     end
@@ -786,7 +718,6 @@ generateRoom = function(doorNum)
     if roll<=6 then makeBarrel(folder, O+Vector3.new(math.random(-12,12),0,math.random(-20,20))) end
     if roll<=5 then makeBarrel(folder, O+Vector3.new(math.random(-12,12),0,math.random(-20,20))) end
 
-    -- ---- LOCKERS: 1-3 normal, 3-6 in barricaded rooms ----
     local numLockers = isBarricaded and math.random(3,6) or math.random(1,3)
     for li = 1, numLockers do
         local lx = (math.random(1,2)==1 and 1 or -1) * math.random(8,math.floor(roomW*0.42))
@@ -794,22 +725,18 @@ generateRoom = function(doorNum)
         makeLocker(folder, O+Vector3.new(lx,0,lz))
     end
 
-    -- ---- MINECARTS: 1 hide, 1-2 filled, rest deco ----
     local numCarts    = math.random(3,5)
-    local hideSpawned = false
     local filledCount = 0
     local maxFilled   = math.random(1,2)
 
     for ci = 1, numCarts do
         local cx = math.random(-math.floor(roomW*0.35),math.floor(roomW*0.35))
         local cz = math.random(-math.floor(roomD*0.35),math.floor(roomD*0.35))
-        local ctype
-        if not hideSpawned then
-            ctype="hide"; hideSpawned=true
-        elseif filledCount < maxFilled then
-            ctype="filled"; filledCount=filledCount+1
-        else
-            ctype="deco"
+        local ctype = "hide"
+
+        if filledCount < maxFilled then
+            ctype = "filled"
+            filledCount = filledCount + 1
         end
         makeMinecart(folder, O+Vector3.new(cx,0,cz), ctype)
     end
@@ -837,11 +764,10 @@ createLobby = function()
     local wl1=Instance.new("TextLabel"); wl1.Size=UDim2.new(1,0,0.55,0); wl1.BackgroundTransparency=1; wl1.Text="THE CAVES"
     wl1.TextColor3=Color3.fromRGB(200,170,100); wl1.TextScaled=true; wl1.Font=Enum.Font.GothamBold; wl1.Parent=wg
     local wl2=Instance.new("TextLabel"); wl2.Size=UDim2.new(1,0,0.4,0); wl2.Position=UDim2.new(0,0,0.58,0); wl2.BackgroundTransparency=1
-    wl2.Text="Cave Doors 230-1000  |  Hide in EMPTY carts (blue glow)!"; wl2.TextColor3=Color3.fromRGB(160,145,120); wl2.TextScaled=true; wl2.Font=Enum.Font.Gotham; wl2.Parent=wg
+    wl2.Text="Cave Doors 230-1000  |  Hide in EMPTY carts!"; wl2.TextColor3=Color3.fromRGB(160,145,120); wl2.TextScaled=true; wl2.Font=Enum.Font.Gotham; wl2.Parent=wg
     makeCrate(folder,Vector3.new(-14,0,44)); makeCrate(folder,Vector3.new(14,0,44))
     makeBarrel(folder,Vector3.new(-18,0,32)); makeBarrel(folder,Vector3.new(18,0,32))
     makeRockPile(folder,Vector3.new(-10,0,58)); makeRockPile(folder,Vector3.new(10,0,58))
-    makeMinecart(folder,Vector3.new(-14,0,54),"deco"); makeMinecart(folder,Vector3.new(14,0,54),"deco")
     for si=1,12 do makeStalactite(folder,CAVE_H,math.random(-24,24),math.random(10,68)) end
     local btn=makePart(Vector3.new(8,3,3.5),CFrame.new(0,1.5,16),Color3.fromRGB(0,140,60),0,folder,Enum.Material.Neon); btn.Name="StartButton"
     local bg2=Instance.new("SurfaceGui"); bg2.Face=Enum.NormalId.Front; bg2.Parent=btn
@@ -915,6 +841,85 @@ end
 -- =================================================================
 -- ENTITIES
 -- =================================================================
+spawnDrain = function(doorNum)
+    if drainActive or drainOnCooldown then return end
+    drainActive = true
+    drainOnCooldown = true
+
+    local ef = Instance.new("Folder")
+    ef.Name = "DrainEntity"
+    ef.Parent = workspace
+
+    local floorY = -0.5
+    local maxH = 6.2 
+
+    local liquid = makePart(Vector3.new(CAVE_W + 40, 0.1, CAVE_D * 15), CFrame.new(0, floorY, -(doorNum * CAVE_D)), Color3.fromRGB(8, 8, 8), 0.15, ef, Enum.Material.Neon)
+    liquid.CanCollide = false
+    liquid.Name = "BlackLiquid"
+
+    local snd = Instance.new("Sound")
+    snd.SoundId = "rbxassetid://93281700241946"
+    snd.Volume = 2
+    snd.Looped = true
+    snd.Parent = liquid
+    snd:Play()
+
+    showWarning("Black liquid is flooding the floor! Get on top of a locker!", 4)
+
+    local riseTime = 7
+    local stayTime = 3
+    local fallTime = 5
+    local elapsed = 0
+
+    local dc
+    dc = RunService.Heartbeat:Connect(function(dt)
+        if isDead then
+            if dc then dc:Disconnect() end
+            ef:Destroy()
+            drainActive = false
+            drainOnCooldown = false
+            return
+        end
+
+        elapsed = elapsed + dt
+        local currentH = 0.1
+
+        if elapsed <= riseTime then
+            currentH = (elapsed / riseTime) * maxH
+        elseif elapsed <= riseTime + stayTime then
+            currentH = maxH
+        elseif elapsed <= riseTime + stayTime + fallTime then
+            local f = elapsed - (riseTime + stayTime)
+            currentH = maxH - ((f / fallTime) * maxH)
+        else
+            dc:Disconnect()
+            ef:Destroy()
+            drainActive = false
+            task.delay(DRAIN_COOLDOWN, function() drainOnCooldown = false end)
+            return
+        end
+
+        liquid.Size = Vector3.new(CAVE_W + 40, math.max(0.1, currentH), CAVE_D * 15)
+        liquid.CFrame = CFrame.new(0, floorY + currentH * 0.5, -(currentDoor * CAVE_D))
+
+        if currentH >= 6.0 then
+            if rootPart and humanoid and humanoid.Health > 0 then
+                local playerFeetY = rootPart.Position.Y - 3
+                local topOfLiquid = floorY + currentH
+                if playerFeetY < topOfLiquid - 0.2 then
+                    humanoid.Health = 0
+                    local dSnd = Instance.new("Sound")
+                    dSnd.SoundId = "rbxassetid://128701355933535"
+                    dSnd.Volume = 2
+                    dSnd.Parent = workspace
+                    dSnd:Play()
+                    onDeath()
+                end
+            end
+        end
+    end)
+end
+
 spawnDisease = function(doorNum)
     if diseaseActive or diseaseOnCooldown then return end
     diseaseActive=true; diseaseOnCooldown=true
@@ -1027,15 +1032,23 @@ onDoorReached = function(doorNum)
     end
     for i=doorNum+1,doorNum+GEN_AHEAD do if i<=DOOR_MAX then generateRoom(i) end end
     for i=DOOR_START,doorNum-CLEAN_BEHIND do if rooms[i] then rooms[i]:Destroy(); rooms[i]=nil end; roomIsDark[i]=nil end
+
     if doorNum>=HER_START and not herActive and not herOnCooldown then
         if roomIsDark[doorNum] and math.random(1,100)<=28 then task.spawn(function() spawnHer(doorNum) end) end
     end
-    if not diseaseActive and not diseaseOnCooldown and doorNum>=DOOR_START+5 then
+
+    if doorNum>=DRAIN_START and not drainActive and not drainOnCooldown then
+        if math.random(1,100)<=DRAIN_CHANCE then task.spawn(function() spawnDrain(doorNum) end) end
+    end
+
+    if not diseaseActive and not diseaseOnCooldown and not drainActive and doorNum>=DOOR_START+5 then
         if math.random(1,100)<=40 then spawnDisease(doorNum) end
     end
+
     if doorNum>=VOID_START and not voidActive and not voidOnCooldown then
         if math.random(1,100)<=VOID_CHANCE then task.spawn(function() spawnVoid(doorNum) end) end
     end
+
     if doorNum>=DOOR_MAX then showWarning("YOU ESCAPED THE CAVES! You are a legend, miner.",20); gameStarted=false end
 end
 
@@ -1054,7 +1067,13 @@ end
 updateCharRef = function(newChar)
     character=newChar; humanoid=newChar:WaitForChild("Humanoid"); rootPart=newChar:WaitForChild("HumanoidRootPart")
     task.spawn(function() local rs=rootPart:WaitForChild("Running",3); if rs then rs.Volume=0 end end)
-    floorStepSound=Instance.new("Sound"); floorStepSound.SoundId="rbxassetid://138898236956764"; floorStepSound.Volume=1; floorStepSound.Parent=rootPart
+    
+    -- New Step Sound
+    floorStepSound=Instance.new("Sound")
+    floorStepSound.SoundId="rbxassetid://138662719868461" 
+    floorStepSound.Volume=1
+    floorStepSound.Parent=rootPart
+    
     humanoid.Died:Connect(function() onDeath() end)
 end
 
