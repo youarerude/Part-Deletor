@@ -1,12 +1,9 @@
 -- ============================================================
--- THE CAVES - LocalScript Executor
+-- THE CAVES - LocalScript Executor (Updated: Agony Overhaul)
 -- Devious Goober  |  Starts at Door 230  |  Stage 2
 -- Entities : Disease, Her, Void, Drain, Ghoul, Agony
 -- Items    : Coins, Ecstasy, Drill, Hammer, Miner Helmet
 -- Hiding   : Empty Minecarts (hollow, 9 parts)
--- Search   : Lockers (3-5x) + Filled Minecarts (1x, no LOS)
--- Doors    : Both entry AND exit walls have arch holes
--- Barricades: 30% nailed (Drill->Hammer), 70% just Hammer
 -- ============================================================
 
 local Players      = game:GetService("Players")
@@ -966,6 +963,18 @@ spawnAgony = function(doorNum)
     local startZ = -getRoomZ(startDoor) + (getIsBridge(startDoor) and BRIDGE_D*0.5 or CAVE_D*0.5)
     local stopZ  = -getRoomZ(stopDoor) - (getIsBridge(stopDoor) and BRIDGE_D*0.5 or CAVE_D*0.5)
 
+    -- Break lighting where player was upon spawn
+    if rootPart then
+        local pPos = rootPart.Position
+        if rooms[currentDoor] then
+            for _, part in ipairs(rooms[currentDoor]:GetDescendants()) do
+                if (part.Name == "Lantern" or part:IsA("PointLight")) and (part.Position - pPos).Magnitude < 40 then
+                    if part:IsA("PointLight") then part:Destroy() else part.Material = Enum.Material.Glass; part.Color = Color3.fromRGB(15,15,15) end
+                end
+            end
+        end
+    end
+
     local body = makePart(Vector3.new(4, 9, 4), CFrame.new(0, 4.5, startZ), Color3.fromRGB(5,5,5), 0.1, ef, Enum.Material.Neon)
     body.Name = "AgonyBody"; body.CanCollide = false
     
@@ -979,9 +988,13 @@ spawnAgony = function(doorNum)
     local a1 = Instance.new("Attachment", body); a1.Position = Vector3.new(0, -4.5, 0)
     tr.Attachment0 = a0; tr.Attachment1 = a1
 
-    local snd = Instance.new("Sound"); snd.SoundId = "rbxassetid://89060529910257"; snd.Volume = 2.5; snd.Looped = true; snd.RollOffMaxDistance = 300; snd.Parent = body; snd:Play()
-    local breakSnd = Instance.new("Sound"); breakSnd.SoundId = "rbxassetid://140414748697760"; breakSnd.Volume = 3; breakSnd.Parent = body
-    local bridgeSnd = Instance.new("Sound"); bridgeSnd.SoundId = "rbxassetid://139561410113584"; bridgeSnd.Volume = 2.5; bridgeSnd.Looped = true; bridgeSnd.Parent = body
+    -- Logic: If it's a dark room, volume is 0 (No signal)
+    local isDarkRoom = roomIsDark[doorNum]
+    local baseVolume = isDarkRoom and 0 or 2.5
+
+    local snd = Instance.new("Sound"); snd.SoundId = "rbxassetid://89060529910257"; snd.Volume = baseVolume; snd.Looped = true; snd.RollOffMaxDistance = 300; snd.Parent = body; snd:Play()
+    local breakSnd = Instance.new("Sound"); breakSnd.SoundId = "rbxassetid://140414748697760"; breakSnd.Volume = isDarkRoom and 0 or 3; breakSnd.Parent = body
+    local bridgeSnd = Instance.new("Sound"); bridgeSnd.SoundId = "rbxassetid://139561410113584"; bridgeSnd.Volume = isDarkRoom and 0 or 2.5; bridgeSnd.Looped = true; bridgeSnd.Parent = body
 
     local currentOnBridge = false
     local lastRoomDarkened = -1
@@ -1003,9 +1016,9 @@ spawnAgony = function(doorNum)
 
         local isB = getIsBridge(approxAgonyDoor)
         if isB and not currentOnBridge then
-            currentOnBridge = true; snd.Volume = 0; bridgeSnd:Play()
+            currentOnBridge = true; snd.Volume = 0; if not isDarkRoom then bridgeSnd:Play() end
         elseif not isB and currentOnBridge then
-            currentOnBridge = false; bridgeSnd:Stop(); snd.Volume = 2.5
+            currentOnBridge = false; bridgeSnd:Stop(); snd.Volume = baseVolume
         end
 
         if approxAgonyDoor > lastRoomDarkened and rooms[approxAgonyDoor] then
@@ -1017,13 +1030,16 @@ spawnAgony = function(doorNum)
                     broken = true
                 end
             end
-            if broken then breakSnd:Play() end
+            if broken and not isDarkRoom then breakSnd:Play() end
             roomIsDark[approxAgonyDoor] = true 
         end
 
         if rootPart and humanoid and not isDead then
-            local dZ = math.abs(rootPart.Position.Z - newZ)
+            local agonyPos = body.Position
+            local playerPos = rootPart.Position
+            local dZ = math.abs(playerPos.Z - newZ)
             
+            -- Screen Shake
             if dZ < 160 then 
                 local i2 = (160-dZ)/160
                 humanoid.CameraOffset = Vector3.new(math.random(-10,10)*0.09*i2, math.random(-10,10)*0.09*i2, 0)
@@ -1031,16 +1047,25 @@ spawnAgony = function(doorNum)
                 humanoid.CameraOffset = Vector3.new(0,0,0) 
             end
             
-            if dZ < 40 then
-                local rayParams = RaycastParams.new()
-                rayParams.FilterDescendantsInstances = {ef, character, rooms[-1]} 
-                rayParams.FilterType = Enum.RaycastFilterType.Exclude
+            -- Look and Touch Logic
+            local dist = (playerPos - agonyPos).Magnitude
+            
+            -- 1. Touch Check
+            if dist < 7 then
+                humanoid.Health = 0; onDeath()
+            end
 
-                local dir = (rootPart.Position - body.Position)
-                local hit = workspace:Raycast(body.Position, dir.Unit * dir.Magnitude, rayParams)
-                
-                if not hit or isHiding then
-                    if humanoid.Health > 0 then humanoid.Health = 0; onDeath() end
+            -- 2. Looking Check (Gaze mechanic)
+            local dot = camera.CFrame.LookVector:Dot((agonyPos - camera.CFrame.Position).Unit)
+            if dot > 0.8 then -- Looking directly at him
+                -- Wall / Obstruction Check
+                local rayParams = RaycastParams.new()
+                rayParams.FilterDescendantsInstances = {ef, character}
+                rayParams.FilterType = Enum.RaycastFilterType.Exclude
+                local ray = workspace:Raycast(camera.CFrame.Position, (agonyPos - camera.CFrame.Position), rayParams)
+
+                if not ray then -- No wall blocking
+                    humanoid.Health = 0; onDeath()
                 end
             end
         end
