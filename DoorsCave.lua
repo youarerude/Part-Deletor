@@ -26,6 +26,13 @@ local CHECKPOINT_EVERY = 50
 local DOOR_GAP_W       = 7
 local DOOR_GAP_H       = 9
 
+local BRIDGE_START     = 290
+local BRIDGE_CHANCE    = 20
+local BRIDGE_W         = 100
+local BRIDGE_H         = 60
+local BRIDGE_D         = 140
+local PIT_DEPTH        = 80
+
 local DISEASE_SPEED    = 70
 local DISEASE_COOLDOWN = 12
 local DISEASE_BEFORE   = 4
@@ -65,6 +72,10 @@ local currentCart      = nil
 local checkpointDoor   = DOOR_START
 local rooms            = {}
 local roomIsDark       = {}
+local roomIsBridge     = {}
+local roomZData        = {}
+local bridgeStates     = {}
+local bridgeSounds     = {}
 
 local diseaseActive    = false
 local diseaseOnCooldown = false
@@ -95,13 +106,31 @@ local setupLighting, createHUD, makePart, makeLight
 local makeCrate, makeBarrel, makeRockPile, makeStalactite
 local makeMinecart, makeLocker, spawnSpikyRock, buildArchWall
 local generateRoom, createLobby, startGame, showWarning
-local hideInCart, exitCart, giveTool, giveHelmet
+local hideInCart, exitCart, giveTool, giveHelmet, breakBridge
 local spawnDisease, spawnHer, spawnVoid, spawnDrain, spawnGhoul
 local onDoorReached, onDeath, updateCharRef, mainLoop
+local getIsBridge, getRoomZ
 
--- ===== GUI REFS =====
-local screenGui, doorLabel, coinLabel, warningFrame, warningLabel
-local hidePrompt, hideBtnLabel
+-- =================================================================
+-- SPATIAL HELPERS
+-- =================================================================
+getIsBridge = function(doorNum)
+    if roomIsBridge[doorNum] ~= nil then return roomIsBridge[doorNum] end
+    roomIsBridge[doorNum] = (doorNum >= BRIDGE_START and math.random(1, 100) <= BRIDGE_CHANCE)
+    return roomIsBridge[doorNum]
+end
+
+getRoomZ = function(doorNum)
+    if roomZData[doorNum] then return roomZData[doorNum] end
+    local z = DOOR_START * CAVE_D
+    for i = DOOR_START + 1, doorNum do
+        local prevLen = getIsBridge(i-1) and BRIDGE_D or CAVE_D
+        local thisLen = getIsBridge(i) and BRIDGE_D or CAVE_D
+        z = z + (prevLen * 0.5) + (thisLen * 0.5)
+    end
+    roomZData[doorNum] = z
+    return z
+end
 
 -- =================================================================
 -- LIGHTING
@@ -424,7 +453,7 @@ makeMinecart = function(folder, pos, cartType)
     end
 
     for xi = -1,1,2 do
-        local rail = makePart(Vector3.new(0.3,0.25,CAVE_D*0.85),CFrame.new(pos+Vector3.new(xi*1.5,0.12,0)),Color3.fromRGB(70,68,65),0,folder,Enum.Material.Metal)
+        local rail = makePart(Vector3.new(0.3,0.25,12),CFrame.new(pos+Vector3.new(xi*1.5,0.12,0)),Color3.fromRGB(70,68,65),0,folder,Enum.Material.Metal)
         rail.Name = "Rail"; rail.CanCollide = false
     end
 
@@ -604,23 +633,139 @@ generateRoom = function(doorNum)
     folder.Name  = "Room_" .. doorNum
     folder.Parent = workspace
 
-    local originZ    = -(doorNum * CAVE_D)
-    local O          = Vector3.new(0,0,originZ)
-    local isDark     = math.random(1,100) <= 50
+    local isBridge     = getIsBridge(doorNum)
+    local isDark       = (not isBridge) and (math.random(1,100) <= 50)
     local isBarricaded = math.random(1,100) <= 40
-    local isNailed   = isBarricaded and (math.random(1,100) <= 30)
-
+    local isNailed     = isBarricaded and (math.random(1,100) <= 30)
+    
     roomIsDark[doorNum] = isDark
 
-    local roomW  = CAVE_W; local roomH = CAVE_H; local roomD = CAVE_D
+    local roomW = isBridge and BRIDGE_W or CAVE_W
+    local roomH = isBridge and BRIDGE_H or CAVE_H
+    local roomD = isBridge and BRIDGE_D or CAVE_D
+    local originZ = getRoomZ(doorNum)
+    local O = Vector3.new(0, 0, -originZ)
+
     local wallC  = Color3.fromRGB(45,43,40)
     local floorC = Color3.fromRGB(38,36,34)
     local ceilC  = Color3.fromRGB(33,31,30)
 
-    makePart(Vector3.new(roomW,1,roomD),CFrame.new(O+Vector3.new(0,-0.5,0)),floorC,0,folder,Enum.Material.Slate).Name="CaveFloor"
-    makePart(Vector3.new(roomW,1,roomD),CFrame.new(O+Vector3.new(0,roomH+0.5,0)),ceilC,0,folder,Enum.Material.Slate).Name="CaveCeiling"
-    makePart(Vector3.new(1,roomH,roomD),CFrame.new(O+Vector3.new(-roomW*0.5-0.5,roomH*0.5,0)),wallC,0,folder,Enum.Material.Cobblestone).Name="CaveWallL"
-    makePart(Vector3.new(1,roomH,roomD),CFrame.new(O+Vector3.new(roomW*0.5+0.5,roomH*0.5,0)),wallC,0,folder,Enum.Material.Cobblestone).Name="CaveWallR"
+    if isBridge then
+        local pitDepth = PIT_DEPTH
+        wallC = Color3.fromRGB(35,33,30)
+        
+        makePart(Vector3.new(roomW,1,roomD), CFrame.new(O+Vector3.new(0,-pitDepth,0)), Color3.fromRGB(15,15,15), 0, folder, Enum.Material.Slate).Name="PitFloor"
+        makePart(Vector3.new(roomW,1,roomD), CFrame.new(O+Vector3.new(0,roomH+0.5,0)), ceilC, 0, folder, Enum.Material.Slate).Name="CaveCeiling"
+        makePart(Vector3.new(1,roomH+pitDepth,roomD), CFrame.new(O+Vector3.new(-roomW*0.5-0.5,(roomH-pitDepth)*0.5,0)), wallC, 0, folder, Enum.Material.Cobblestone).Name="CaveWallL"
+        makePart(Vector3.new(1,roomH+pitDepth,roomD), CFrame.new(O+Vector3.new(roomW*0.5+0.5,(roomH-pitDepth)*0.5,0)), wallC, 0, folder, Enum.Material.Cobblestone).Name="CaveWallR"
+
+        local platD = 25
+        makePart(Vector3.new(roomW,1,platD), CFrame.new(O+Vector3.new(0,-0.5,roomD*0.5-platD*0.5)), floorC, 0, folder, Enum.Material.Slate).Name="CaveFloor"
+        makePart(Vector3.new(roomW,1,platD), CFrame.new(O+Vector3.new(0,-0.5,-roomD*0.5+platD*0.5)), floorC, 0, folder, Enum.Material.Slate).Name="CaveFloor"
+
+        local pitTrigger = makePart(Vector3.new(roomW,5,roomD), CFrame.new(O+Vector3.new(0,-pitDepth+5,0)), Color3.new(1,0,0), 1, folder)
+        pitTrigger.Name = "PitTrigger"; pitTrigger.CanCollide = false
+        pitTrigger.Touched:Connect(function(hit)
+            if hit.Parent == character and humanoid and humanoid.Health > 0 then
+                humanoid.Health = 0; onDeath()
+            end
+        end)
+
+        local bridgeF = Instance.new("Folder"); bridgeF.Name = "Bridge"; bridgeF.Parent = folder
+        local gapZStart = O.Z + roomD*0.5 - platD
+        local gapZEnd   = O.Z - roomD*0.5 + platD
+        local gapDist   = gapZStart - gapZEnd
+        local numPlanks = 20
+        local plankSpacing = gapDist / (numPlanks + 1)
+
+        local bSnd = Instance.new("Sound")
+        bSnd.SoundId = "rbxassetid://140355241446143"
+        bSnd.Volume = 0; bSnd.Looped = true; bSnd.Parent = bridgeF; bSnd:Play()
+        bridgeSounds[doorNum] = bSnd
+
+        for i = 1, numPlanks do
+            local pZ = gapZStart - (i * plankSpacing)
+            local progress = i / (numPlanks + 1)
+            local dipY = -0.5 - math.sin(progress * math.pi) * 5
+
+            local plank = makePart(Vector3.new(6,0.4,3), CFrame.new(O.X,dipY,pZ), Color3.fromRGB(80,55,30), 0, bridgeF, Enum.Material.Wood)
+            plank.Name = "BridgePlank"
+            plank:SetAttribute("BridgeId", doorNum)
+            plank:SetAttribute("DefaultY", dipY)
+            plank:SetAttribute("DefaultZ", pZ)
+            plank:SetAttribute("Progress", progress)
+        end
+
+        for side = -1, 1, 2 do
+            local rope = makePart(Vector3.new(0.2,0.2,gapDist), CFrame.new(O.X+side*3.2, 3, O.Z), Color3.fromRGB(100,80,50), 0, bridgeF, Enum.Material.Fabric)
+            rope.Name = "RopeSide"; rope.CanCollide = false
+        end
+
+        local function spawnCartOnPlat(zCenter, count)
+            local filledCount = 0; local maxFilled = math.random(1, 2)
+            for ci = 1, count do
+                local cx = math.random(-math.floor(roomW*0.35), math.floor(roomW*0.35))
+                local cz = zCenter + math.random(-8, 8)
+                local ctype = "hide"
+                if filledCount < maxFilled then ctype = "filled"; filledCount = filledCount + 1 end
+                makeMinecart(folder, O+Vector3.new(cx,0,cz-O.Z), ctype)
+            end
+        end
+        spawnCartOnPlat(O.Z + roomD*0.5 - platD*0.5, math.random(1,3))
+        spawnCartOnPlat(O.Z - roomD*0.5 + platD*0.5, math.random(1,4))
+
+        makeLocker(folder, O+Vector3.new(math.random(10,20), 0, roomD*0.5 - 10))
+        makeLocker(folder, O+Vector3.new(math.random(-20,-10), 0, -roomD*0.5 + 10))
+
+        for si = 1, math.random(10, 20) do
+            makeStalactite(folder, roomH, O.X + math.random(-math.floor(roomW*0.4),math.floor(roomW*0.4)), O.Z + math.random(-math.floor(roomD*0.4),math.floor(roomD*0.4)))
+        end
+        for si = 1, math.random(2,5) do
+            spawnSpikyRock(folder, O+Vector3.new(math.random(-math.floor(roomW*0.38),math.floor(roomW*0.38)), 0, roomD*0.5 - math.random(5,20)))
+        end
+
+    else
+        makePart(Vector3.new(roomW,1,roomD),CFrame.new(O+Vector3.new(0,-0.5,0)),floorC,0,folder,Enum.Material.Slate).Name="CaveFloor"
+        makePart(Vector3.new(roomW,1,roomD),CFrame.new(O+Vector3.new(0,roomH+0.5,0)),ceilC,0,folder,Enum.Material.Slate).Name="CaveCeiling"
+        makePart(Vector3.new(1,roomH,roomD),CFrame.new(O+Vector3.new(-roomW*0.5-0.5,roomH*0.5,0)),wallC,0,folder,Enum.Material.Cobblestone).Name="CaveWallL"
+        makePart(Vector3.new(1,roomH,roomD),CFrame.new(O+Vector3.new(roomW*0.5+0.5,roomH*0.5,0)),wallC,0,folder,Enum.Material.Cobblestone).Name="CaveWallR"
+        
+        if not isDark then
+            for li = 1, math.random(2,4) do
+                local lx = math.random(-math.floor(roomW*0.35),math.floor(roomW*0.35))
+                local lz = math.random(-math.floor(roomD*0.35),math.floor(roomD*0.35))
+                makePart(Vector3.new(0.15,2,0.15),CFrame.new(O+Vector3.new(lx,roomH-0.5,lz)),Color3.fromRGB(60,55,50),0,folder,Enum.Material.Metal).Name="LanternChain"
+                local lan=makePart(Vector3.new(1.2,1.4,1.2),CFrame.new(O+Vector3.new(lx,roomH-2.4,lz)),Color3.fromRGB(255,210,100),0,folder,Enum.Material.Neon)
+                lan.Name="Lantern"; makeLight(lan,1.8,30,Color3.fromRGB(255,210,110))
+            end
+        end
+
+        for si = 1, math.random(4,9) do makeStalactite(folder, roomH, O.X + math.random(-math.floor(roomW*0.42),math.floor(roomW*0.42)), O.Z + math.random(-math.floor(roomD*0.42),math.floor(roomD*0.42))) end
+        for si = 1, math.random(2,5) do spawnSpikyRock(folder, O+Vector3.new(math.random(-math.floor(roomW*0.38),math.floor(roomW*0.38)), 0, math.random(-math.floor(roomD*0.38),math.floor(roomD*0.38)))) end
+        for pi = 1, math.random(1,3) do makeRockPile(folder, O+Vector3.new(math.random(-math.floor(roomW*0.4),math.floor(roomW*0.4)),0,math.random(-math.floor(roomD*0.4),math.floor(roomD*0.4)))) end
+        
+        local roll = math.random(1,10)
+        if roll<=7 then makeCrate(folder, O+Vector3.new(math.random(-12,12),0,math.random(-20,20))) end
+        if roll<=6 then makeBarrel(folder, O+Vector3.new(math.random(-12,12),0,math.random(-20,20))) end
+        if roll<=5 then makeBarrel(folder, O+Vector3.new(math.random(-12,12),0,math.random(-20,20))) end
+
+        local numLockers = isBarricaded and math.random(3,6) or math.random(1,3)
+        for li = 1, numLockers do
+            local lx = (math.random(1,2)==1 and 1 or -1) * math.random(8,math.floor(roomW*0.42))
+            local lz = math.random(-math.floor(roomD*0.4),math.floor(roomD*0.4))
+            makeLocker(folder, O+Vector3.new(lx,0,lz))
+        end
+
+        local numCarts = math.random(3,5)
+        local filledCount = 0; local maxFilled = math.random(1,2)
+        for ci = 1, numCarts do
+            local cx = math.random(-math.floor(roomW*0.35),math.floor(roomW*0.35))
+            local cz = math.random(-math.floor(roomD*0.35),math.floor(roomD*0.35))
+            local ctype = "hide"
+            if filledCount < maxFilled then ctype = "filled"; filledCount = filledCount + 1 end
+            makeMinecart(folder, O+Vector3.new(cx,0,cz), ctype)
+        end
+    end
 
     buildArchWall(folder, O, roomD*0.5+0.5, roomW, roomH, wallC, false, nil)
     buildArchWall(folder, O, -(roomD*0.5+0.5), roomW, roomH, wallC, true, doorNum)
@@ -654,30 +799,22 @@ generateRoom = function(doorNum)
 
         prompt.Triggered:Connect(function(plr)
             local char = plr.Character; if not char then return end
-
             if not nailsRemoved then
                 if char:FindFirstChild("Drill") then
-                    nailsRemoved = true
-                    nailFolder:Destroy()
+                    nailsRemoved = true; nailFolder:Destroy()
                     prompt.ActionText = "Use Hammer (break barricade)"
                     char.Drill:Destroy()
                     for idx, v in ipairs(inventory) do if v=="Drill" then table.remove(inventory,idx); break end end
                     showWarning("Nails drilled out! Now use a Hammer to break it.", 2.5)
-                else
-                    showWarning("Barricade is NAILED. You need a Drill first!", 2)
-                end
+                else showWarning("Barricade is NAILED. You need a Drill first!", 2) end
                 return
             end
-
             if char:FindFirstChild("Hammer") then
                 for _, pk in ipairs(planks) do if pk and pk.Parent then pk:Destroy() end end
-                barF:Destroy(); prompt:Destroy()
-                char.Hammer:Destroy()
+                barF:Destroy(); prompt:Destroy(); char.Hammer:Destroy()
                 for idx, v in ipairs(inventory) do if v=="Hammer" then table.remove(inventory,idx); break end end
                 showWarning("Barricade smashed! Path is clear.", 2)
-            else
-                showWarning("You need a Hammer to break this barricade!", 2)
-            end
+            else showWarning("You need a Hammer to break this barricade!", 2) end
         end)
     end
 
@@ -688,55 +825,6 @@ generateRoom = function(doorNum)
         local cpL=Instance.new("TextLabel"); cpL.Size=UDim2.new(1,0,1,0); cpL.BackgroundTransparency=1
         cpL.Text="CHECKPOINT  -  Cave Door "..doorNum; cpL.TextColor3=Color3.fromRGB(100,255,100)
         cpL.TextScaled=true; cpL.Font=Enum.Font.GothamBold; cpL.Parent=cpG
-    end
-
-    if not isDark then
-        for li = 1, math.random(2,4) do
-            local lx = math.random(-math.floor(roomW*0.35),math.floor(roomW*0.35))
-            local lz = math.random(-math.floor(roomD*0.35),math.floor(roomD*0.35))
-            makePart(Vector3.new(0.15,2,0.15),CFrame.new(O+Vector3.new(lx,roomH-0.5,lz)),Color3.fromRGB(60,55,50),0,folder,Enum.Material.Metal).Name="LanternChain"
-            local lan=makePart(Vector3.new(1.2,1.4,1.2),CFrame.new(O+Vector3.new(lx,roomH-2.4,lz)),Color3.fromRGB(255,210,100),0,folder,Enum.Material.Neon)
-            lan.Name="Lantern"; makeLight(lan,1.8,30,Color3.fromRGB(255,210,110))
-        end
-    end
-
-    for si = 1, math.random(4,9) do
-        makeStalactite(folder, roomH, O.X + math.random(-math.floor(roomW*0.42),math.floor(roomW*0.42)), O.Z + math.random(-math.floor(roomD*0.42),math.floor(roomD*0.42)))
-    end
-
-    for si = 1, math.random(2,5) do
-        spawnSpikyRock(folder, O+Vector3.new(math.random(-math.floor(roomW*0.38),math.floor(roomW*0.38)), 0, math.random(-math.floor(roomD*0.38),math.floor(roomD*0.38))))
-    end
-
-    for pi = 1, math.random(1,3) do
-        makeRockPile(folder, O+Vector3.new(math.random(-math.floor(roomW*0.4),math.floor(roomW*0.4)),0,math.random(-math.floor(roomD*0.4),math.floor(roomD*0.4))))
-    end
-    local roll = math.random(1,10)
-    if roll<=7 then makeCrate(folder, O+Vector3.new(math.random(-12,12),0,math.random(-20,20))) end
-    if roll<=6 then makeBarrel(folder, O+Vector3.new(math.random(-12,12),0,math.random(-20,20))) end
-    if roll<=5 then makeBarrel(folder, O+Vector3.new(math.random(-12,12),0,math.random(-20,20))) end
-
-    local numLockers = isBarricaded and math.random(3,6) or math.random(1,3)
-    for li = 1, numLockers do
-        local lx = (math.random(1,2)==1 and 1 or -1) * math.random(8,math.floor(roomW*0.42))
-        local lz = math.random(-math.floor(roomD*0.4),math.floor(roomD*0.4))
-        makeLocker(folder, O+Vector3.new(lx,0,lz))
-    end
-
-    local numCarts    = math.random(3,5)
-    local filledCount = 0
-    local maxFilled   = math.random(1,2)
-
-    for ci = 1, numCarts do
-        local cx = math.random(-math.floor(roomW*0.35),math.floor(roomW*0.35))
-        local cz = math.random(-math.floor(roomD*0.35),math.floor(roomD*0.35))
-        local ctype = "hide"
-
-        if filledCount < maxFilled then
-            ctype = "filled"
-            filledCount = filledCount + 1
-        end
-        makeMinecart(folder, O+Vector3.new(cx,0,cz), ctype)
     end
 
     rooms[doorNum] = folder
@@ -784,7 +872,7 @@ createLobby = function()
 end
 
 -- =================================================================
--- HIDING
+-- HIDING & BRIDGE BREAKING
 -- =================================================================
 hideInCart = function()
     if not currentCart or isHiding or not humanoid then return end
@@ -801,6 +889,25 @@ exitCart = function()
     for part,trans in pairs(hiddenParts) do if part and part.Parent then part.Transparency=trans end end
     table.clear(hiddenParts)
     if hideBtnLabel then hideBtnLabel.Text="[HIDE IN CART]" end
+end
+
+breakBridge = function(doorNum)
+    if not bridgeStates[doorNum] then return end
+    bridgeStates[doorNum].broken = true
+    if bridgeSounds[doorNum] then bridgeSounds[doorNum]:Stop() end
+    local folder = rooms[doorNum]
+    if folder then
+        local bridgeF = folder:FindFirstChild("Bridge")
+        if bridgeF then
+            local breakSnd = Instance.new("Sound")
+            breakSnd.SoundId = "rbxassetid://130766100913926"
+            breakSnd.Volume = 3; breakSnd.Parent = bridgeF; breakSnd:Play()
+            for _, p in ipairs(bridgeF:GetChildren()) do
+                if p.Name == "BridgePlank" then p.Anchored = false; p.CanCollide = false end
+            end
+        end
+    end
+    showWarning("THE BRIDGE COLLAPSED!", 3)
 end
 
 -- =================================================================
@@ -829,7 +936,10 @@ onDeath = function()
     local sl=Instance.new("TextLabel"); sl.Size=UDim2.new(1,0,0.1,0); sl.Position=UDim2.new(0,0,0.60,0); sl.BackgroundTransparency=1
     sl.Text="Returning to checkpoint: Cave Door "..tostring(checkpointDoor); sl.TextColor3=Color3.fromRGB(255,180,180); sl.TextScaled=true; sl.Font=Enum.Font.Gotham; sl.Parent=bg
     player.CharacterAdded:Wait(); task.wait(0.3); dg:Destroy(); isDead=false
-    if character and rootPart then character:PivotTo(CFrame.new(0,3,-(checkpointDoor*CAVE_D)+CAVE_D*0.35)) end
+    
+    local cpLength = getIsBridge(checkpointDoor) and BRIDGE_D or CAVE_D
+    if character and rootPart then character:PivotTo(CFrame.new(0,3,-getRoomZ(checkpointDoor) + cpLength*0.35)) end
+    
     currentDoor=checkpointDoor; lastDetectedDoor=checkpointDoor
     if doorLabel then doorLabel.Text="Cave Door: "..tostring(checkpointDoor) end
     gameStarted=true
@@ -841,147 +951,100 @@ end
 -- =================================================================
 spawnGhoul = function(doorNum)
     if ghoulActive or ghoulOnCooldown then return end
-    ghoulActive = true
-    ghoulOnCooldown = true
-    ghoulSpawnDoor = doorNum
+    ghoulActive = true; ghoulOnCooldown = true; ghoulSpawnDoor = doorNum
 
-    local ef = Instance.new("Folder")
-    ef.Name = "GhoulEntity"
-    ef.Parent = workspace
+    local ef = Instance.new("Folder"); ef.Name = "GhoulEntity"; ef.Parent = workspace
+    local isBridge = getIsBridge(doorNum)
 
     local spawnOffset = Vector3.new(math.random(-15, 15), 0, math.random(-15, 15))
-    if rootPart then
-        spawnOffset = rootPart.Position + spawnOffset
-    else
-        spawnOffset = Vector3.new(0, 3, -(doorNum * CAVE_D))
-    end
+    if isBridge then spawnOffset = Vector3.new(math.random(-30, 30), -20, math.random(-30, 30)) end
+    if rootPart then spawnOffset = rootPart.Position + spawnOffset else spawnOffset = Vector3.new(0, 3, -getRoomZ(doorNum)) end
 
     local body = makePart(Vector3.new(2, 5, 2), CFrame.new(spawnOffset), Color3.fromRGB(20, 20, 20), 1, ef)
-    body.Name = "GhoulBody"
-    body.CanCollide = false
+    body.Name = "GhoulBody"; body.CanCollide = false
 
-    local spawnSnd = Instance.new("Sound")
-    spawnSnd.SoundId = "rbxassetid://132931505420491"
-    spawnSnd.Volume = 0.1
-    spawnSnd.Parent = body
-    spawnSnd:Play()
+    local spawnSnd = Instance.new("Sound"); spawnSnd.SoundId = "rbxassetid://132931505420491"
+    spawnSnd.Volume = 0.1; spawnSnd.Parent = body; spawnSnd:Play()
 
-    local loopSnd = Instance.new("Sound")
-    loopSnd.SoundId = "rbxassetid://140220502642376"
-    loopSnd.Volume = 0.15
-    loopSnd.Looped = true
-    loopSnd.Parent = body
-    loopSnd:Play()
+    local loopSnd = Instance.new("Sound"); loopSnd.SoundId = "rbxassetid://140220502642376"
+    loopSnd.Volume = 0.15; loopSnd.Looped = true; loopSnd.Parent = body; loopSnd:Play()
 
-    local gc
-    gc = RunService.Heartbeat:Connect(function(dt)
+    local gc; gc = RunService.Heartbeat:Connect(function(dt)
         if not body or not body.Parent or isDead then
-            if gc then gc:Disconnect() end
-            if ef then ef:Destroy() end
-            ghoulActive = false
-            ghoulOnCooldown = false
-            return
+            if gc then gc:Disconnect() end; if ef then ef:Destroy() end
+            ghoulActive = false; ghoulOnCooldown = false; return
         end
 
         if currentDoor >= ghoulSpawnDoor + 5 then
-            gc:Disconnect()
-            ef:Destroy()
-            ghoulActive = false
+            gc:Disconnect(); ef:Destroy(); ghoulActive = false
             task.delay(GHOUL_COOLDOWN, function() ghoulOnCooldown = false end)
             return
         end
 
-        body.Transparency = helmetEquipped and 0.9 or 1
+        body.Transparency = helmetEquipped and 0.5 or 0.8
 
         if rootPart then
             local targetPos = rootPart.Position
             local dir = (targetPos - body.Position)
             local dist = dir.Magnitude
-            
             dir = Vector3.new(dir.X, 0, dir.Z).Unit
-
-            if dist > 0.1 then
-                body.CFrame = body.CFrame + (dir * 9 * dt)
-            end
-
-            if dist < 3 and humanoid and humanoid.Health > 0 and not isHiding then
-                humanoid.Health = 0
-                onDeath()
-            end
+            if dist > 0.1 then body.CFrame = body.CFrame + (dir * 9 * dt) end
+            if dist < 3 and humanoid and humanoid.Health > 0 and not isHiding then humanoid.Health = 0; onDeath() end
         end
     end)
 end
 
 spawnDrain = function(doorNum)
     if drainActive or drainOnCooldown then return end
-    drainActive = true
-    drainOnCooldown = true
+    drainActive = true; drainOnCooldown = true
 
-    local ef = Instance.new("Folder")
-    ef.Name = "DrainEntity"
-    ef.Parent = workspace
+    local ef = Instance.new("Folder"); ef.Name = "DrainEntity"; ef.Parent = workspace
+    local isBridge = getIsBridge(doorNum)
+    
+    local floorY = isBridge and -PIT_DEPTH or -0.5
+    local maxH   = isBridge and (PIT_DEPTH + 5) or 6.2 
+    local lW     = isBridge and (BRIDGE_W + 80) or (CAVE_W + 40)
+    local lD     = isBridge and (BRIDGE_D * 2) or (CAVE_D * 15)
 
-    local floorY = -0.5
-    local maxH = 6.2 
+    local liquid = makePart(Vector3.new(lW, 0.1, lD), CFrame.new(0, floorY, -getRoomZ(doorNum)), Color3.fromRGB(8, 8, 8), 0.15, ef, Enum.Material.Neon)
+    liquid.CanCollide = false; liquid.Name = "BlackLiquid"
 
-    local liquid = makePart(Vector3.new(CAVE_W + 40, 0.1, CAVE_D * 15), CFrame.new(0, floorY, -(doorNum * CAVE_D)), Color3.fromRGB(8, 8, 8), 0.15, ef, Enum.Material.Neon)
-    liquid.CanCollide = false
-    liquid.Name = "BlackLiquid"
+    local snd = Instance.new("Sound"); snd.SoundId = "rbxassetid://93281700241946"
+    snd.Volume = 2; snd.Looped = true; snd.Parent = liquid; snd:Play()
 
-    local snd = Instance.new("Sound")
-    snd.SoundId = "rbxassetid://93281700241946"
-    snd.Volume = 2
-    snd.Looped = true
-    snd.Parent = liquid
-    snd:Play()
+    local riseTime = 7; local stayTime = 3; local fallTime = 5; local elapsed = 0
 
-    local riseTime = 7
-    local stayTime = 3
-    local fallTime = 5
-    local elapsed = 0
-
-    local dc
-    dc = RunService.Heartbeat:Connect(function(dt)
+    local dc; dc = RunService.Heartbeat:Connect(function(dt)
         if isDead then
-            if dc then dc:Disconnect() end
-            ef:Destroy()
-            drainActive = false
-            drainOnCooldown = false
-            return
+            if dc then dc:Disconnect() end; ef:Destroy()
+            drainActive = false; drainOnCooldown = false; return
         end
 
         elapsed = elapsed + dt
         local currentH = 0.1
 
-        if elapsed <= riseTime then
-            currentH = (elapsed / riseTime) * maxH
-        elseif elapsed <= riseTime + stayTime then
-            currentH = maxH
+        if elapsed <= riseTime then currentH = (elapsed / riseTime) * maxH
+        elseif elapsed <= riseTime + stayTime then currentH = maxH
         elseif elapsed <= riseTime + stayTime + fallTime then
             local f = elapsed - (riseTime + stayTime)
             currentH = maxH - ((f / fallTime) * maxH)
         else
-            dc:Disconnect()
-            ef:Destroy()
-            drainActive = false
+            dc:Disconnect(); ef:Destroy(); drainActive = false
             task.delay(DRAIN_COOLDOWN, function() drainOnCooldown = false end)
             return
         end
 
-        liquid.Size = Vector3.new(CAVE_W + 40, math.max(0.1, currentH), CAVE_D * 15)
-        liquid.CFrame = CFrame.new(0, floorY + currentH * 0.5, -(currentDoor * CAVE_D))
+        liquid.Size = Vector3.new(lW, math.max(0.1, currentH), lD)
+        liquid.CFrame = CFrame.new(0, floorY + currentH * 0.5, -getRoomZ(currentDoor))
 
-        if currentH >= 6.0 then
+        if currentH >= (maxH - 0.2) then
             if rootPart and humanoid and humanoid.Health > 0 then
                 local playerFeetY = rootPart.Position.Y - 3
                 local topOfLiquid = floorY + currentH
                 if playerFeetY < topOfLiquid - 0.2 then
                     humanoid.Health = 0
-                    local dSnd = Instance.new("Sound")
-                    dSnd.SoundId = "rbxassetid://128701355933535"
-                    dSnd.Volume = 2
-                    dSnd.Parent = workspace
-                    dSnd:Play()
+                    local dSnd = Instance.new("Sound"); dSnd.SoundId = "rbxassetid://128701355933535"
+                    dSnd.Volume = 2; dSnd.Parent = workspace; dSnd:Play()
                     onDeath()
                 end
             end
@@ -994,14 +1057,19 @@ spawnDisease = function(doorNum)
     diseaseActive=true; diseaseOnCooldown=true
     local ef=Instance.new("Folder"); ef.Name="DiseaseEntity"; ef.Parent=workspace
     local startDoor=doorNum-DISEASE_BEFORE; local stopDoor=doorNum+DISEASE_AFTER
-    local startZ=-(startDoor*CAVE_D); local stopZ=-(stopDoor*CAVE_D)
+    local startZ = -getRoomZ(startDoor) + (getIsBridge(startDoor) and BRIDGE_D*0.5 or CAVE_D*0.5)
+    local stopZ  = -getRoomZ(stopDoor) - (getIsBridge(stopDoor) and BRIDGE_D*0.5 or CAVE_D*0.5)
+
     for d=startDoor,stopDoor do
         if rooms[d] then
             local smoke=Instance.new("ParticleEmitter"); smoke.Color=ColorSequence.new(Color3.fromRGB(180,0,0))
             smoke.Size=NumberSequence.new({NumberSequenceKeypoint.new(0,8),NumberSequenceKeypoint.new(1,18)})
             smoke.Rate=80; smoke.Speed=NumberRange.new(2,4); smoke.Lifetime=NumberRange.new(3,5)
             smoke.Transparency=NumberSequence.new({NumberSequenceKeypoint.new(0,0.75),NumberSequenceKeypoint.new(1,1)})
-            local ep=makePart(Vector3.new(CAVE_W,1,CAVE_D),CFrame.new(0,CAVE_H*0.5,-(d*CAVE_D)),Color3.new(),1,ef); smoke.Parent=ep
+            local rW = getIsBridge(d) and BRIDGE_W or CAVE_W
+            local rD = getIsBridge(d) and BRIDGE_D or CAVE_D
+            local rH = getIsBridge(d) and BRIDGE_H or CAVE_H
+            local ep=makePart(Vector3.new(rW,1,rD),CFrame.new(0,rH*0.5,-getRoomZ(d)),Color3.new(),1,ef); smoke.Parent=ep
         end
     end
     local body=makePart(Vector3.new(CAVE_W-1,CAVE_H,CAVE_D),CFrame.new(0,CAVE_H*0.5,startZ),Color3.fromRGB(140,0,0),0.45,ef,Enum.Material.Neon)
@@ -1011,8 +1079,8 @@ spawnDisease = function(doorNum)
     local a1=Instance.new("Attachment",body); a1.Position=Vector3.new(0,-5,0)
     tr.Attachment0=a0; tr.Attachment1=a1
     local snd=Instance.new("Sound"); snd.SoundId="rbxassetid://125795970503985"; snd.Volume=1.5; snd.Looped=true; snd.RollOffMaxDistance=200; snd.Parent=body; snd:Play()
-    local mc
-    mc=RunService.Heartbeat:Connect(function(dt)
+    
+    local mc; mc=RunService.Heartbeat:Connect(function(dt)
         if not body or not body.Parent then mc:Disconnect(); return end
         local newZ=body.CFrame.Position.Z-DISEASE_SPEED*dt
         body.CFrame=CFrame.new(body.CFrame.Position.X,body.CFrame.Position.Y,newZ)
@@ -1034,9 +1102,15 @@ spawnHer = function(doorNum)
     if herActive or herOnCooldown then return end
     herActive=true; herOnCooldown=true
     local ef=Instance.new("Folder"); ef.Name="HerEntity"; ef.Parent=workspace
-    local body=makePart(Vector3.new(1.8,7.5,1.8),CFrame.new(0,3.75,-(doorNum*CAVE_D)),Color3.fromRGB(0,0,0),0,ef)
+    
+    local isBridge = getIsBridge(doorNum)
+    local spawnZ = -getRoomZ(doorNum)
+    if isBridge then spawnZ = spawnZ + (BRIDGE_D * 0.5 - 15) end
+
+    local body=makePart(Vector3.new(1.8,7.5,1.8),CFrame.new(0,3.75,spawnZ),Color3.fromRGB(0,0,0),0,ef)
     body.Name="HerBody"; body.CanCollide=false
     local snd=Instance.new("Sound"); snd.SoundId="rbxassetid://129136912774651"; snd.Volume=2; snd.Looped=true; snd.RollOffMaxDistance=100; snd.Parent=body; snd:Play()
+    
     local lookTimer=0; local isChasing=false; local hc
     hc=RunService.Heartbeat:Connect(function(dt)
         if not body or not body.Parent or isDead then if hc then hc:Disconnect() end; return end
@@ -1066,20 +1140,31 @@ end
 spawnVoid = function(doorNum)
     if voidActive or voidOnCooldown then return end
     voidActive=true; voidOnCooldown=true
-    local vp=makePart(Vector3.new(5,0.1,5),CFrame.new(0,-0.4,-(doorNum*CAVE_D)),Color3.fromRGB(5,5,5),0,workspace,Enum.Material.Neon)
+    local isBridge = getIsBridge(doorNum)
+    local startY = isBridge and -PIT_DEPTH or -0.4
+    local endY   = isBridge and 2 or -0.4
+
+    local vp=makePart(Vector3.new(5,0.1,5),CFrame.new(0,startY,-getRoomZ(doorNum)),Color3.fromRGB(5,5,5),0,workspace,Enum.Material.Neon)
     vp.Name="VoidSubstance"; vp.CanCollide=false
     local pe=Instance.new("ParticleEmitter",vp); pe.Color=ColorSequence.new(Color3.fromRGB(0,0,0))
     pe.Size=NumberSequence.new({NumberSequenceKeypoint.new(0,2),NumberSequenceKeypoint.new(1,5)}); pe.Rate=55; pe.Speed=NumberRange.new(4,10)
     local es=Instance.new("Sound",vp); es.SoundId="rbxassetid://140328974468167"; es.Looped=true; es.PlaybackSpeed=0.01; es.Volume=2; es.RollOffMaxDistance=200; es:Play()
+    
     local startT=tick(); local vc
     vc=RunService.Heartbeat:Connect(function()
         if not vp or not vp.Parent then vc:Disconnect(); return end
-        local prog=math.min(1,(tick()-startT)/14); local cs=5+(90-5)*prog
-        vp.Size=Vector3.new(cs,0.1,cs); es.PlaybackSpeed=0.01+1.99*prog
+        local prog=math.min(1,(tick()-startT)/14)
+        local curY = startY + (endY - startY) * prog
+        local tSize = isBridge and 120 or 90
+        local cs = 5 + (tSize - 5) * prog
+        vp.Size = Vector3.new(cs, 0.1, cs)
+        vp.CFrame = CFrame.new(0, curY, -getRoomZ(doorNum))
+        es.PlaybackSpeed = 0.01 + 1.99 * prog
+
         if rootPart and humanoid and humanoid.Health>0 and not isDead and not isHiding then
             local pP=rootPart.Position; local vP=vp.Position
             local d=math.sqrt((pP.X-vP.X)^2+(pP.Z-vP.Z)^2)
-            if d<=(cs/2) and math.abs(pP.Y-vP.Y)<10 then
+            if d<=(cs/2) and pP.Y < vP.Y + 2 and math.abs(pP.Y-vP.Y)<10 then
                 humanoid.Health=0
                 for _,pt in ipairs(character:GetDescendants()) do if pt:IsA("BasePart") then pt.CanCollide=false end end
                 humanoid:ChangeState(Enum.HumanoidStateType.Physics); rootPart.Velocity=Vector3.new(0,-50,0); onDeath()
@@ -1100,7 +1185,12 @@ onDoorReached = function(doorNum)
         checkpointDoor=doorNum; showWarning("CHECKPOINT SAVED  -  Cave Door "..tostring(doorNum),3)
     end
     for i=doorNum+1,doorNum+GEN_AHEAD do if i<=DOOR_MAX then generateRoom(i) end end
-    for i=DOOR_START,doorNum-CLEAN_BEHIND do if rooms[i] then rooms[i]:Destroy(); rooms[i]=nil end; roomIsDark[i]=nil end
+    for i=DOOR_START,doorNum-CLEAN_BEHIND do
+        if rooms[i] then rooms[i]:Destroy(); rooms[i]=nil end
+        roomIsDark[i]=nil
+        if bridgeSounds[i] then bridgeSounds[i]:Destroy(); bridgeSounds[i]=nil end
+        bridgeStates[i]=nil
+    end
 
     if doorNum>=HER_START and not herActive and not herOnCooldown then
         if roomIsDark[doorNum] and math.random(1,100)<=28 then task.spawn(function() spawnHer(doorNum) end) end
@@ -1130,7 +1220,8 @@ end
 -- =================================================================
 startGame = function()
     gameStarted=true; currentDoor=DOOR_START; lastDetectedDoor=DOOR_START; checkpointDoor=DOOR_START
-    if character then character:PivotTo(CFrame.new(0,3,-(DOOR_START*CAVE_D)+CAVE_D*0.45)) end
+    local startLen = getIsBridge(DOOR_START) and BRIDGE_D or CAVE_D
+    if character then character:PivotTo(CFrame.new(0,3,-getRoomZ(DOOR_START)+startLen*0.45)) end
     for i=DOOR_START,DOOR_START+GEN_AHEAD do generateRoom(i) end
 end
 
@@ -1141,13 +1232,25 @@ updateCharRef = function(newChar)
     character=newChar; humanoid=newChar:WaitForChild("Humanoid"); rootPart=newChar:WaitForChild("HumanoidRootPart")
     task.spawn(function() local rs=rootPart:WaitForChild("Running",3); if rs then rs.Volume=0 end end)
     
-    -- New Step Sound
     floorStepSound=Instance.new("Sound")
     floorStepSound.SoundId="rbxassetid://138662719868461" 
     floorStepSound.Volume=1
     floorStepSound.Parent=rootPart
     
     humanoid.Died:Connect(function() onDeath() end)
+
+    humanoid.StateChanged:Connect(function(old, new)
+        if new == Enum.HumanoidStateType.Jumping then
+            local hit = workspace:Raycast(rootPart.Position, Vector3.new(0,-6,0))
+            if hit and hit.Instance.Name == "BridgePlank" then
+                local bId = hit.Instance:GetAttribute("BridgeId")
+                if bridgeStates[bId] and not bridgeStates[bId].broken then
+                    bridgeStates[bId].jumpCount = (bridgeStates[bId].jumpCount or 0) + 1
+                    if bridgeStates[bId].jumpCount >= 3 then breakBridge(bId) else showWarning("Bridge creaks loudly! (" .. bridgeStates[bId].jumpCount .. "/3)", 1.5) end
+                end
+            end
+        end
+    end)
 end
 
 -- =================================================================
@@ -1163,15 +1266,32 @@ mainLoop = function()
         end
         if tick()<speedPenaltyEnd then targetSpeed=targetSpeed-3 end
         if not isHiding and humanoid and not diseaseActive then humanoid.WalkSpeed=targetSpeed end
+        
+        local moving = false
         if humanoid and humanoid.Health>0 and not isHiding then
-            local moving=humanoid.MoveDirection.Magnitude>0
+            moving = humanoid.MoveDirection.Magnitude>0
             if moving and humanoid.FloorMaterial~=Enum.Material.Air then
                 local sr=humanoid.WalkSpeed/16; local siv=0.38/math.max(0.1,sr)
                 if tick()-lastStepTime>=siv then lastStepTime=tick(); if floorStepSound then floorStepSound.PlaybackSpeed=sr; floorStepSound:Play() end end
             else lastStepTime=0 end
         end
-        local approxDoor=math.max(DOOR_START,math.floor(-rootPart.Position.Z/CAVE_D+0.5))
+
+        local pZ = rootPart.Position.Z
+        local approxDoor = currentDoor
+        local nextZ = -getRoomZ(approxDoor) - (getIsBridge(approxDoor) and BRIDGE_D or CAVE_D)*0.5
+        while pZ < nextZ and approxDoor < DOOR_MAX do
+            approxDoor = approxDoor + 1
+            nextZ = -getRoomZ(approxDoor) - (getIsBridge(approxDoor) and BRIDGE_D or CAVE_D)*0.5
+        end
+        local prevZ = -getRoomZ(approxDoor - 1) - (getIsBridge(approxDoor - 1) and BRIDGE_D or CAVE_D)*0.5
+        while pZ > prevZ and approxDoor > DOOR_START do
+            approxDoor = approxDoor - 1
+            prevZ = -getRoomZ(approxDoor - 1) - (getIsBridge(approxDoor - 1) and BRIDGE_D or CAVE_D)*0.5
+        end
+
         if approxDoor>lastDetectedDoor and approxDoor<=DOOR_MAX then lastDetectedDoor=approxDoor; onDoorReached(approxDoor) end
+
+        -- Cart Detection
         nearCart=false; currentCart=nil
         for d=currentDoor-1,currentDoor+1 do
             if rooms[d] then
@@ -1183,6 +1303,53 @@ mainLoop = function()
             end
         end
         if hidePrompt then hidePrompt.Visible=(nearCart and not isHiding) or isHiding end
+
+        -- Bridge Wobble & Breaking Logic
+        local onBridgeId = nil
+        if humanoid and humanoid.Health > 0 and not isDead then
+            local hit = workspace:Raycast(rootPart.Position, Vector3.new(0,-6,0))
+            if hit and hit.Instance.Name == "BridgePlank" then onBridgeId = hit.Instance:GetAttribute("BridgeId") end
+        end
+
+        for d, folder in pairs(rooms) do
+            if roomIsBridge[d] then
+                if not bridgeStates[d] then bridgeStates[d] = { intensity = 0, broken = false, runTimer = 0, jumpCount = 0 } end
+                local bState = bridgeStates[d]
+                local bSnd = bridgeSounds[d]
+
+                if not bState.broken then
+                    if onBridgeId == d then
+                        bState.intensity = math.min(100, bState.intensity + dt * 25)
+                        if moving and rootPart.Velocity.Magnitude > 14 then
+                            bState.runTimer = bState.runTimer + dt
+                            if bState.runTimer >= 3 then breakBridge(d) end
+                        else
+                            bState.runTimer = math.max(0, bState.runTimer - dt * 2)
+                        end
+                    else
+                        bState.intensity = math.max(0, bState.intensity - dt * 10)
+                        bState.runTimer = math.max(0, bState.runTimer - dt * 0.5)
+                    end
+
+                    if bSnd then bSnd.Volume = (bState.intensity / 100) * 1.5; bSnd.PlaybackSpeed = math.max(0.1, (bState.intensity / 100) * 2) end
+
+                    local bridgeF = folder:FindFirstChild("Bridge")
+                    if bridgeF then
+                        local t = tick() * (1 + bState.intensity * 0.1)
+                        for _, plank in ipairs(bridgeF:GetChildren()) do
+                            if plank.Name == "BridgePlank" then
+                                local defY = plank:GetAttribute("DefaultY")
+                                local defZ = plank:GetAttribute("DefaultZ")
+                                local prog = plank:GetAttribute("Progress")
+                                local wave = math.sin(t + prog * math.pi) * (bState.intensity * 0.015)
+                                local tilt = math.cos(t + prog * math.pi * 2) * (bState.intensity * 0.008)
+                                plank.CFrame = CFrame.new(plank.Position.X, defY + wave, defZ) * CFrame.Angles(tilt, 0, tilt*0.5)
+                            end
+                        end
+                    end
+                end
+            end
+        end
     end)
 end
 
