@@ -1,7 +1,7 @@
 -- ============================================================
 -- THE CAVES - LocalScript Executor
 -- Devious Goober  |  Starts at Door 230  |  Stage 2
--- Entities : Disease, Her, Void, Drain
+-- Entities : Disease, Her, Void, Drain, Ghoul
 -- Items    : Coins, Ecstasy, Drill, Hammer, Miner Helmet
 -- Hiding   : Empty Minecarts (hollow, 9 parts)
 -- Search   : Lockers (3-5x) + Filled Minecarts (1x, no LOS)
@@ -43,6 +43,10 @@ local DRAIN_START      = 250
 local DRAIN_CHANCE     = 40
 local DRAIN_COOLDOWN   = 35
 
+local GHOUL_START      = 275
+local GHOUL_CHANCE     = 27
+local GHOUL_COOLDOWN   = 60
+
 local CART_DIST        = 5
 local GEN_AHEAD        = 6
 local CLEAN_BEHIND     = 7
@@ -70,6 +74,9 @@ local voidActive       = false
 local voidOnCooldown   = false
 local drainActive      = false
 local drainOnCooldown  = false
+local ghoulActive      = false
+local ghoulOnCooldown  = false
+local ghoulSpawnDoor   = 0
 
 local isDead           = false
 local hiddenParts      = {}
@@ -89,7 +96,7 @@ local makeCrate, makeBarrel, makeRockPile, makeStalactite
 local makeMinecart, makeLocker, spawnSpikyRock, buildArchWall
 local generateRoom, createLobby, startGame, showWarning
 local hideInCart, exitCart, giveTool, giveHelmet
-local spawnDisease, spawnHer, spawnVoid, spawnDrain
+local spawnDisease, spawnHer, spawnVoid, spawnDrain, spawnGhoul
 local onDoorReached, onDeath, updateCharRef, mainLoop
 
 -- ===== GUI REFS =====
@@ -386,35 +393,27 @@ end
 
 -- =================================================================
 -- MINECART
---   "hide"   = empty hollow (9 parts) -> IsLocker for hiding
---   "filled" = cart + dirt (10 parts) -> 1x search, no LOS req
 -- =================================================================
 makeMinecart = function(folder, pos, cartType)
     local metalC = Color3.fromRGB(55,52,52)
     local darkC  = Color3.fromRGB(38,36,36)
     local wheelC = Color3.fromRGB(32,30,30)
 
-    -- 1. Floor
     local floor = makePart(Vector3.new(4,0.3,7),CFrame.new(pos+Vector3.new(0,0.45,0)),darkC,0,folder,Enum.Material.Metal)
     floor.Name = "CartFloor"
 
-    -- 2. Wall Left
     local wL = makePart(Vector3.new(0.3,2.2,7),CFrame.new(pos+Vector3.new(-2.15,1.55,0)),metalC,0,folder,Enum.Material.Metal)
     wL.Name = "CartWallL"
 
-    -- 3. Wall Right
     local wR = makePart(Vector3.new(0.3,2.2,7),CFrame.new(pos+Vector3.new(2.15,1.55,0)),metalC,0,folder,Enum.Material.Metal)
     wR.Name = "CartWallR"
 
-    -- 4. Wall Front
     local wF = makePart(Vector3.new(4,2.2,0.3),CFrame.new(pos+Vector3.new(0,1.55,-3.5)),metalC,0,folder,Enum.Material.Metal)
     wF.Name = "CartWallF"
 
-    -- 5. Wall Back
     local wB = makePart(Vector3.new(4,2.2,0.3),CFrame.new(pos+Vector3.new(0,1.55,3.5)),metalC,0,folder,Enum.Material.Metal)
     wB.Name = "CartWallB"
 
-    -- Wheels 6-9
     local wheelPos = {
         Vector3.new(-2.25,0.55,-2.2), Vector3.new(-2.25,0.55,2.2),
         Vector3.new(2.25,0.55,-2.2),  Vector3.new(2.25,0.55,2.2),
@@ -424,7 +423,6 @@ makeMinecart = function(folder, pos, cartType)
         whl.Name = "CartWheel"; whl.Shape = Enum.PartType.Cylinder
     end
 
-    -- Rails below
     for xi = -1,1,2 do
         local rail = makePart(Vector3.new(0.3,0.25,CAVE_D*0.85),CFrame.new(pos+Vector3.new(xi*1.5,0.12,0)),Color3.fromRGB(70,68,65),0,folder,Enum.Material.Metal)
         rail.Name = "Rail"; rail.CanCollide = false
@@ -841,6 +839,79 @@ end
 -- =================================================================
 -- ENTITIES
 -- =================================================================
+spawnGhoul = function(doorNum)
+    if ghoulActive or ghoulOnCooldown then return end
+    ghoulActive = true
+    ghoulOnCooldown = true
+    ghoulSpawnDoor = doorNum
+
+    local ef = Instance.new("Folder")
+    ef.Name = "GhoulEntity"
+    ef.Parent = workspace
+
+    local spawnOffset = Vector3.new(math.random(-15, 15), 0, math.random(-15, 15))
+    if rootPart then
+        spawnOffset = rootPart.Position + spawnOffset
+    else
+        spawnOffset = Vector3.new(0, 3, -(doorNum * CAVE_D))
+    end
+
+    local body = makePart(Vector3.new(2, 5, 2), CFrame.new(spawnOffset), Color3.fromRGB(20, 20, 20), 1, ef)
+    body.Name = "GhoulBody"
+    body.CanCollide = false
+
+    local spawnSnd = Instance.new("Sound")
+    spawnSnd.SoundId = "rbxassetid://132931505420491"
+    spawnSnd.Volume = 0.1
+    spawnSnd.Parent = body
+    spawnSnd:Play()
+
+    local loopSnd = Instance.new("Sound")
+    loopSnd.SoundId = "rbxassetid://140220502642376"
+    loopSnd.Volume = 0.15
+    loopSnd.Looped = true
+    loopSnd.Parent = body
+    loopSnd:Play()
+
+    local gc
+    gc = RunService.Heartbeat:Connect(function(dt)
+        if not body or not body.Parent or isDead then
+            if gc then gc:Disconnect() end
+            if ef then ef:Destroy() end
+            ghoulActive = false
+            ghoulOnCooldown = false
+            return
+        end
+
+        if currentDoor >= ghoulSpawnDoor + 5 then
+            gc:Disconnect()
+            ef:Destroy()
+            ghoulActive = false
+            task.delay(GHOUL_COOLDOWN, function() ghoulOnCooldown = false end)
+            return
+        end
+
+        body.Transparency = helmetEquipped and 0.9 or 1
+
+        if rootPart then
+            local targetPos = rootPart.Position
+            local dir = (targetPos - body.Position)
+            local dist = dir.Magnitude
+            
+            dir = Vector3.new(dir.X, 0, dir.Z).Unit
+
+            if dist > 0.1 then
+                body.CFrame = body.CFrame + (dir * 9 * dt)
+            end
+
+            if dist < 3 and humanoid and humanoid.Health > 0 and not isHiding then
+                humanoid.Health = 0
+                onDeath()
+            end
+        end
+    end)
+end
+
 spawnDrain = function(doorNum)
     if drainActive or drainOnCooldown then return end
     drainActive = true
@@ -863,8 +934,6 @@ spawnDrain = function(doorNum)
     snd.Looped = true
     snd.Parent = liquid
     snd:Play()
-
-    showWarning("Black liquid is flooding the floor! Get on top of a locker!", 4)
 
     local riseTime = 7
     local stayTime = 3
@@ -1035,6 +1104,10 @@ onDoorReached = function(doorNum)
 
     if doorNum>=HER_START and not herActive and not herOnCooldown then
         if roomIsDark[doorNum] and math.random(1,100)<=28 then task.spawn(function() spawnHer(doorNum) end) end
+    end
+
+    if doorNum>=GHOUL_START and not ghoulActive and not ghoulOnCooldown then
+        if math.random(1,100)<=GHOUL_CHANCE then task.spawn(function() spawnGhoul(doorNum) end) end
     end
 
     if doorNum>=DRAIN_START and not drainActive and not drainOnCooldown then
