@@ -12,6 +12,7 @@
 local Players      = game:GetService("Players")
 local RunService   = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
+local Debris       = game:GetService("Debris")
 
 local player = Players.LocalPlayer
 local camera = workspace.CurrentCamera
@@ -966,6 +967,28 @@ spawnAgony = function(doorNum)
     local startZ = -getRoomZ(startDoor) + (getIsBridge(startDoor) and BRIDGE_D*0.5 or CAVE_D*0.5)
     local stopZ  = -getRoomZ(stopDoor) - (getIsBridge(stopDoor) and BRIDGE_D*0.5 or CAVE_D*0.5)
 
+    if not roomIsDark[currentDoor] then
+        local broken = false
+        local breakSnd = Instance.new("Sound")
+        breakSnd.SoundId = "rbxassetid://140414748697760"
+        breakSnd.Volume = 3
+        breakSnd.Parent = rootPart
+
+        if rooms[currentDoor] then
+            for _, part in ipairs(rooms[currentDoor]:GetDescendants()) do
+                if part.Name == "Lantern" or part:IsA("PointLight") then
+                    if part:IsA("PointLight") then part:Destroy() else part.Material = Enum.Material.Glass; part.Color = Color3.fromRGB(15,15,15) end
+                    broken = true
+                end
+            end
+        end
+        if broken then
+            breakSnd:Play()
+            Debris:AddItem(breakSnd, 3)
+        end
+        roomIsDark[currentDoor] = true 
+    end
+
     local body = makePart(Vector3.new(4, 9, 4), CFrame.new(0, 4.5, startZ), Color3.fromRGB(5,5,5), 0.1, ef, Enum.Material.Neon)
     body.Name = "AgonyBody"; body.CanCollide = false
     
@@ -980,47 +1003,12 @@ spawnAgony = function(doorNum)
     tr.Attachment0 = a0; tr.Attachment1 = a1
 
     local snd = Instance.new("Sound"); snd.SoundId = "rbxassetid://89060529910257"; snd.Volume = 2.5; snd.Looped = true; snd.RollOffMaxDistance = 300; snd.Parent = body; snd:Play()
-    local breakSnd = Instance.new("Sound"); breakSnd.SoundId = "rbxassetid://140414748697760"; breakSnd.Volume = 3; breakSnd.Parent = body
-    local bridgeSnd = Instance.new("Sound"); bridgeSnd.SoundId = "rbxassetid://139561410113584"; bridgeSnd.Volume = 2.5; bridgeSnd.Looped = true; bridgeSnd.Parent = body
-
-    local currentOnBridge = false
-    local lastRoomDarkened = -1
 
     local ac; ac = RunService.Heartbeat:Connect(function(dt)
         if not body or not body.Parent then ac:Disconnect(); return end
         local newZ = body.CFrame.Position.Z - AGONY_SPEED * dt
         body.CFrame = CFrame.new(body.CFrame.Position.X, body.CFrame.Position.Y, newZ)
         
-        local approxAgonyDoor = currentDoor
-        for d = startDoor, stopDoor do
-            local rZ = -getRoomZ(d)
-            local rLen = getIsBridge(d) and BRIDGE_D or CAVE_D
-            if newZ <= rZ + rLen*0.5 and newZ >= rZ - rLen*0.5 then
-                approxAgonyDoor = d
-                break
-            end
-        end
-
-        local isB = getIsBridge(approxAgonyDoor)
-        if isB and not currentOnBridge then
-            currentOnBridge = true; snd.Volume = 0; bridgeSnd:Play()
-        elseif not isB and currentOnBridge then
-            currentOnBridge = false; bridgeSnd:Stop(); snd.Volume = 2.5
-        end
-
-        if approxAgonyDoor > lastRoomDarkened and rooms[approxAgonyDoor] then
-            lastRoomDarkened = approxAgonyDoor
-            local broken = false
-            for _, part in ipairs(rooms[approxAgonyDoor]:GetDescendants()) do
-                if part.Name == "Lantern" or part:IsA("PointLight") then
-                    if part:IsA("PointLight") then part:Destroy() else part.Material = Enum.Material.Glass; part.Color = Color3.fromRGB(15,15,15) end
-                    broken = true
-                end
-            end
-            if broken then breakSnd:Play() end
-            roomIsDark[approxAgonyDoor] = true 
-        end
-
         if rootPart and humanoid and not isDead then
             local dZ = math.abs(rootPart.Position.Z - newZ)
             
@@ -1032,21 +1020,32 @@ spawnAgony = function(doorNum)
             end
             
             if dZ < 40 then
-                local rayParams = RaycastParams.new()
-                rayParams.FilterDescendantsInstances = {ef, character, rooms[-1]} 
-                rayParams.FilterType = Enum.RaycastFilterType.Exclude
-
-                local dir = (rootPart.Position - body.Position)
-                local hit = workspace:Raycast(body.Position, dir.Unit * dir.Magnitude, rayParams)
-                
-                if not hit or isHiding then
+                local dist = (rootPart.Position - body.Position).Magnitude
+                if dist < 6 then
                     if humanoid.Health > 0 then humanoid.Health = 0; onDeath() end
+                else
+                    local camPos = camera.CFrame.Position
+                    local lookVector = camera.CFrame.LookVector
+                    local toAgony = (body.Position - camPos).Unit
+                    local dot = lookVector:Dot(toAgony)
+
+                    if dot > 0.3 then 
+                        local rayParams = RaycastParams.new()
+                        rayParams.FilterDescendantsInstances = {ef, character, rooms[-1]} 
+                        rayParams.FilterType = Enum.RaycastFilterType.Exclude
+
+                        local hit = workspace:Raycast(camPos, toAgony * dist, rayParams)
+                        
+                        if not hit then
+                            if humanoid.Health > 0 then humanoid.Health = 0; onDeath() end
+                        end
+                    end
                 end
             end
         end
 
         if newZ <= stopZ then
-            ac:Disconnect(); snd:Stop(); bridgeSnd:Stop(); agonyActive = false
+            ac:Disconnect(); snd:Stop(); agonyActive = false
             if humanoid then humanoid.CameraOffset = Vector3.new(0,0,0) end
             local step = 0; local fc; fc = RunService.Heartbeat:Connect(function() step=step+1; if body and body.Parent then body.Transparency=0.1+step*0.09 end; if step>=10 then fc:Disconnect(); ef:Destroy() end end)
             task.delay(AGONY_COOLDOWN, function() agonyOnCooldown = false end)
@@ -1381,7 +1380,23 @@ mainLoop = function()
             moving = humanoid.MoveDirection.Magnitude>0
             if moving and humanoid.FloorMaterial~=Enum.Material.Air then
                 local sr=humanoid.WalkSpeed/16; local siv=0.38/math.max(0.1,sr)
-                if tick()-lastStepTime>=siv then lastStepTime=tick(); if floorStepSound then floorStepSound.PlaybackSpeed=sr; floorStepSound:Play() end end
+                if tick()-lastStepTime>=siv then 
+                    lastStepTime=tick()
+                    if floorStepSound then
+                        local onBridge = false
+                        local hit = workspace:Raycast(rootPart.Position, Vector3.new(0,-6,0))
+                        if hit and hit.Instance.Name == "BridgePlank" then onBridge = true end
+
+                        if onBridge then
+                            floorStepSound.SoundId = "rbxassetid://139561410113584"
+                        else
+                            floorStepSound.SoundId = "rbxassetid://138662719868461"
+                        end
+                        
+                        floorStepSound.PlaybackSpeed=sr
+                        floorStepSound:Play() 
+                    end 
+                end
             else lastStepTime=0 end
         end
 
