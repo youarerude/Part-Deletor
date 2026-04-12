@@ -1,7 +1,7 @@
 -- ============================================================
 -- THE CAVES - LocalScript Executor
 -- Devious Goober  |  Starts at Door 230  |  Stage 2
--- Entities : Disease, Her, Void, Drain, Ghoul
+-- Entities : Disease, Her, Void, Drain, Ghoul, Agony
 -- Items    : Coins, Ecstasy, Drill, Hammer, Miner Helmet
 -- Hiding   : Empty Minecarts (hollow, 9 parts)
 -- Search   : Lockers (3-5x) + Filled Minecarts (1x, no LOS)
@@ -37,6 +37,11 @@ local DISEASE_SPEED    = 70
 local DISEASE_COOLDOWN = 12
 local DISEASE_BEFORE   = 4
 local DISEASE_AFTER    = 4
+
+local AGONY_START      = 315
+local AGONY_CHANCE     = 25
+local AGONY_COOLDOWN   = 15
+local AGONY_SPEED      = 95
 
 local HER_START        = 235
 local HER_COOLDOWN     = 90
@@ -79,6 +84,8 @@ local bridgeSounds     = {}
 
 local diseaseActive    = false
 local diseaseOnCooldown = false
+local agonyActive      = false
+local agonyOnCooldown  = false
 local herActive        = false
 local herOnCooldown    = false
 local voidActive       = false
@@ -107,7 +114,7 @@ local makeCrate, makeBarrel, makeRockPile, makeStalactite
 local makeMinecart, makeLocker, spawnSpikyRock, buildArchWall
 local generateRoom, createLobby, startGame, showWarning
 local hideInCart, exitCart, giveTool, giveHelmet, breakBridge
-local spawnDisease, spawnHer, spawnVoid, spawnDrain, spawnGhoul
+local spawnDisease, spawnAgony, spawnHer, spawnVoid, spawnDrain, spawnGhoul
 local onDoorReached, onDeath, updateCharRef, mainLoop
 local getIsBridge, getRoomZ
 
@@ -949,6 +956,104 @@ end
 -- =================================================================
 -- ENTITIES
 -- =================================================================
+spawnAgony = function(doorNum)
+    if agonyActive or agonyOnCooldown then return end
+    agonyActive = true; agonyOnCooldown = true
+    
+    local ef = Instance.new("Folder"); ef.Name = "AgonyEntity"; ef.Parent = workspace
+    local startDoor = math.max(DOOR_START, doorNum - 4)
+    local stopDoor = doorNum + 5
+    local startZ = -getRoomZ(startDoor) + (getIsBridge(startDoor) and BRIDGE_D*0.5 or CAVE_D*0.5)
+    local stopZ  = -getRoomZ(stopDoor) - (getIsBridge(stopDoor) and BRIDGE_D*0.5 or CAVE_D*0.5)
+
+    local body = makePart(Vector3.new(4, 9, 4), CFrame.new(0, 4.5, startZ), Color3.fromRGB(5,5,5), 0.1, ef, Enum.Material.Neon)
+    body.Name = "AgonyBody"; body.CanCollide = false
+    
+    local pe = Instance.new("ParticleEmitter", body)
+    pe.Color = ColorSequence.new(Color3.fromRGB(0,0,0))
+    pe.Size = NumberSequence.new({NumberSequenceKeypoint.new(0, 6), NumberSequenceKeypoint.new(1, 14)})
+    pe.Rate = 120; pe.Speed = NumberRange.new(6, 12); pe.Lifetime = NumberRange.new(1, 2.5)
+    
+    local tr = Instance.new("Trail"); tr.Color = ColorSequence.new(Color3.fromRGB(10,10,10)); tr.Lifetime = 2; tr.Parent = body
+    local a0 = Instance.new("Attachment", body); a0.Position = Vector3.new(0, 4.5, 0)
+    local a1 = Instance.new("Attachment", body); a1.Position = Vector3.new(0, -4.5, 0)
+    tr.Attachment0 = a0; tr.Attachment1 = a1
+
+    local snd = Instance.new("Sound"); snd.SoundId = "rbxassetid://89060529910257"; snd.Volume = 2.5; snd.Looped = true; snd.RollOffMaxDistance = 300; snd.Parent = body; snd:Play()
+    local breakSnd = Instance.new("Sound"); breakSnd.SoundId = "rbxassetid://140414748697760"; breakSnd.Volume = 3; breakSnd.Parent = body
+    local bridgeSnd = Instance.new("Sound"); bridgeSnd.SoundId = "rbxassetid://139561410113584"; bridgeSnd.Volume = 2.5; bridgeSnd.Looped = true; bridgeSnd.Parent = body
+
+    local currentOnBridge = false
+    local lastRoomDarkened = -1
+
+    local ac; ac = RunService.Heartbeat:Connect(function(dt)
+        if not body or not body.Parent then ac:Disconnect(); return end
+        local newZ = body.CFrame.Position.Z - AGONY_SPEED * dt
+        body.CFrame = CFrame.new(body.CFrame.Position.X, body.CFrame.Position.Y, newZ)
+        
+        local approxAgonyDoor = currentDoor
+        for d = startDoor, stopDoor do
+            local rZ = -getRoomZ(d)
+            local rLen = getIsBridge(d) and BRIDGE_D or CAVE_D
+            if newZ <= rZ + rLen*0.5 and newZ >= rZ - rLen*0.5 then
+                approxAgonyDoor = d
+                break
+            end
+        end
+
+        local isB = getIsBridge(approxAgonyDoor)
+        if isB and not currentOnBridge then
+            currentOnBridge = true; snd.Volume = 0; bridgeSnd:Play()
+        elseif not isB and currentOnBridge then
+            currentOnBridge = false; bridgeSnd:Stop(); snd.Volume = 2.5
+        end
+
+        if approxAgonyDoor > lastRoomDarkened and rooms[approxAgonyDoor] then
+            lastRoomDarkened = approxAgonyDoor
+            local broken = false
+            for _, part in ipairs(rooms[approxAgonyDoor]:GetDescendants()) do
+                if part.Name == "Lantern" or part:IsA("PointLight") then
+                    if part:IsA("PointLight") then part:Destroy() else part.Material = Enum.Material.Glass; part.Color = Color3.fromRGB(15,15,15) end
+                    broken = true
+                end
+            end
+            if broken then breakSnd:Play() end
+            roomIsDark[approxAgonyDoor] = true 
+        end
+
+        if rootPart and humanoid and not isDead then
+            local dZ = math.abs(rootPart.Position.Z - newZ)
+            
+            if dZ < 160 then 
+                local i2 = (160-dZ)/160
+                humanoid.CameraOffset = Vector3.new(math.random(-10,10)*0.09*i2, math.random(-10,10)*0.09*i2, 0)
+            else 
+                humanoid.CameraOffset = Vector3.new(0,0,0) 
+            end
+            
+            if dZ < 40 then
+                local rayParams = RaycastParams.new()
+                rayParams.FilterDescendantsInstances = {ef, character, rooms[-1]} 
+                rayParams.FilterType = Enum.RaycastFilterType.Exclude
+
+                local dir = (rootPart.Position - body.Position)
+                local hit = workspace:Raycast(body.Position, dir.Unit * dir.Magnitude, rayParams)
+                
+                if not hit or isHiding then
+                    if humanoid.Health > 0 then humanoid.Health = 0; onDeath() end
+                end
+            end
+        end
+
+        if newZ <= stopZ then
+            ac:Disconnect(); snd:Stop(); bridgeSnd:Stop(); agonyActive = false
+            if humanoid then humanoid.CameraOffset = Vector3.new(0,0,0) end
+            local step = 0; local fc; fc = RunService.Heartbeat:Connect(function() step=step+1; if body and body.Parent then body.Transparency=0.1+step*0.09 end; if step>=10 then fc:Disconnect(); ef:Destroy() end end)
+            task.delay(AGONY_COOLDOWN, function() agonyOnCooldown = false end)
+        end
+    end)
+end
+
 spawnGhoul = function(doorNum)
     if ghoulActive or ghoulOnCooldown then return end
     ghoulActive = true; ghoulOnCooldown = true; ghoulSpawnDoor = doorNum
@@ -1192,6 +1297,10 @@ onDoorReached = function(doorNum)
         bridgeStates[i]=nil
     end
 
+    if doorNum>=AGONY_START and not agonyActive and not agonyOnCooldown and not drainActive then
+        if math.random(1,100)<=AGONY_CHANCE then task.spawn(function() spawnAgony(doorNum) end) end
+    end
+
     if doorNum>=HER_START and not herActive and not herOnCooldown then
         if roomIsDark[doorNum] and math.random(1,100)<=28 then task.spawn(function() spawnHer(doorNum) end) end
     end
@@ -1200,11 +1309,11 @@ onDoorReached = function(doorNum)
         if math.random(1,100)<=GHOUL_CHANCE then task.spawn(function() spawnGhoul(doorNum) end) end
     end
 
-    if doorNum>=DRAIN_START and not drainActive and not drainOnCooldown then
+    if doorNum>=DRAIN_START and not drainActive and not drainOnCooldown and not agonyActive then
         if math.random(1,100)<=DRAIN_CHANCE then task.spawn(function() spawnDrain(doorNum) end) end
     end
 
-    if not diseaseActive and not diseaseOnCooldown and not drainActive and doorNum>=DOOR_START+5 then
+    if not diseaseActive and not diseaseOnCooldown and not drainActive and not agonyActive and doorNum>=DOOR_START+5 then
         if math.random(1,100)<=40 then spawnDisease(doorNum) end
     end
 
