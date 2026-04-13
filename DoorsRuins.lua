@@ -6,7 +6,7 @@
 -- Day/Night  : Tween-based realistic outdoor lighting cycle
 -- Hiding     : Ruins Gaps (crumbled wall sections)
 -- Sea        : 1000x1000 Terrain Water  -  touch = instant death
--- Items      : Coins | Ecstasy | Gem
+-- Items      : Coins | Ecstasy | Gem | Lantern | Pure Gem
 -- ============================================================
 
 local Players      = game:GetService("Players")
@@ -29,8 +29,8 @@ local CHECKPOINT_EVERY  = 50
 
 local DISEASE_SPEED     = 70
 local DISEASE_COOLDOWN  = 12
-local DISEASE_BEFORE    = 3
-local DISEASE_AFTER     = 3
+local DISEASE_BEFORE    = 7
+local DISEASE_AFTER     = 5
 
 local AGONY_SPEED       = 90
 local AGONY_COOLDOWN    = 18
@@ -45,8 +45,8 @@ local DRAIN_FALL_TIME   = 6
 
 local PLANTERA_SPEED    = 45
 local PLANTERA_COOLDOWN = 12
-local PLANTERA_BEFORE   = 3
-local PLANTERA_AFTER    = 3
+local PLANTERA_BEFORE   = 7
+local PLANTERA_AFTER    = 5
 
 local STEM_COOLDOWN     = 55
 
@@ -222,16 +222,14 @@ setupLighting = function()
     L.GlobalShadows  = true
     L.Ambient        = Color3.fromRGB(130, 145, 165)
     L.OutdoorAmbient = Color3.fromRGB(140, 160, 185)
-    -- Add sky effects
     local sky = Instance.new("Sky")
     currentPeriod = "Day"
 end
 
 advanceDayNight = function()
-    -- Advances game clock over real time; 1 full day = 12 real minutes
     task.spawn(function()
         while gameStarted do
-            task.wait(4) -- 4 real seconds per in-game hour
+            task.wait(4)
             clockTime = clockTime + 1
             if clockTime >= 24 then clockTime = 0 end
             local c = clockTime
@@ -320,7 +318,7 @@ createHUD = function()
     coinLabel.TextXAlignment = Enum.TextXAlignment.Left
     coinLabel.Parent = coinBar
 
-    -- Time label (top right)
+    -- Time label
     local timeBar = Instance.new("Frame")
     timeBar.Size = UDim2.new(0, 150, 0, 38)
     timeBar.Position = UDim2.new(1, -164, 0, 12)
@@ -473,17 +471,15 @@ giveTool = function(plr, toolName, color, size)
 end
 
 -- =================================================================
--- RUINS DECORATIONS  (5 types, mossy stone aesthetic)
+-- RUINS DECORATIONS
 -- =================================================================
 local STONE   = Color3.fromRGB(130, 125, 115)
 local MOSS_C  = Color3.fromRGB(55, 100, 45)
 local VINE_C  = Color3.fromRGB(38, 80, 30)
 
 makeRuinsPillar = function(folder, pos)
-    -- Intact mossy pillar: cylinder with moss overlay
     local pillar = makePart(Vector3.new(2.5, 12, 2.5), CFrame.new(pos + Vector3.new(0, 6, 0)), STONE, 0, folder, Enum.Material.Cobblestone)
     pillar.Name = "RuinsPillar"; pillar.Shape = Enum.PartType.Cylinder
-    -- Moss patches (small flat parts clinging to surface)
     for i = 1, 3 do
         local mossPatch = makePart(
             Vector3.new(2.6, 0.3, 1.2),
@@ -492,16 +488,13 @@ makeRuinsPillar = function(folder, pos)
         )
         mossPatch.Name = "MossPatch"; mossPatch.CanCollide = false
     end
-    -- Capital stone on top
     makePart(Vector3.new(3.5, 1, 3.5), CFrame.new(pos + Vector3.new(0, 12.5, 0)), STONE, 0, folder, Enum.Material.Cobblestone).Name = "PillarCapital"
 end
 
 makeDestroyedPillar = function(folder, pos)
-    -- Broken half-pillar with rubble
     local h = math.random(4, 7)
     local pillar = makePart(Vector3.new(2.5, h, 2.5), CFrame.new(pos + Vector3.new(0, h * 0.5, 0)), STONE, 0, folder, Enum.Material.Cobblestone)
     pillar.Name = "BrokenPillar"; pillar.Shape = Enum.PartType.Cylinder
-    -- Jagged broken top
     for i = 1, 3 do
         local shard = makePart(
             Vector3.new(math.random(8, 14) * 0.1, math.random(8, 18) * 0.1, math.random(8, 14) * 0.1),
@@ -510,7 +503,6 @@ makeDestroyedPillar = function(folder, pos)
         )
         shard.Name = "PillarShard"; shard.CanCollide = false
     end
-    -- Rubble at base
     for i = 1, 5 do
         local chunk = makePart(
             Vector3.new(math.random(5, 15) * 0.1, math.random(3, 8) * 0.1, math.random(5, 12) * 0.1),
@@ -519,7 +511,6 @@ makeDestroyedPillar = function(folder, pos)
         )
         chunk.Name = "Rubble"; chunk.CanCollide = false
     end
-    -- Moss
     local moss = makePart(Vector3.new(2.6, 0.25, 2.6), CFrame.new(pos + Vector3.new(0, h + 0.1, 0)), MOSS_C, 0, folder, Enum.Material.Grass)
     moss.Name = "TopMoss"; moss.CanCollide = false
 end
@@ -527,13 +518,9 @@ end
 makeRuinsArch = function(folder, pos, rotY)
     local cf = CFrame.new(pos) * CFrame.Angles(0, math.rad(rotY or 0), 0)
     local archColor = Color3.fromRGB(120, 115, 105)
-    -- Left post
     makePart(Vector3.new(2, 10, 2), cf * CFrame.new(-4, 5, 0), archColor, 0, folder, Enum.Material.Cobblestone).Name = "ArchPostL"
-    -- Right post
     makePart(Vector3.new(2, 10, 2), cf * CFrame.new(4, 5, 0), archColor, 0, folder, Enum.Material.Cobblestone).Name = "ArchPostR"
-    -- Keystone / lintel
     makePart(Vector3.new(10, 2, 2), cf * CFrame.new(0, 10.5, 0), archColor, 0, folder, Enum.Material.Cobblestone).Name = "ArchLintel"
-    -- Vines hanging down
     for vi = 1, 4 do
         local vLen = math.random(20, 50) * 0.1
         local vine = makePart(
@@ -543,7 +530,6 @@ makeRuinsArch = function(folder, pos, rotY)
         )
         vine.Name = "Vine"; vine.CanCollide = false
     end
-    -- Moss on lintel
     local mossTop = makePart(Vector3.new(10, 0.3, 2.2), cf * CFrame.new(0, 11.6, 0), MOSS_C, 0, folder, Enum.Material.Grass)
     mossTop.Name = "ArchMoss"; mossTop.CanCollide = false
 end
@@ -551,10 +537,8 @@ end
 makeCrumbledWall = function(folder, pos, rotY)
     local cf = CFrame.new(pos) * CFrame.Angles(0, math.rad(rotY or 0), 0)
     local wallLen = math.random(6, 10)
-    -- Main wall section (low, crumbled)
     local wall = makePart(Vector3.new(wallLen, math.random(3, 6), 1), cf * CFrame.new(0, 2, 0), STONE, 0, folder, Enum.Material.Cobblestone)
     wall.Name = "CrumbledWall"
-    -- Uneven top rubble
     for i = 1, math.random(3, 5) do
         local block = makePart(
             Vector3.new(math.random(8, 18) * 0.1, math.random(4, 10) * 0.1, math.random(8, 16) * 0.1),
@@ -563,25 +547,21 @@ makeCrumbledWall = function(folder, pos, rotY)
         )
         block.Name = "WallRubble"; block.CanCollide = false
     end
-    -- Moss covering
     local mossC = makePart(Vector3.new(wallLen, 0.2, 1.2), cf * CFrame.new(0, 3.6, 0), MOSS_C, 0, folder, Enum.Material.Grass)
     mossC.Name = "WallMoss"; mossC.CanCollide = false
 end
 
 makeAncientAltar = function(folder, pos)
-    -- Central pedestal
     local base = makePart(Vector3.new(4, 0.8, 4), CFrame.new(pos + Vector3.new(0, 0.4, 0)), STONE, 0, folder, Enum.Material.Cobblestone)
     base.Name = "AltarBase"
     local middle = makePart(Vector3.new(3, 2.5, 3), CFrame.new(pos + Vector3.new(0, 2.05, 0)), STONE, 0, folder, Enum.Material.Cobblestone)
     middle.Name = "AltarMiddle"
     local top = makePart(Vector3.new(3.5, 0.6, 3.5), CFrame.new(pos + Vector3.new(0, 3.6, 0)), Color3.fromRGB(110, 105, 95), 0, folder, Enum.Material.Cobblestone)
     top.Name = "AltarTop"
-    -- Carved rune details (small notched parts)
     for i = 0, 3 do
         local rune = makePart(Vector3.new(0.2, 0.25, 1.5), CFrame.new(pos + Vector3.new(0, 2 + i * 0.5, 0)) * CFrame.Angles(0, math.rad(i * 90), 0), Color3.fromRGB(90, 85, 80), 0, folder)
         rune.Name = "AltarRune"; rune.CanCollide = false
     end
-    -- Moss on top
     local moss = makePart(Vector3.new(3.2, 0.15, 3.2), CFrame.new(pos + Vector3.new(0, 3.95, 0)), MOSS_C, 0.2, folder, Enum.Material.Grass)
     moss.Name = "AltarMoss"; moss.CanCollide = false
 end
@@ -596,29 +576,23 @@ makeRuinsDecor = function(folder, pos)
 end
 
 -- =================================================================
--- RUINS CHEST  (stone chest, 1-3 searches, varies by probability)
+-- RUINS CHEST
 -- =================================================================
 makeRuinsChest = function(folder, pos, isLocked)
     local chestColor = Color3.fromRGB(115, 108, 95)
-    -- Chest body
     local body = makePart(Vector3.new(3, 2, 2.5), CFrame.new(pos + Vector3.new(0, 1, 0)), chestColor, 0, folder, Enum.Material.Cobblestone)
     body.Name = "RuinsChest"
-    -- Lid
     local lid = makePart(Vector3.new(3, 0.6, 2.5), CFrame.new(pos + Vector3.new(0, 2.3, 0)), Color3.fromRGB(100, 94, 82), 0, folder, Enum.Material.Cobblestone)
     lid.Name = "ChestLid"
-    -- Metal bands
     for bi = 0, 1 do
         local band = makePart(Vector3.new(3.1, 0.2, 2.6), CFrame.new(pos + Vector3.new(0, 0.8 + bi * 1.2, 0)), Color3.fromRGB(70, 65, 55), 0, folder, Enum.Material.Metal)
         band.Name = "ChestBand"; band.CanCollide = false
     end
-    -- Lock clasp
     local clasp = makePart(Vector3.new(0.5, 0.5, 0.3), CFrame.new(pos + Vector3.new(0, 2.0, -1.3)), Color3.fromRGB(160, 140, 80), 0, folder, Enum.Material.Metal)
     clasp.Name = "ChestClasp"; clasp.CanCollide = false
-    -- Moss on chest
     local moss = makePart(Vector3.new(3.1, 0.15, 2.6), CFrame.new(pos + Vector3.new(0, 2.65, 0)), MOSS_C, 0, folder, Enum.Material.Grass)
     moss.Name = "ChestMoss"; moss.CanCollide = false
 
-    -- Determine max uses: 75% get 1, 30% get 2, 10% get 3
     local maxUses = 1
     if math.random(1, 100) <= 30 then maxUses = 2 end
     if math.random(1, 100) <= 10 then maxUses = 3 end
@@ -635,9 +609,11 @@ makeRuinsChest = function(folder, pos, isLocked)
         usesLeft = usesLeft - 1
 
         local r = math.random(1, 100); local loot
-        if r <= 12 then loot = "Gem"
-        elseif r <= 28 then loot = "Ecstasy"
-        elseif r <= 60 then loot = "Coin"
+        if r <= 5 then loot = "Pure Gem"
+        elseif r <= 17 then loot = "Gem"
+        elseif r <= 32 then loot = "Lantern"
+        elseif r <= 48 then loot = "Ecstasy"
+        elseif r <= 80 then loot = "Coin"
         else loot = "Nothing" end
 
         if usesLeft == 0 then
@@ -655,11 +631,26 @@ makeRuinsChest = function(folder, pos, isLocked)
         if loot == "Nothing" then showWarning("Chest: Dust and cobwebs." .. leftStr, 2); return end
         if loot == "Gem" then
             if #inventory >= MAX_ITEMS then showWarning("Inventory full!", 2); return end
-            -- Only give gem if not already having one (it's the gem room gem)
             showWarning("Chest: Found a Gem!" .. leftStr, 2.5)
             table.insert(inventory, "Gem")
             local t = giveTool(plr, "Gem", Color3.fromRGB(60, 200, 200), Vector3.new(0.7, 0.7, 0.7))
             t.Handle.Material = Enum.Material.Neon
+            return
+        end
+        if loot == "Lantern" then
+            if #inventory >= MAX_ITEMS then showWarning("Inventory full!", 2); return end
+            table.insert(inventory, "Lantern")
+            local t = giveTool(plr, "Lantern", Color3.fromRGB(200, 150, 50), Vector3.new(0.6, 1, 0.6))
+            makeLight(t.Handle, 2, 25, Color3.fromRGB(255, 220, 150))
+            showWarning("Chest: Found a Lantern!" .. leftStr, 2)
+            return
+        end
+        if loot == "Pure Gem" then
+            if #inventory >= MAX_ITEMS then showWarning("Inventory full!", 2); return end
+            table.insert(inventory, "Pure Gem")
+            local t = giveTool(plr, "Pure Gem", Color3.fromRGB(255, 255, 255), Vector3.new(0.5, 0.5, 0.5))
+            t.Handle.Material = Enum.Material.Neon
+            showWarning("Chest: Found the Pure Gem!" .. leftStr, 2)
             return
         end
         if loot == "Ecstasy" then
@@ -683,22 +674,17 @@ makeRuinsChest = function(folder, pos, isLocked)
 end
 
 -- =================================================================
--- RUINS GAP  (hiding spot - crumbled wall crevice)
+-- RUINS GAP
 -- =================================================================
 makeRuinsGap = function(folder, pos, rotY)
     local cf = CFrame.new(pos) * CFrame.Angles(0, math.rad(rotY or 0), 0)
     local gapColor = Color3.fromRGB(80, 76, 70)
-
-    -- Back slab
     local backWall = makePart(Vector3.new(6, 5, 0.8), cf * CFrame.new(0, 2.5, 1.5), gapColor, 0, folder, Enum.Material.Cobblestone)
     backWall.Name = "GapBack"
-    -- Left slab
     local leftW = makePart(Vector3.new(0.8, 5, 3), cf * CFrame.new(-3, 2.5, 0), gapColor, 0, folder, Enum.Material.Cobblestone)
     leftW.Name = "GapLeft"
-    -- Right slab
     local rightW = makePart(Vector3.new(0.8, 5, 3), cf * CFrame.new(3, 2.5, 0), gapColor, 0, folder, Enum.Material.Cobblestone)
     rightW.Name = "GapRight"
-    -- Rubble scattered at entrance
     for i = 1, 4 do
         local r = makePart(
             Vector3.new(math.random(4,10)*0.1, math.random(3,7)*0.1, math.random(4,10)*0.1),
@@ -707,17 +693,14 @@ makeRuinsGap = function(folder, pos, rotY)
         )
         r.Name = "GapRubble"; r.CanCollide = false
     end
-    -- Moss inside the gap
     local innerMoss = makePart(Vector3.new(5.2, 0.2, 2.8), cf * CFrame.new(0, 0.15, 0.5), MOSS_C, 0, folder, Enum.Material.Grass)
     innerMoss.Name = "GapMoss"; innerMoss.CanCollide = false
-
-    -- IsLocker on back wall for hide detection
     backWall:SetAttribute("IsLocker", true)
     return backWall
 end
 
 -- =================================================================
--- TREE BARRIER  (spawned when Plantera is coming)
+-- TREE BARRIER
 -- =================================================================
 makeTreeBarrier = function(folder, O, zPos)
     local treeColor = Color3.fromRGB(60, 80, 40)
@@ -725,13 +708,10 @@ makeTreeBarrier = function(folder, O, zPos)
     local tf = Instance.new("Folder"); tf.Name = "TreeBarrier"; tf.Parent = folder
     for i = -1, 1 do
         local tx = i * 12
-        -- Trunk
         local trunk = makePart(Vector3.new(2, 14, 2), CFrame.new(O.X + tx, RUINS_FLOOR_Y + 7, zPos), treeColor, 0, tf, Enum.Material.Wood)
         trunk.Name = "TreeTrunk"
-        -- Foliage
         local leaf = makePart(Vector3.new(9, 7, 9), CFrame.new(O.X + tx, RUINS_FLOOR_Y + 16, zPos), leafColor, 0.1, tf, Enum.Material.Grass)
         leaf.Name = "TreeLeaf"; leaf.Shape = Enum.PartType.Ball
-        -- Vine cascade
         for vi = 1, 5 do
             local vLen = math.random(30, 70) * 0.1
             local vine = makePart(
@@ -742,35 +722,29 @@ makeTreeBarrier = function(folder, O, zPos)
             vine.Name = "Vine"; vine.CanCollide = false
         end
     end
-    -- Blocking fog (dense mossy wall center)
     local block = makePart(Vector3.new(50, 14, 2), CFrame.new(O.X, RUINS_FLOOR_Y + 7, zPos), Color3.fromRGB(40, 60, 25), 0.55, tf, Enum.Material.Grass)
     block.Name = "PlantBarrier"; block.CanCollide = true
     return tf
 end
 
 -- =================================================================
--- BOAT  (used in Gem room)
+-- BOAT
 -- =================================================================
 makeBoat = function(pos)
     local ef = Instance.new("Folder"); ef.Name = "Boat"; ef.Parent = workspace
     local hull = makePart(Vector3.new(8, 2, 14), CFrame.new(pos + Vector3.new(0, SEA_Y + 1, 0)), Color3.fromRGB(100, 72, 38), 0, ef, Enum.Material.Wood)
     hull.Name = "BoatHull"; hull.Anchored = false
-    -- Hull planks
     for pi = -1, 1 do
         local pl = makePart(Vector3.new(8.2, 0.25, 14.2), CFrame.new(pos + Vector3.new(0, SEA_Y + 1.2 + pi * 0.3, 0)), Color3.fromRGB(80, 55, 25), 0, ef, Enum.Material.Wood)
         pl.Name = "BoatPlank"; pl.Anchored = false
         local w = Instance.new("Weld"); w.Part0 = hull; w.Part1 = pl; w.C0 = CFrame.new(0, pi * 0.3, 0); w.Parent = hull
     end
-    -- Mast suggestion (short post)
     local mast = makePart(Vector3.new(0.5, 6, 0.5), CFrame.new(pos + Vector3.new(0, SEA_Y + 4.5, 0)), Color3.fromRGB(80, 55, 25), 0, ef, Enum.Material.Wood)
     mast.Name = "BoatMast"; mast.Anchored = false
     local mw = Instance.new("Weld"); mw.Part0 = hull; mw.Part1 = mast; mw.C0 = CFrame.new(0, 3, 0); mw.Parent = hull
-
-    -- Physics for floating
     local bv = Instance.new("BodyVelocity"); bv.Velocity = Vector3.new(0, 0, 0); bv.MaxForce = Vector3.new(1e4, 1e4, 1e4); bv.Parent = hull
     local bg = Instance.new("BodyGyro"); bg.MaxTorque = Vector3.new(1e5, 0, 1e5); bg.CFrame = CFrame.new(hull.Position); bg.Parent = hull
 
-    -- Board prompt
     local bp = Instance.new("ProximityPrompt"); bp.ActionText = "Board Boat"; bp.RequiresLineOfSight = false; bp.MaxActivationDistance = 8; bp.Parent = hull
     bp.Triggered:Connect(function()
         if not character or onBoat then return end
@@ -786,7 +760,7 @@ makeBoat = function(pos)
 end
 
 -- =================================================================
--- GEM  (spawns in sea near gem room)
+-- GEM
 -- =================================================================
 makeGem = function(folder, roomCenterX, roomCenterZ, gemDoorNum)
     local angle = math.random(0, 360)
@@ -801,7 +775,6 @@ makeGem = function(folder, roomCenterX, roomCenterZ, gemDoorNum)
     gemPart.Name = "GemInSea"
     gemPart.Shape = Enum.PartType.Ball
     makeLight(gemPart, 3, 18, Color3.fromRGB(80, 255, 255))
-    -- Glow particles
     local pe = Instance.new("ParticleEmitter", gemPart)
     pe.Color = ColorSequence.new(Color3.fromRGB(50, 220, 220))
     pe.Size = NumberSequence.new({NumberSequenceKeypoint.new(0, 0.8), NumberSequenceKeypoint.new(1, 0)})
@@ -821,35 +794,26 @@ makeGem = function(folder, roomCenterX, roomCenterZ, gemDoorNum)
 end
 
 -- =================================================================
--- ROOM GENERATION  (3 types dispatched based on chance)
+-- ROOM GENERATION
 -- =================================================================
 generateNormalRoom = function(folder, O, doorNum)
     local floorColor = Color3.fromRGB(145, 138, 118)
     local edgeColor  = Color3.fromRGB(120, 114, 96)
-
-    -- 50x50 bridge floor (no side walls)
     local floor = makePart(Vector3.new(RUINS_W, 1, RUINS_D), CFrame.new(O + Vector3.new(0, RUINS_FLOOR_Y - 0.5, 0)), floorColor, 0, folder, Enum.Material.Cobblestone)
     floor.Name = "BridgeFloor"
-    -- Textured stone edge lines
     for ei = -1, 1, 2 do
         local edge = makePart(Vector3.new(1, 1.5, RUINS_D), CFrame.new(O + Vector3.new(ei * RUINS_W * 0.5, RUINS_FLOOR_Y, 0)), edgeColor, 0, folder, Enum.Material.Cobblestone)
         edge.Name = "BridgeEdge"
     end
-
-    -- 2-5 Ruins decorations scattered on bridge
     local numDecor = math.random(2, 5)
     for di = 1, numDecor do
         local dx = math.random(-18, 18); local dz = math.random(-22, 22)
         makeRuinsDecor(folder, O + Vector3.new(dx, RUINS_FLOOR_Y, dz))
     end
-
-    -- 1 Ruins Gap (random direction) - the hiding spot
     local gapRotY = math.random(0, 3) * 90
     local gapX = (math.random(1, 2) == 1 and 1 or -1) * math.random(8, 18)
     local gapZ = math.random(-18, 18)
     makeRuinsGap(folder, O + Vector3.new(gapX, RUINS_FLOOR_Y, gapZ), gapRotY)
-
-    -- 1-3 Ruins Chests
     local numChests = math.random(1, 3)
     for ci = 1, numChests do
         local cx = math.random(-18, 18); local cz = math.random(-22, 22)
@@ -860,11 +824,7 @@ end
 generateStairsRoom = function(folder, O, doorNum)
     local floorColor = Color3.fromRGB(145, 138, 118)
     local stepColor  = Color3.fromRGB(130, 124, 106)
-
-    -- Main floor
     makePart(Vector3.new(RUINS_W, 1, RUINS_D), CFrame.new(O + Vector3.new(0, RUINS_FLOOR_Y - 0.5, 0)), floorColor, 0, folder, Enum.Material.Cobblestone).Name = "StairsFloor"
-
-    -- Entrance stairs (rising up from -Z entry side)
     local numSteps = 6
     for si = 0, numSteps - 1 do
         local stepY  = RUINS_FLOOR_Y + si * 1.2
@@ -872,32 +832,21 @@ generateStairsRoom = function(folder, O, doorNum)
         local step = makePart(Vector3.new(RUINS_W, 1.2, 2.2), CFrame.new(O + Vector3.new(0, stepY, stepZ)), stepColor, 0, folder, Enum.Material.Cobblestone)
         step.Name = "StepEntrance"
     end
-    -- Elevated platform in middle
     local platH = RUINS_FLOOR_Y + numSteps * 1.2
     makePart(Vector3.new(RUINS_W, 1, RUINS_D * 0.35), CFrame.new(O + Vector3.new(0, platH - 0.5, 0)), floorColor, 0, folder, Enum.Material.Cobblestone).Name = "PlatformTop"
-
-    -- Exit stairs (descending to exit side)
     for si = 0, numSteps - 1 do
         local stepY  = platH - si * 1.2
         local stepZ  = -(RUINS_D * 0.5 - 2 - si * 2.2)
         local step = makePart(Vector3.new(RUINS_W, 1.2, 2.2), CFrame.new(O + Vector3.new(0, stepY, stepZ)), stepColor, 0, folder, Enum.Material.Cobblestone)
         step.Name = "StepExit"
     end
-
-    -- Edge lines
     for ei = -1, 1, 2 do
         makePart(Vector3.new(1, 1.5, RUINS_D), CFrame.new(O + Vector3.new(ei * RUINS_W * 0.5, RUINS_FLOOR_Y, 0)), Color3.fromRGB(120, 114, 96), 0, folder, Enum.Material.Cobblestone).Name = "BridgeEdge"
     end
-
-    -- Ruins gap at entrance and exit landing
     makeRuinsGap(folder, O + Vector3.new(math.random(-15, 15), RUINS_FLOOR_Y, RUINS_D * 0.4), math.random(0, 3) * 90)
     makeRuinsGap(folder, O + Vector3.new(math.random(-15, 15), RUINS_FLOOR_Y, -RUINS_D * 0.4), math.random(0, 3) * 90)
-
-    -- Chest at entrance and exit landings
     makeRuinsChest(folder, O + Vector3.new(math.random(-14, 14), RUINS_FLOOR_Y, RUINS_D * 0.38), false)
     makeRuinsChest(folder, O + Vector3.new(math.random(-14, 14), RUINS_FLOOR_Y, -RUINS_D * 0.38), false)
-
-    -- Some decor on platform
     for di = 1, 2 do
         makeRuinsDecor(folder, O + Vector3.new(math.random(-14, 14), platH, math.random(-8, 8)))
     end
@@ -905,35 +854,27 @@ end
 
 generateGemRoom = function(folder, O, doorNum)
     gemRoomStates[doorNum] = { bridgeRaised = false, gemTaken = false }
-
     local platformW = RUINS_W
     local platformD = 20
-    local gapD = 55  -- gap the bridge spans
+    local gapD = 55
     local floorC = Color3.fromRGB(145, 138, 118)
 
-    -- Entrance platform
     makePart(Vector3.new(platformW, 1, platformD), CFrame.new(O + Vector3.new(0, RUINS_FLOOR_Y - 0.5, RUINS_D * 0.5 - platformD * 0.5)), floorC, 0, folder, Enum.Material.Cobblestone).Name = "EntrancePlatform"
-    -- Exit platform
     makePart(Vector3.new(platformW, 1, platformD), CFrame.new(O + Vector3.new(0, RUINS_FLOOR_Y - 0.5, -(RUINS_D * 0.5 - platformD * 0.5))), floorC, 0, folder, Enum.Material.Cobblestone).Name = "ExitPlatform"
-
-    -- Edge railing suggestions (low stone walls on sides of platforms)
     for side = -1, 1, 2 do
         makePart(Vector3.new(1, 2.5, platformD), CFrame.new(O + Vector3.new(side * platformW * 0.5, RUINS_FLOOR_Y + 0.75, RUINS_D * 0.5 - platformD * 0.5)), STONE, 0, folder, Enum.Material.Cobblestone).Name = "PlatformEdge"
         makePart(Vector3.new(1, 2.5, platformD), CFrame.new(O + Vector3.new(side * platformW * 0.5, RUINS_FLOOR_Y + 0.75, -(RUINS_D * 0.5 - platformD * 0.5))), STONE, 0, folder, Enum.Material.Cobblestone).Name = "PlatformEdge"
     end
 
-    -- Gem panel on entrance platform side wall
     local panelPart = makePart(Vector3.new(3, 3, 0.5), CFrame.new(O + Vector3.new(RUINS_W * 0.45, RUINS_FLOOR_Y + 1.5, RUINS_D * 0.5 - platformD + 2)), Color3.fromRGB(60, 55, 45), 0, folder, Enum.Material.Cobblestone)
     panelPart.Name = "GemPanel"
-    -- Panel gem slot indicator (glowing recess)
     local slot = makePart(Vector3.new(1.2, 1.2, 0.3), CFrame.new(O + Vector3.new(RUINS_W * 0.45, RUINS_FLOOR_Y + 1.5, RUINS_D * 0.5 - platformD + 1.9)), Color3.fromRGB(20, 20, 20), 0, folder, Enum.Material.Neon)
     slot.Name = "PanelSlot"; slot.CanCollide = false
     makeLight(slot, 1, 8, Color3.fromRGB(50, 200, 200))
 
-    -- Bridge planks (submerged - start at sea level, rise to bridge level)
     local bridgeF = Instance.new("Folder"); bridgeF.Name = "GemBridge"; bridgeF.Parent = folder
     local bridgePlanks = {}
-    local gapCenter = O.Z -- center Z of the gap
+    local gapCenter = O.Z
     local numPlanks = 10
     for pi = 1, numPlanks do
         local pct = pi / (numPlanks + 1)
@@ -948,7 +889,6 @@ generateGemRoom = function(folder, O, doorNum)
         table.insert(bridgePlanks, plank)
     end
 
-    -- Gem panel prompt
     local panelPrompt = Instance.new("ProximityPrompt"); panelPrompt.ActionText = "Insert Gem"; panelPrompt.RequiresLineOfSight = false; panelPrompt.MaxActivationDistance = 7; panelPrompt.Parent = panelPart
     panelPrompt.Triggered:Connect(function(plr)
         local char = plr.Character; if not char then return end
@@ -960,7 +900,6 @@ generateGemRoom = function(folder, O, doorNum)
         if gemRoomStates[doorNum] and gemRoomStates[doorNum].bridgeRaised then
             showWarning("Bridge already raised!", 2); return
         end
-        -- Remove gem from inventory and backpack
         for i, v in ipairs(inventory) do if v == "Gem" then table.remove(inventory, i); break end end
         if char:FindFirstChild("Gem") then char.Gem:Destroy() end
         if gemRoomStates[doorNum] then gemRoomStates[doorNum].bridgeRaised = true end
@@ -968,7 +907,6 @@ generateGemRoom = function(folder, O, doorNum)
         slot.Color = Color3.fromRGB(50, 220, 220)
         makeLight(slot, 3, 14, Color3.fromRGB(50, 220, 220))
         showWarning("Gem inserted! The bridge rises...", 3)
-        -- Animate bridge rising
         for idx, plank in ipairs(bridgePlanks) do
             task.delay(idx * 0.08, function()
                 if plank and plank.Parent then
@@ -978,27 +916,20 @@ generateGemRoom = function(folder, O, doorNum)
         end
     end)
 
-    -- Ruins gap on both platforms
     makeRuinsGap(folder, O + Vector3.new(math.random(-14, 14), RUINS_FLOOR_Y, RUINS_D * 0.38), 0)
     makeRuinsGap(folder, O + Vector3.new(math.random(-14, 14), RUINS_FLOOR_Y, -RUINS_D * 0.38), 0)
-
-    -- Chest on entrance platform
     makeRuinsChest(folder, O + Vector3.new(math.random(-12, 12), RUINS_FLOOR_Y, RUINS_D * 0.3), false)
 
-    -- Spawn boat to the side of the room
     local boatX = O.X + RUINS_W * 0.6
     local boatZ = O.Z
     makeBoat(Vector3.new(boatX, SEA_Y, boatZ))
 
-    -- Spawn gem in sea
     local ladderPart = makePart(Vector3.new(1.5, math.abs(RUINS_FLOOR_Y - SEA_Y) + 2, 1.5), CFrame.new(O.X + RUINS_W * 0.6, (RUINS_FLOOR_Y + SEA_Y) * 0.5, O.Z + platformD * 0.5), Color3.fromRGB(80, 60, 30), 0, folder, Enum.Material.Wood)
     ladderPart.Name = "SeaLadder"
-    -- Rungs on ladder
     for ri = 0, 3 do
         local rung = makePart(Vector3.new(2.5, 0.2, 0.2), CFrame.new(O.X + RUINS_W * 0.6, SEA_Y + 1.5 + ri * 1.2, O.Z + platformD * 0.5), Color3.fromRGB(70, 50, 20), 0, folder, Enum.Material.Wood)
         rung.Name = "LadderRung"
     end
-    -- Climb prompt at base of ladder
     local climbPrompt = Instance.new("ProximityPrompt"); climbPrompt.ActionText = "Climb Up"; climbPrompt.RequiresLineOfSight = false; climbPrompt.MaxActivationDistance = 5; climbPrompt.Parent = ladderPart
     climbPrompt.Triggered:Connect(function()
         if character then character:PivotTo(CFrame.new(O.X + RUINS_W * 0.6, RUINS_FLOOR_Y + 3, O.Z + platformD * 0.5)) end
@@ -1017,7 +948,6 @@ generateRoom = function(doorNum)
     local roomZ = getRuinsZ(doorNum)
     local O     = Vector3.new(0, 0, roomZ)
 
-    -- Determine room type
     local rType = "normal"
     local gemRoll = math.random(1, 100)
     if gemRoll <= 20 then rType = "gem"
@@ -1032,7 +962,6 @@ generateRoom = function(doorNum)
         generateNormalRoom(folder, O, doorNum)
     end
 
-    -- Checkpoint sign
     if doorNum > RUINS_START and (doorNum - RUINS_START) % CHECKPOINT_EVERY == 0 then
         local cpPart = makePart(Vector3.new(10, 2.5, 0.4), CFrame.new(O + Vector3.new(0, RUINS_FLOOR_Y + 4, 0)), Color3.fromRGB(10, 80, 10), 0, folder, Enum.Material.Neon)
         cpPart.Name = "CheckpointSign"
@@ -1042,7 +971,6 @@ generateRoom = function(doorNum)
         cpL.TextScaled = true; cpL.Font = Enum.Font.GothamBold; cpL.Parent = cpG
     end
 
-    -- Door number stone marker at exit edge
     local markerPart = makePart(Vector3.new(4, 2, 0.4), CFrame.new(O + Vector3.new(0, RUINS_FLOOR_Y + 2, -RUINS_D * 0.5)), Color3.fromRGB(100, 95, 80), 0, folder, Enum.Material.Cobblestone)
     markerPart.Name = "DoorMarker"
     local mG = Instance.new("SurfaceGui"); mG.Face = Enum.NormalId.Front; mG.Parent = markerPart
@@ -1053,21 +981,18 @@ generateRoom = function(doorNum)
 end
 
 -- =================================================================
--- LOBBY  (cave exit transition area - surface ruins entry)
+-- LOBBY
 -- =================================================================
 createLobby = function()
     local folder = Instance.new("Folder"); folder.Name = "RuinsLobby"; folder.Parent = workspace
     local stoneC = Color3.fromRGB(110, 104, 92)
 
-    -- Underground cave exit cave box (below surface)
     makePart(Vector3.new(18, 1, 18), CFrame.new(0, CAVE_EXIT_Y - 0.5, 60), Color3.fromRGB(42, 40, 38), 0, folder, Enum.Material.Slate).Name = "CaveExitFloor"
     makePart(Vector3.new(18, 1, 18), CFrame.new(0, RUINS_FLOOR_Y + 1, 60), Color3.fromRGB(35, 33, 31), 0, folder, Enum.Material.Slate).Name = "CaveExitCeiling"
     makePart(Vector3.new(18, math.abs(CAVE_EXIT_Y) + RUINS_FLOOR_Y + 2, 1), CFrame.new(0, (CAVE_EXIT_Y + RUINS_FLOOR_Y) * 0.5, 69), Color3.fromRGB(44, 42, 40), 0, folder, Enum.Material.Cobblestone).Name = "CaveExitBack"
     for side = -1, 1, 2 do
         makePart(Vector3.new(1, math.abs(CAVE_EXIT_Y) + RUINS_FLOOR_Y + 2, 18), CFrame.new(side * 9, (CAVE_EXIT_Y + RUINS_FLOOR_Y) * 0.5, 60), Color3.fromRGB(44, 42, 40), 0, folder, Enum.Material.Cobblestone).Name = "CaveExitWall"
     end
-    -- Ceiling gap (hole through which ladder goes)
-    -- The ceiling has a 4x4 hole in center; we simulate with 4 side panels leaving center open
     for xi = -1, 1, 2 do
         makePart(Vector3.new(6, 1, 18), CFrame.new(xi * 6, RUINS_FLOOR_Y + 1, 60), Color3.fromRGB(35, 33, 31), 0, folder, Enum.Material.Slate).Name = "CaveCeilingSide"
     end
@@ -1075,7 +1000,6 @@ createLobby = function()
         makePart(Vector3.new(6, 1, 6), CFrame.new(0, RUINS_FLOOR_Y + 1, 60 + zi * 6), Color3.fromRGB(35, 33, 31), 0, folder, Enum.Material.Slate).Name = "CaveCeilingSide"
     end
 
-    -- Ladder (tall Parts with rungs, goes from cave floor to surface)
     local ladderTotalH = math.abs(CAVE_EXIT_Y) + RUINS_FLOOR_Y
     local ladderPost = makePart(Vector3.new(0.6, ladderTotalH, 0.6), CFrame.new(0, CAVE_EXIT_Y + ladderTotalH * 0.5, 60), Color3.fromRGB(65, 48, 28), 0, folder, Enum.Material.Wood)
     ladderPost.Name = "LadderPost"
@@ -1085,7 +1009,6 @@ createLobby = function()
         local rung = makePart(Vector3.new(2.8, 0.25, 0.25), CFrame.new(0, ry, 60), Color3.fromRGB(55, 40, 20), 0, folder, Enum.Material.Wood)
         rung.Name = "Rung"
     end
-    -- Climb prompt at base of ladder
     local climbBase = makePart(Vector3.new(3, 1, 3), CFrame.new(0, CAVE_EXIT_Y + 0.5, 60), Color3.fromRGB(0, 150, 60), 0.8, folder, Enum.Material.Neon)
     climbBase.Name = "LadderBase"
     local cp = Instance.new("ProximityPrompt"); cp.ActionText = "Climb to Surface"; cp.RequiresLineOfSight = false; cp.MaxActivationDistance = 6; cp.Parent = climbBase
@@ -1098,26 +1021,20 @@ createLobby = function()
         end
     end)
 
-    -- Surface ruins lobby (open air stone courtyard)
-    -- Large stone courtyard floor
     makePart(Vector3.new(60, 1, 80), CFrame.new(0, RUINS_FLOOR_Y - 0.5, 30), stoneC, 0, folder, Enum.Material.Cobblestone).Name = "LobbyCourtyard"
-    -- Broken walls around courtyard (partial)
     for zi = -1, 1, 2 do
         makePart(Vector3.new(60, 5, 2), CFrame.new(0, RUINS_FLOOR_Y + 2, 30 + zi * 40), Color3.fromRGB(115, 108, 95), 0, folder, Enum.Material.Cobblestone).Name = "CourtyardWall"
     end
     for xi = -1, 1, 2 do
         makePart(Vector3.new(2, 8, 80), CFrame.new(xi * 30, RUINS_FLOOR_Y + 3.5, 30), Color3.fromRGB(115, 108, 95), 0, folder, Enum.Material.Cobblestone).Name = "CourtyardWallSide"
     end
-    -- Moss on floor
     makePart(Vector3.new(55, 0.2, 70), CFrame.new(0, RUINS_FLOOR_Y + 0.05, 30), MOSS_C, 0.4, folder, Enum.Material.Grass).Name = "CourtyardMoss"
 
-    -- Decorative ruins scattered in courtyard
     for di = 1, 6 do
         local dx = math.random(-22, 22); local dz = math.random(-25, 55)
         makeRuinsDecor(folder, Vector3.new(dx, RUINS_FLOOR_Y, dz))
     end
 
-    -- Welcome sign (stone tablet)
     local tablet = makePart(Vector3.new(20, 5, 0.6), CFrame.new(0, RUINS_FLOOR_Y + 5.5, -8), Color3.fromRGB(90, 85, 75), 0, folder, Enum.Material.Cobblestone)
     tablet.Name = "WelcomeTablet"
     local wg = Instance.new("SurfaceGui"); wg.Face = Enum.NormalId.Front; wg.Parent = tablet
@@ -1127,7 +1044,6 @@ createLobby = function()
     wl2.Text = "Stage 3  -  Ruins Doors 375 to 1000  |  Hide in crumbled walls!"; wl2.TextColor3 = Color3.fromRGB(200, 185, 140); wl2.TextScaled = true; wl2.Font = Enum.Font.Gotham; wl2.Parent = wg
 
     rooms[-1] = folder
-    -- Terrain water (large sea around all ruins)
     pcall(function()
         workspace.Terrain:FillBlock(
             CFrame.new(0, SEA_Y - 2, -30000),
@@ -1139,7 +1055,7 @@ createLobby = function()
 end
 
 -- =================================================================
--- HIDING  (ruins gap)
+-- HIDING 
 -- =================================================================
 hideInGap = function()
     if not currentGap or isHiding or not humanoid then return end
@@ -1169,11 +1085,77 @@ showWarning = function(msg, duration)
 end
 
 -- =================================================================
+-- ITEM EFFECTS
+-- =================================================================
+local function getHeldTool(toolName)
+    if character and character:FindFirstChild(toolName) then
+        return character[toolName]
+    end
+    return nil
+end
+
+local function usePureGem(enemyBody, soundId, leaveBlood)
+    local gem = getHeldTool("Pure Gem")
+    if gem then
+        gem:Destroy()
+        for i, v in ipairs(inventory) do 
+            if v == "Pure Gem" then table.remove(inventory, i) break end 
+        end
+        
+        local s = Instance.new("Sound")
+        s.SoundId = "rbxassetid://" .. soundId
+        s.Volume = 3
+        if soundId == "139936933116829" then
+            local echo = Instance.new("EchoSoundEffect", s)
+            s.Volume = 5
+        end
+        s.Parent = workspace
+        s:Play()
+        
+        if leaveBlood and enemyBody then
+            local b = makePart(Vector3.new(4, 0.2, 8), CFrame.new(enemyBody.Position.X, RUINS_FLOOR_Y + 0.1, enemyBody.Position.Z), Color3.fromRGB(130, 0, 0), 0, workspace, Enum.Material.Mud)
+            b.CanCollide = false
+        end
+        return true
+    end
+    return false
+end
+
+local function effectLantern(eventType)
+    local lant = getHeldTool("Lantern") or (player.Backpack:FindFirstChild("Lantern"))
+    if not lant then return end
+    local handle = lant:FindFirstChild("Handle")
+    if not handle then return end
+    local light = handle:FindFirstChildWhichIsA("PointLight")
+    
+    if eventType == "disease_start" then
+        local pe = Instance.new("ParticleEmitter", handle)
+        pe.Name = "RedSmoke"; pe.Color = ColorSequence.new(Color3.fromRGB(255, 0, 0))
+        pe.Size = NumberSequence.new({NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(1, 3)})
+        pe.Rate = 20
+    elseif eventType == "disease_end" then
+        local pe = handle:FindFirstChild("RedSmoke")
+        if pe then pe:Destroy() end
+    elseif eventType == "agony_start" then
+        if light then light.Enabled = false end
+        local s = Instance.new("Sound", handle); s.SoundId = "rbxassetid://140414748697760"; s:Play()
+    elseif eventType == "agony_end" then
+        if light then light.Enabled = true end
+        local s = Instance.new("Sound", handle); s.SoundId = "rbxassetid://139419162875767"; s:Play()
+    end
+end
+
+-- =================================================================
 -- DEATH
 -- =================================================================
 onDeath = function()
     if isDead then return end
     isDead = true; gameStarted = false; isHiding = false; onBoat = false; playerBoat = nil; boatVel = nil; boatGyro = nil
+    
+    for _, obj in ipairs(workspace:GetChildren()) do
+        if obj.Name == "TreeBarrier" then obj:Destroy() end
+    end
+
     if humanoid then humanoid.CameraOffset = Vector3.new(0, 0, 0) end
     inventory = {}; ecstasyActive = false
     local ccc = game.Lighting:FindFirstChild("EcstasyCC"); if ccc then ccc:Destroy() end
@@ -1210,7 +1192,6 @@ spawnDisease = function(doorNum)
 
     local body = makePart(Vector3.new(RUINS_W, 14, RUINS_D), CFrame.new(0, RUINS_FLOOR_Y + 7, startZ), Color3.fromRGB(140, 0, 0), 0.45, ef, Enum.Material.Neon)
     body.Name = "DiseaseBody"; body.CanCollide = false
-    -- Smoke particles
     local pe = Instance.new("ParticleEmitter", body); pe.Color = ColorSequence.new(Color3.fromRGB(180, 0, 0))
     pe.Size = NumberSequence.new({NumberSequenceKeypoint.new(0, 6), NumberSequenceKeypoint.new(1, 16)}); pe.Rate = 80; pe.Speed = NumberRange.new(2, 5); pe.Lifetime = NumberRange.new(3, 6)
     pe.Transparency = NumberSequence.new({NumberSequenceKeypoint.new(0, 0.7), NumberSequenceKeypoint.new(1, 1)})
@@ -1220,18 +1201,33 @@ spawnDisease = function(doorNum)
     tr.Attachment0 = a0; tr.Attachment1 = a1
     local snd = Instance.new("Sound"); snd.SoundId = "rbxassetid://125795970503985"; snd.Volume = 1.5; snd.Looped = true; snd.RollOffMaxDistance = 200; snd.Parent = body; snd:Play()
 
+    effectLantern("disease_start")
+
     local mc; mc = RunService.Heartbeat:Connect(function(dt)
         if not body or not body.Parent then mc:Disconnect(); return end
         local newZ = body.CFrame.Position.Z - DISEASE_SPEED * dt
         body.CFrame = CFrame.new(body.CFrame.Position.X, body.CFrame.Position.Y, newZ)
+        
         if rootPart and humanoid and not isDead then
             local dZ = math.abs(rootPart.Position.Z - newZ)
-            if dZ < 140 then local i2 = (140 - dZ) / 140; humanoid.CameraOffset = Vector3.new(math.random(-10, 10) * 0.05 * i2, math.random(-10, 10) * 0.05 * i2, 0)
+            if dZ < 140 then 
+                local i2 = (140 - dZ) / 140; humanoid.CameraOffset = Vector3.new(math.random(-10, 10) * 0.05 * i2, math.random(-10, 10) * 0.05 * i2, 0)
             else humanoid.CameraOffset = Vector3.new(0, 0, 0) end
-            if not isHiding and dZ < RUINS_D * 0.45 then if humanoid.Health > 0 then humanoid.Health = 0; onDeath() end end
+            
+            if not isHiding and dZ < RUINS_D * 0.45 then 
+                if usePureGem(body, "139916424589528", true) then
+                    mc:Disconnect(); snd:Stop(); diseaseActive = false; ef:Destroy()
+                    effectLantern("disease_end")
+                    task.delay(DISEASE_COOLDOWN, function() diseaseOnCooldown = false end)
+                    return
+                elseif humanoid.Health > 0 then 
+                    humanoid.Health = 0; onDeath() 
+                end 
+            end
         end
         if newZ <= stopZ then
             mc:Disconnect(); snd:Stop(); diseaseActive = false
+            effectLantern("disease_end")
             if humanoid then humanoid.CameraOffset = Vector3.new(0, 0, 0) end
             local step = 0; local fc; fc = RunService.Heartbeat:Connect(function() step = step + 1; if body and body.Parent then body.Transparency = 0.45 + step * 0.06 end; if step >= 10 then fc:Disconnect(); ef:Destroy() end end)
             task.delay(DISEASE_COOLDOWN, function() diseaseOnCooldown = false end)
@@ -1242,7 +1238,6 @@ end
 spawnAgony = function(doorNum)
     if agonyActive or agonyOnCooldown then return end
     agonyActive = true; agonyOnCooldown = true
-    -- No warning - just the sound
     local ef = Instance.new("Folder"); ef.Name = "AgonyEntity"; ef.Parent = workspace
     local startZ = getRuinsZ(doorNum - 4) + RUINS_D * 0.5
     local stopZ  = getRuinsZ(doorNum + 5) - RUINS_D * 0.5
@@ -1255,8 +1250,9 @@ spawnAgony = function(doorNum)
     local at0 = Instance.new("Attachment", body); at0.Position = Vector3.new(0, 5, 0)
     local at1 = Instance.new("Attachment", body); at1.Position = Vector3.new(0, -5, 0)
     tr.Attachment0 = at0; tr.Attachment1 = at1
-    -- Ominous ambient sound (no warning text)
     local snd = Instance.new("Sound"); snd.SoundId = "rbxassetid://89060529910257"; snd.Volume = 2.5; snd.Looped = true; snd.RollOffMaxDistance = 400; snd.Parent = body; snd:Play()
+
+    effectLantern("agony_start")
 
     local ac; ac = RunService.Heartbeat:Connect(function(dt)
         if not body or not body.Parent then ac:Disconnect(); return end
@@ -1264,21 +1260,34 @@ spawnAgony = function(doorNum)
         body.CFrame = CFrame.new(body.CFrame.Position.X, body.CFrame.Position.Y, newZ)
         if rootPart and humanoid and not isDead then
             local dZ = math.abs(rootPart.Position.Z - newZ)
-            if dZ < 160 then local i2 = (160 - dZ) / 160; humanoid.CameraOffset = Vector3.new(math.random(-10, 10) * 0.09 * i2, math.random(-10, 10) * 0.09 * i2, 0)
+            if dZ < 160 then 
+                local i2 = (160 - dZ) / 160; humanoid.CameraOffset = Vector3.new(math.random(-10, 10) * 0.09 * i2, math.random(-10, 10) * 0.09 * i2, 0)
             else humanoid.CameraOffset = Vector3.new(0, 0, 0) end
+            
             local distToPlayer = (rootPart.Position - body.Position).Magnitude
-            if distToPlayer < 10 then if humanoid.Health > 0 then humanoid.Health = 0; onDeath() end end
-            -- Kill on look (same as caves version)
             local camDir = camera.CFrame.LookVector
             local dirToAgony = (body.Position - camera.CFrame.Position).Unit
+            
+            local hit = false
             if camDir:Dot(dirToAgony) > 0.5 then
                 local rp = RaycastParams.new(); rp.FilterDescendantsInstances = {ef, character, rooms[-1]}; rp.FilterType = Enum.RaycastFilterType.Exclude
-                local hit = workspace:Raycast(camera.CFrame.Position, dirToAgony * distToPlayer, rp)
-                if not hit then if humanoid.Health > 0 then humanoid.Health = 0; onDeath() end end
+                hit = workspace:Raycast(camera.CFrame.Position, dirToAgony * distToPlayer, rp) ~= nil
+            end
+
+            if distToPlayer < 10 or (camDir:Dot(dirToAgony) > 0.5 and not hit) then
+                if usePureGem(body, "139916424589528", true) then
+                    ac:Disconnect(); snd:Stop(); agonyActive = false; ef:Destroy()
+                    effectLantern("agony_end")
+                    task.delay(AGONY_COOLDOWN, function() agonyOnCooldown = false end)
+                    return
+                elseif humanoid.Health > 0 then 
+                    humanoid.Health = 0; onDeath() 
+                end
             end
         end
         if newZ <= stopZ then
             ac:Disconnect(); snd:Stop(); agonyActive = false
+            effectLantern("agony_end")
             if humanoid then humanoid.CameraOffset = Vector3.new(0, 0, 0) end
             local step = 0; local fc; fc = RunService.Heartbeat:Connect(function() step = step + 1; if body and body.Parent then body.Transparency = 0.1 + step * 0.09 end; if step >= 10 then fc:Disconnect(); ef:Destroy() end end)
             task.delay(AGONY_COOLDOWN, function() agonyOnCooldown = false end)
@@ -1295,8 +1304,16 @@ spawnHer = function(doorNum)
     body.Name = "HerBody"; body.CanCollide = false
     local snd = Instance.new("Sound"); snd.SoundId = "rbxassetid://129136912774651"; snd.Volume = 2; snd.Looped = true; snd.RollOffMaxDistance = 100; snd.Parent = body; snd:Play()
     local lookTimer = 0; local isChasing = false; local hc
+    
     hc = RunService.Heartbeat:Connect(function(dt)
         if not body or not body.Parent or isDead then if hc then hc:Disconnect() end; return end
+        
+        if isDaytime() then
+            hc:Disconnect(); snd:Stop(); if humanoid then humanoid.CameraOffset = Vector3.new(0, 0, 0) end
+            ef:Destroy(); herActive = false; task.delay(HER_COOLDOWN, function() herOnCooldown = false end)
+            return
+        end
+
         if not isChasing then
             if rootPart and camera then
                 local dot = camera.CFrame.LookVector:Dot((body.Position - camera.CFrame.Position).Unit)
@@ -1310,10 +1327,19 @@ spawnHer = function(doorNum)
                 local newPos = lCF.Position + lCF.LookVector * HER_SPEED * dt
                 body.CFrame = CFrame.new(newPos.X, RUINS_FLOOR_Y + 3.75, newPos.Z)
                 local dist = (rootPart.Position - body.Position).Magnitude
-                if dist < 90 and humanoid then local i2 = (90 - dist) / 90; humanoid.CameraOffset = Vector3.new(math.random(-10, 10) * 0.07 * i2, math.random(-10, 10) * 0.07 * i2, 0) end
-                if dist < 4 and humanoid and humanoid.Health > 0 then humanoid.Health = 0; onDeath() end
-                -- Her retreats at dawn
-                if isDaytime() then hc:Disconnect(); snd:Stop(); if humanoid then humanoid.CameraOffset = Vector3.new(0, 0, 0) end; ef:Destroy(); herActive = false; task.delay(HER_COOLDOWN, function() herOnCooldown = false end) end
+                if dist < 90 and humanoid then 
+                    local i2 = (90 - dist) / 90; humanoid.CameraOffset = Vector3.new(math.random(-10, 10) * 0.07 * i2, math.random(-10, 10) * 0.07 * i2, 0) 
+                end
+                
+                if dist < 4 and humanoid then 
+                    if usePureGem(body, "139936933116829", true) then
+                        hc:Disconnect(); snd:Stop(); herActive = false; ef:Destroy()
+                        task.delay(HER_COOLDOWN, function() herOnCooldown = false end)
+                        return
+                    elseif humanoid.Health > 0 then 
+                        humanoid.Health = 0; onDeath() 
+                    end
+                end
             end
         end
     end)
@@ -1322,18 +1348,23 @@ end
 spawnDrain = function(doorNum)
     if drainActive or drainOnCooldown then return end
     drainActive = true; drainOnCooldown = true
-    -- Sea turns black and rises toward bridge level
     local ef = Instance.new("Folder"); ef.Name = "DrainEntity"; ef.Parent = workspace
     local centerZ = getRuinsZ(currentDoor)
 
-    -- Black water overlay (large plane that rises)
     local blackSea = makePart(Vector3.new(1000, 0.5, 1500), CFrame.new(0, SEA_Y + 0.3, -30000), Color3.fromRGB(5, 5, 5), 0.1, ef, Enum.Material.Neon)
     blackSea.Name = "BlackSea"; blackSea.CanCollide = false
+    
+    local usingPureGem = false
+    local gem = getHeldTool("Pure Gem")
+    if gem then
+        usingPureGem = true
+        blackSea.Color = Color3.fromRGB(255, 255, 255)
+        gem:Destroy()
+        for i, v in ipairs(inventory) do if v == "Pure Gem" then table.remove(inventory, i) break end end
+    end
 
     local snd = Instance.new("Sound"); snd.SoundId = "rbxassetid://93281700241946"; snd.Volume = 2.2; snd.Looped = true; snd.Parent = blackSea; snd:Play()
-
     local elapsed = 0; local maxRise = RUINS_FLOOR_Y - SEA_Y - 0.2
-
     local dc; dc = RunService.Heartbeat:Connect(function(dt)
         if isDead then if dc then dc:Disconnect() end; ef:Destroy(); drainActive = false; drainOnCooldown = false; return end
         elapsed = elapsed + dt
@@ -1351,11 +1382,17 @@ spawnDrain = function(doorNum)
         local newY = SEA_Y + 0.3 + currentH
         blackSea.CFrame = CFrame.new(0, newY, -30000)
 
-        -- Kill player if water reaches their feet
         if rootPart and humanoid and humanoid.Health > 0 and not isHiding then
             if rootPart.Position.Y < newY + 1.5 then
-                local dSnd = Instance.new("Sound"); dSnd.SoundId = "rbxassetid://128701355933535"; dSnd.Volume = 2; dSnd.Parent = workspace; dSnd:Play()
-                humanoid.Health = 0; onDeath()
+                if usingPureGem then
+                    if tick() - (blackSea:GetAttribute("LastHeal") or 0) >= 1 then
+                        blackSea:SetAttribute("LastHeal", tick())
+                        humanoid.Health = math.min(humanoid.MaxHealth, humanoid.Health + 1)
+                    end
+                else
+                    local dSnd = Instance.new("Sound"); dSnd.SoundId = "rbxassetid://128701355933535"; dSnd.Volume = 2; dSnd.Parent = workspace; dSnd:Play()
+                    humanoid.Health = 0; onDeath()
+                end
             end
         end
     end)
@@ -1364,7 +1401,7 @@ end
 spawnPlantera = function(doorNum)
     if planteraActive or planteraOnCooldown then return end
     planteraActive = true; planteraOnCooldown = true; planteraSpawned = true
-    -- Create tree barriers at exit of several rooms ahead
+    
     local treeBarrierFolders = {}
     for d = doorNum, doorNum + PLANTERA_AFTER + 1 do
         if rooms[d] then
@@ -1396,7 +1433,6 @@ spawnPlantera = function(doorNum)
         local newZ = body.CFrame.Position.Z - PLANTERA_SPEED * dt
         body.CFrame = CFrame.new(body.CFrame.Position.X, body.CFrame.Position.Y, newZ)
 
-        -- Destroy tree barriers as Plantera passes through them
         for idx, tbData in ipairs(treeBarrierFolders) do
             if tbData.folder and tbData.folder.Parent and newZ <= tbData.z + 5 then
                 tbData.folder:Destroy(); treeBarrierFolders[idx] = {folder = nil, z = tbData.z}
@@ -1405,9 +1441,19 @@ spawnPlantera = function(doorNum)
 
         if rootPart and humanoid and not isDead then
             local dZ = math.abs(rootPart.Position.Z - newZ)
-            if dZ < 120 then local i2 = (120 - dZ) / 120; humanoid.CameraOffset = Vector3.new(math.random(-10, 10) * 0.04 * i2, math.random(-10, 10) * 0.04 * i2, 0)
+            if dZ < 120 then 
+                local i2 = (120 - dZ) / 120; humanoid.CameraOffset = Vector3.new(math.random(-10, 10) * 0.04 * i2, math.random(-10, 10) * 0.04 * i2, 0)
             else humanoid.CameraOffset = Vector3.new(0, 0, 0) end
-            if not isHiding and dZ < RUINS_D * 0.45 then if humanoid.Health > 0 then humanoid.Health = 0; onDeath() end end
+            
+            if not isHiding and dZ < RUINS_D * 0.45 then 
+                if usePureGem(body, "139916424589528", true) then
+                    pc:Disconnect(); snd:Stop(); planteraActive = false; ef:Destroy()
+                    task.delay(PLANTERA_COOLDOWN, function() planteraOnCooldown = false; planteraSpawned = false end)
+                    return
+                elseif humanoid.Health > 0 then 
+                    humanoid.Health = 0; onDeath() 
+                end 
+            end
         end
 
         if newZ <= stopZ then
@@ -1468,13 +1514,28 @@ spawnStem = function()
             local moving = humanoid.MoveDirection.Magnitude > 0.05
             local jumping = humanoid:GetState() == Enum.HumanoidStateType.Jumping
             if moving or jumping then
-                stemPupil.Size = UDim2.new(0, 10, 0, 10); stemPupil.Position = UDim2.new(0.5, -5, 0.5, -5)
-                task.wait(0.06); isEyeOpen = false; humanoid.Health = 0; onDeath(); stemConn:Disconnect()
+                if usePureGem(nil, "140325083438865", false) then
+                    stemConn:Disconnect()
+                    local bGui = Instance.new("ScreenGui", player.PlayerGui)
+                    local bFrame = Instance.new("Frame", bGui)
+                    bFrame.Size = UDim2.new(1, 0, 1, 0); bFrame.BackgroundColor3 = Color3.fromRGB(150, 0, 0)
+                    bFrame.BackgroundTransparency = 0.3; bFrame.BorderSizePixel = 0
+                    TweenService:Create(bFrame, TweenInfo.new(4), {BackgroundTransparency = 1}):Play()
+                    task.delay(4, function() bGui:Destroy() end)
+                    
+                    isEyeOpen = false; stemEyeContainer.Visible = false; stemActive = false
+                    task.delay(STEM_COOLDOWN, function() stemOnCooldown = false end)
+                    return
+                else
+                    stemPupil.Size = UDim2.new(0, 10, 0, 10); stemPupil.Position = UDim2.new(0.5, -5, 0.5, -5)
+                    task.wait(0.06); isEyeOpen = false; humanoid.Health = 0; onDeath(); stemConn:Disconnect()
+                end
             end
         end
     end)
 
     task.delay(5, function()
+        if not isEyeOpen then return end
         isEyeOpen = false
         local closeInfo = TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
         TweenService:Create(stemTopLid, closeInfo, {Size = UDim2.new(1, 0, 0.5, 2), Position = UDim2.new(0, 0, 0, 0)}):Play()
@@ -1497,20 +1558,16 @@ onDoorReached = function(doorNum)
         checkpointDoor = doorNum; showWarning("CHECKPOINT SAVED  -  Ruins Door " .. tostring(doorNum), 3)
     end
 
-    -- Generate ahead
     for i = doorNum + 1, doorNum + GEN_AHEAD do if i <= DOOR_MAX then generateRoom(i) end end
-    -- Clean behind
     for i = RUINS_START, doorNum - CLEAN_BEHIND do
         if rooms[i] then rooms[i]:Destroy(); rooms[i] = nil end
         roomType[i] = nil; gemRoomStates[i] = nil
     end
 
-    -- Disease: any time, 35% chance
     if not diseaseActive and not diseaseOnCooldown then
         if math.random(1, 100) <= 35 then spawnDisease(doorNum) end
     end
 
-    -- Night-only entities
     if isNight() then
         if not herActive and not herOnCooldown and math.random(1, 100) <= 30 then
             task.spawn(function() spawnHer(doorNum) end)
@@ -1520,7 +1577,6 @@ onDoorReached = function(doorNum)
         end
     end
 
-    -- Day-only entities
     if isDaytime() then
         if not planteraActive and not planteraSpawned and not planteraOnCooldown and doorNum >= RUINS_START + 5 then
             if math.random(1, 100) <= 40 then task.spawn(function() spawnPlantera(doorNum) end) end
@@ -1530,7 +1586,6 @@ onDoorReached = function(doorNum)
         end
     end
 
-    -- Drain: any time
     if not drainActive and not drainOnCooldown and doorNum >= RUINS_START + 3 then
         if math.random(1, 100) <= 28 then task.spawn(function() spawnDrain(doorNum) end) end
     end
@@ -1571,7 +1626,6 @@ mainLoop = function()
     RunService.Heartbeat:Connect(function(dt)
         if not gameStarted or not rootPart then return end
 
-        -- Walk speed
         local targetSpeed = 16
         if ecstasyActive then
             if tick() > ecstasyEndTime then
@@ -1582,12 +1636,10 @@ mainLoop = function()
             humanoid.WalkSpeed = targetSpeed
         end
 
-        -- Sea death trigger
         if rootPart.Position.Y < SEA_Y + 1 and not isDead and humanoid and humanoid.Health > 0 then
             humanoid.Health = 0; onDeath()
         end
 
-        -- Footsteps
         if humanoid and humanoid.Health > 0 and not isHiding then
             local moving = humanoid.MoveDirection.Magnitude > 0
             if moving and humanoid.FloorMaterial ~= Enum.Material.Air then
@@ -1600,7 +1652,6 @@ mainLoop = function()
             else lastStepTime = 0 end
         end
 
-        -- Boat control
         if onBoat and playerBoat and boatVel and rootPart then
             local fwd = 0; local strafe = 0
             if UserInput:IsKeyDown(Enum.KeyCode.W) or UserInput:IsKeyDown(Enum.KeyCode.Up) then fwd = 1 end
@@ -1608,7 +1659,6 @@ mainLoop = function()
             if UserInput:IsKeyDown(Enum.KeyCode.A) or UserInput:IsKeyDown(Enum.KeyCode.Left) then strafe = 1 end
             if UserInput:IsKeyDown(Enum.KeyCode.D) or UserInput:IsKeyDown(Enum.KeyCode.Right) then strafe = -1 end
 
-            -- Mobile touch support (steer towards camera look direction)
             if UserInput.TouchEnabled and humanoid and humanoid.MoveDirection.Magnitude > 0 then
                 local md = humanoid.MoveDirection; fwd = md.Z; strafe = md.X
             end
@@ -1620,27 +1670,22 @@ mainLoop = function()
             boatVel.Velocity = vel
             if boatGyro then boatGyro.CFrame = CFrame.new(playerBoat.Position, playerBoat.Position + flatLook) end
 
-            -- Keep player on boat
             if rootPart then rootPart.CFrame = CFrame.new(playerBoat.Position + Vector3.new(0, 2.5, 0)) end
 
-            -- Keep boat at sea level
             local bPos = playerBoat.Position
             if math.abs(bPos.Y - (SEA_Y + 1)) > 0.5 then
                 playerBoat.CFrame = CFrame.new(bPos.X, SEA_Y + 1, bPos.Z)
             end
 
-            -- Kill wall - prevent going too far
             local roomZ = getRuinsZ(currentDoor)
             local distFromRoom = math.sqrt((bPos.X) ^ 2 + (bPos.Z - roomZ) ^ 2)
             if distFromRoom > BOAT_KILL_DIST then
-                -- Push back
                 local pushDir = Vector3.new(bPos.X, 0, bPos.Z - roomZ).Unit
                 playerBoat.CFrame = CFrame.new(playerBoat.Position - pushDir * 2)
                 boatVel.Velocity = -pushDir * 10
                 showWarning("Invisible barrier! Don't stray too far.", 1.5)
             end
 
-            -- If boat somehow passes the next room's entrance, sink it
             if bPos.Z < getRuinsZ(currentDoor + 1) - RUINS_D * 0.3 then
                 if humanoid and humanoid.Health > 0 then
                     showWarning("You tried to skip - the boat sinks!", 2)
@@ -1649,7 +1694,6 @@ mainLoop = function()
             end
         end
 
-        -- Door detection
         local pZ = rootPart.Position.Z
         local approxDoor = currentDoor
         local nextZ = getRuinsZ(approxDoor) - RUINS_D * 0.5
@@ -1661,7 +1705,6 @@ mainLoop = function()
             lastDetectedDoor = approxDoor; onDoorReached(approxDoor)
         end
 
-        -- Ruins gap detection
         nearGap = false; currentGap = nil
         for d = currentDoor - 1, currentDoor + 1 do
             if rooms[d] then
