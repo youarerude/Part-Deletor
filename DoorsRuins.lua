@@ -6,7 +6,7 @@
 -- Day/Night  : Tween-based realistic outdoor lighting cycle
 -- Hiding     : Ruins Gaps (crumbled wall sections)
 -- Sea        : 1000x1000 Terrain Water  -  touch = instant death
--- Items      : Coins | Ecstasy | Gem
+-- Items      : Coins | Ecstasy | Gem | Lantern | Pure Gem
 -- ============================================================
 
 local Players      = game:GetService("Players")
@@ -29,8 +29,8 @@ local CHECKPOINT_EVERY  = 50
 
 local DISEASE_SPEED     = 70
 local DISEASE_COOLDOWN  = 12
-local DISEASE_BEFORE    = 3
-local DISEASE_AFTER     = 3
+local DISEASE_BEFORE    = 7     -- UPDATED: 7 rooms back
+local DISEASE_AFTER     = 5     -- UPDATED: 5 rooms forward
 
 local AGONY_SPEED       = 90
 local AGONY_COOLDOWN    = 18
@@ -45,8 +45,8 @@ local DRAIN_FALL_TIME   = 6
 
 local PLANTERA_SPEED    = 45
 local PLANTERA_COOLDOWN = 12
-local PLANTERA_BEFORE   = 3
-local PLANTERA_AFTER    = 3
+local PLANTERA_BEFORE   = 7     -- UPDATED: 7 rooms back
+local PLANTERA_AFTER    = 5     -- UPDATED: 5 rooms forward
 
 local STEM_COOLDOWN     = 55
 
@@ -124,6 +124,9 @@ local spawnDisease, spawnAgony, spawnHer, spawnDrain, spawnPlantera, spawnStem
 local onDoorReached, onDeath, updateCharRef, mainLoop
 local getRuinsZ, isNight, isDaytime
 
+-- NEW HELPERS FOR NEW ITEMS
+local getEquippedLantern, hasPureGemEquipped
+
 -- ===== GUI REFS =====
 local screenGui, doorLabel, coinLabel, warningFrame, warningLabel
 local hidePrompt, hideBtnLabel, timeLabel
@@ -145,6 +148,17 @@ end
 isDaytime = function()
     local c = clockTime
     return c >= 8 and c <= 18
+end
+
+-- NEW: Lantern & Pure Gem equipped checks
+getEquippedLantern = function()
+    if not character then return nil end
+    return character:FindFirstChild("Lantern")
+end
+
+hasPureGemEquipped = function()
+    if not character then return false end
+    return character:FindFirstChild("PureGem") \~= nil
 end
 
 -- =================================================================
@@ -203,7 +217,7 @@ applyLightingPreset = function(name)
     local L = game:GetService("Lighting")
     local ti = TweenInfo.new(5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
     for prop, val in pairs(preset) do
-        if prop ~= "ClockTime" then
+        if prop \~= "ClockTime" then
             local ok, _ = pcall(function()
                 TweenService:Create(L, ti, { [prop] = val }):Play()
             end)
@@ -635,9 +649,12 @@ makeRuinsChest = function(folder, pos, isLocked)
         usesLeft = usesLeft - 1
 
         local r = math.random(1, 100); local loot
-        if r <= 12 then loot = "Gem"
-        elseif r <= 28 then loot = "Ecstasy"
-        elseif r <= 60 then loot = "Coin"
+        -- UPDATED LOOT TABLE WITH NEW ITEMS
+        if r <= 5 then loot = "PureGem"      -- 5%
+        elseif r <= 20 then loot = "Lantern" -- 15%
+        elseif r <= 32 then loot = "Gem"     -- \~12%
+        elseif r <= 48 then loot = "Ecstasy" -- \~16%
+        elseif r <= 78 then loot = "Coin"    -- \~30%
         else loot = "Nothing" end
 
         if usesLeft == 0 then
@@ -653,15 +670,16 @@ makeRuinsChest = function(folder, pos, isLocked)
             showWarning("Chest: Found " .. tostring(amt) .. " Ancient Coins!" .. leftStr, 2.5); return
         end
         if loot == "Nothing" then showWarning("Chest: Dust and cobwebs." .. leftStr, 2); return end
+
         if loot == "Gem" then
             if #inventory >= MAX_ITEMS then showWarning("Inventory full!", 2); return end
-            -- Only give gem if not already having one (it's the gem room gem)
             showWarning("Chest: Found a Gem!" .. leftStr, 2.5)
             table.insert(inventory, "Gem")
             local t = giveTool(plr, "Gem", Color3.fromRGB(60, 200, 200), Vector3.new(0.7, 0.7, 0.7))
             t.Handle.Material = Enum.Material.Neon
             return
         end
+
         if loot == "Ecstasy" then
             if #inventory >= MAX_ITEMS then showWarning("Inventory full!", 2); return end
             table.insert(inventory, "Ecstasy")
@@ -677,6 +695,53 @@ makeRuinsChest = function(folder, pos, isLocked)
                 showWarning("Ecstasy active! Speed boost 3 minutes.", 3)
             end)
             showWarning("Chest: Ecstasy!" .. leftStr, 2)
+            return
+        end
+
+        -- NEW: Lantern
+        if loot == "Lantern" then
+            if #inventory >= MAX_ITEMS then showWarning("Inventory full!", 2); return end
+            table.insert(inventory, "Lantern")
+            local t = giveTool(plr, "Lantern", Color3.fromRGB(220, 180, 80), Vector3.new(0.7, 1.1, 0.7))
+            local handle = t.Handle
+            handle.Material = Enum.Material.Metal
+            -- Lantern light (yellow warm)
+            local light = Instance.new("PointLight")
+            light.Name = "LanternLight"
+            light.Brightness = 2.5
+            light.Range = 35
+            light.Color = Color3.fromRGB(255, 220, 150)
+            light.Enabled = true
+            light.Parent = handle
+            -- Flame particles for lantern look
+            local flame = Instance.new("ParticleEmitter", handle)
+            flame.Texture = "rbxassetid://241650899"
+            flame.Color = ColorSequence.new(Color3.fromRGB(255, 180, 60))
+            flame.Size = NumberSequence.new({NumberSequenceKeypoint.new(0, 0.4), NumberSequenceKeypoint.new(1, 0)})
+            flame.Rate = 8
+            flame.Speed = NumberRange.new(1, 2)
+            flame.Lifetime = NumberRange.new(0.6, 1.2)
+            flame.Transparency = NumberSequence.new(0.4, 1)
+            flame.Parent = handle
+            showWarning("Chest: Lantern!" .. leftStr, 2)
+            return
+        end
+
+        -- NEW: Pure Gem
+        if loot == "PureGem" then
+            if #inventory >= MAX_ITEMS then showWarning("Inventory full!", 2); return end
+            table.insert(inventory, "PureGem")
+            local t = giveTool(plr, "PureGem", Color3.fromRGB(180, 255, 120), Vector3.new(0.6, 0.6, 0.6))
+            local handle = t.Handle
+            handle.Material = Enum.Material.Neon
+            -- Gentle glow
+            local glight = Instance.new("PointLight")
+            glight.Brightness = 1.2
+            glight.Range = 14
+            glight.Color = Color3.fromRGB(180, 255, 120)
+            glight.Parent = handle
+            showWarning("Chest: Pure Gem!" .. leftStr, 2.5)
+            return
         end
     end)
     return body
@@ -1179,6 +1244,16 @@ onDeath = function()
     local ccc = game.Lighting:FindFirstChild("EcstasyCC"); if ccc then ccc:Destroy() end
     if stemEyeContainer then stemEyeContainer.Visible = false end
 
+    -- NEW: If died to Plantera, remove all tree barriers
+    if planteraActive then
+        for _, folder in pairs(rooms) do
+            local treeBarrier = folder:FindFirstChild("TreeBarrier")
+            if treeBarrier then
+                treeBarrier:Destroy()
+            end
+        end
+    end
+
     local dg = Instance.new("ScreenGui"); dg.Name = "RuinsDeathGui"; dg.ResetOnSpawn = false; dg.Parent = player.PlayerGui
     local bg = Instance.new("Frame"); bg.Size = UDim2.new(1, 0, 1, 0); bg.BackgroundColor3 = Color3.fromRGB(60, 45, 20); bg.BackgroundTransparency = 0.45; bg.BorderSizePixel = 0; bg.Parent = dg
     local dl = Instance.new("TextLabel"); dl.Size = UDim2.new(1, 0, 0.28, 0); dl.Position = UDim2.new(0, 0, 0.32, 0); dl.BackgroundTransparency = 1
@@ -1220,6 +1295,25 @@ spawnDisease = function(doorNum)
     tr.Attachment0 = a0; tr.Attachment1 = a1
     local snd = Instance.new("Sound"); snd.SoundId = "rbxassetid://125795970503985"; snd.Volume = 1.5; snd.Looped = true; snd.RollOffMaxDistance = 200; snd.Parent = body; snd:Play()
 
+    -- NEW: Lantern reacts to Disease spawn (red smoke + red light)
+    local lantern = getEquippedLantern()
+    local redSmoke = nil
+    if lantern then
+        local handle = lantern:FindFirstChild("Handle")
+        if handle then
+            local light = handle:FindFirstChild("LanternLight")
+            if light then light.Color = Color3.fromRGB(255, 0, 0) end
+            redSmoke = Instance.new("ParticleEmitter")
+            redSmoke.Color = ColorSequence.new(Color3.fromRGB(255, 0, 0))
+            redSmoke.Size = NumberSequence.new({NumberSequenceKeypoint.new(0, 0.6), NumberSequenceKeypoint.new(1, 2.5)})
+            redSmoke.Transparency = NumberSequence.new(0.3, 1)
+            redSmoke.Rate = 35
+            redSmoke.Speed = NumberRange.new(2, 6)
+            redSmoke.Lifetime = NumberRange.new(1.5, 3.5)
+            redSmoke.Parent = handle
+        end
+    end
+
     local mc; mc = RunService.Heartbeat:Connect(function(dt)
         if not body or not body.Parent then mc:Disconnect(); return end
         local newZ = body.CFrame.Position.Z - DISEASE_SPEED * dt
@@ -1228,11 +1322,75 @@ spawnDisease = function(doorNum)
             local dZ = math.abs(rootPart.Position.Z - newZ)
             if dZ < 140 then local i2 = (140 - dZ) / 140; humanoid.CameraOffset = Vector3.new(math.random(-10, 10) * 0.05 * i2, math.random(-10, 10) * 0.05 * i2, 0)
             else humanoid.CameraOffset = Vector3.new(0, 0, 0) end
-            if not isHiding and dZ < RUINS_D * 0.45 then if humanoid.Health > 0 then humanoid.Health = 0; onDeath() end end
+
+            -- NEW: Pure Gem counter for Disease
+            if not isHiding and dZ < RUINS_D * 0.45 then
+                if hasPureGemEquipped() then
+                    local gemTool = character:FindFirstChild("PureGem")
+                    if gemTool then
+                        gemTool:Destroy()
+                        for idx, v in ipairs(inventory) do
+                            if v == "PureGem" then table.remove(inventory, idx); break end
+                        end
+                    end
+                    -- Disease dies with blood trail + sound (echo + loud)
+                    local deathSnd = Instance.new("Sound")
+                    deathSnd.SoundId = "rbxassetid://139916424589528"
+                    deathSnd.Volume = 3
+                    deathSnd.Parent = body
+                    deathSnd:Play()
+                    local echo = Instance.new("EchoSoundEffect")
+                    echo.Delay = 0.25
+                    echo.WetLevel = 0.55
+                    echo.Parent = deathSnd
+                    -- Blood trail particles
+                    local blood = Instance.new("ParticleEmitter", body)
+                    blood.Color = ColorSequence.new(Color3.fromRGB(120, 0, 0))
+                    blood.Size = NumberSequence.new({NumberSequenceKeypoint.new(0, 1.2), NumberSequenceKeypoint.new(1, 0)})
+                    blood.Transparency = NumberSequence.new(0.2, 1)
+                    blood.Rate = 70
+                    blood.Speed = NumberRange.new(1, 5)
+                    blood.Lifetime = NumberRange.new(2, 4)
+                    mc:Disconnect()
+                    diseaseActive = false
+                    task.delay(DISEASE_COOLDOWN, function() diseaseOnCooldown = false end)
+                    -- Immediate fade
+                    local step = 0
+                    local fc; fc = RunService.Heartbeat:Connect(function()
+                        step = step + 1
+                        if body and body.Parent then body.Transparency = 0.45 + step * 0.06 end
+                        if step >= 10 then fc:Disconnect(); ef:Destroy() end
+                    end)
+                    -- Cleanup lantern red smoke
+                    if redSmoke then redSmoke:Destroy() end
+                    local lanternBack = getEquippedLantern()
+                    if lanternBack then
+                        local h = lanternBack:FindFirstChild("Handle")
+                        if h then
+                            local l = h:FindFirstChild("LanternLight")
+                            if l then l.Color = Color3.fromRGB(255, 220, 150) end
+                        end
+                    end
+                    return
+                else
+                    if humanoid.Health > 0 then humanoid.Health = 0; onDeath() end
+                end
+            end
         end
+
         if newZ <= stopZ then
             mc:Disconnect(); snd:Stop(); diseaseActive = false
             if humanoid then humanoid.CameraOffset = Vector3.new(0, 0, 0) end
+            -- Cleanup lantern
+            if redSmoke then redSmoke:Destroy() end
+            local lanternBack = getEquippedLantern()
+            if lanternBack then
+                local h = lanternBack:FindFirstChild("Handle")
+                if h then
+                    local l = h:FindFirstChild("LanternLight")
+                    if l then l.Color = Color3.fromRGB(255, 220, 150) end
+                end
+            end
             local step = 0; local fc; fc = RunService.Heartbeat:Connect(function() step = step + 1; if body and body.Parent then body.Transparency = 0.45 + step * 0.06 end; if step >= 10 then fc:Disconnect(); ef:Destroy() end end)
             task.delay(DISEASE_COOLDOWN, function() diseaseOnCooldown = false end)
         end
@@ -1258,6 +1416,22 @@ spawnAgony = function(doorNum)
     -- Ominous ambient sound (no warning text)
     local snd = Instance.new("Sound"); snd.SoundId = "rbxassetid://89060529910257"; snd.Volume = 2.5; snd.Looped = true; snd.RollOffMaxDistance = 400; snd.Parent = body; snd:Play()
 
+    -- NEW: Lantern reacts to Agony (breaks)
+    local lantern = getEquippedLantern()
+    if lantern then
+        local handle = lantern:FindFirstChild("Handle")
+        if handle then
+            local light = handle:FindFirstChild("LanternLight")
+            if light then light.Enabled = false end
+            local brokeSnd = Instance.new("Sound")
+            brokeSnd.SoundId = "rbxassetid://140414748697760"
+            brokeSnd.Volume = 1.8
+            brokeSnd.Parent = handle
+            brokeSnd:Play()
+            brokeSnd.Ended:Connect(function() brokeSnd:Destroy() end)
+        end
+    end
+
     local ac; ac = RunService.Heartbeat:Connect(function(dt)
         if not body or not body.Parent then ac:Disconnect(); return end
         local newZ = body.CFrame.Position.Z - AGONY_SPEED * dt
@@ -1267,19 +1441,96 @@ spawnAgony = function(doorNum)
             if dZ < 160 then local i2 = (160 - dZ) / 160; humanoid.CameraOffset = Vector3.new(math.random(-10, 10) * 0.09 * i2, math.random(-10, 10) * 0.09 * i2, 0)
             else humanoid.CameraOffset = Vector3.new(0, 0, 0) end
             local distToPlayer = (rootPart.Position - body.Position).Magnitude
-            if distToPlayer < 10 then if humanoid.Health > 0 then humanoid.Health = 0; onDeath() end end
-            -- Kill on look (same as caves version)
-            local camDir = camera.CFrame.LookVector
-            local dirToAgony = (body.Position - camera.CFrame.Position).Unit
-            if camDir:Dot(dirToAgony) > 0.5 then
-                local rp = RaycastParams.new(); rp.FilterDescendantsInstances = {ef, character, rooms[-1]}; rp.FilterType = Enum.RaycastFilterType.Exclude
-                local hit = workspace:Raycast(camera.CFrame.Position, dirToAgony * distToPlayer, rp)
-                if not hit then if humanoid.Health > 0 then humanoid.Health = 0; onDeath() end end
+            -- NEW: Pure Gem counter for Agony (look or distance)
+            local isKilledByAgony = false
+            if distToPlayer < 10 then
+                isKilledByAgony = true
+            else
+                -- look kill
+                local camDir = camera.CFrame.LookVector
+                local dirToAgony = (body.Position - camera.CFrame.Position).Unit
+                if camDir:Dot(dirToAgony) > 0.5 then
+                    local rp = RaycastParams.new(); rp.FilterDescendantsInstances = {ef, character, rooms[-1]}; rp.FilterType = Enum.RaycastFilterType.Exclude
+                    local hit = workspace:Raycast(camera.CFrame.Position, dirToAgony * distToPlayer, rp)
+                    if not hit then isKilledByAgony = true end
+                end
+            end
+
+            if isKilledByAgony then
+                if hasPureGemEquipped() then
+                    local gemTool = character:FindFirstChild("PureGem")
+                    if gemTool then
+                        gemTool:Destroy()
+                        for idx, v in ipairs(inventory) do if v == "PureGem" then table.remove(inventory, idx); break end end
+                    end
+                    -- Agony dies with blood trail + sound (echo + loud)
+                    local deathSnd = Instance.new("Sound")
+                    deathSnd.SoundId = "rbxassetid://139916424589528"
+                    deathSnd.Volume = 3
+                    deathSnd.Parent = body
+                    deathSnd:Play()
+                    local echo = Instance.new("EchoSoundEffect")
+                    echo.Delay = 0.25
+                    echo.WetLevel = 0.55
+                    echo.Parent = deathSnd
+                    -- Blood trail
+                    local blood = Instance.new("ParticleEmitter", body)
+                    blood.Color = ColorSequence.new(Color3.fromRGB(120, 0, 0))
+                    blood.Size = NumberSequence.new({NumberSequenceKeypoint.new(0, 1.2), NumberSequenceKeypoint.new(1, 0)})
+                    blood.Transparency = NumberSequence.new(0.2, 1)
+                    blood.Rate = 70
+                    blood.Speed = NumberRange.new(1, 5)
+                    blood.Lifetime = NumberRange.new(2, 4)
+                    ac:Disconnect(); snd:Stop(); agonyActive = false
+                    if humanoid then humanoid.CameraOffset = Vector3.new(0, 0, 0) end
+                    -- Immediate fade
+                    local step = 0; local fc; fc = RunService.Heartbeat:Connect(function() step = step + 1; if body and body.Parent then body.Transparency = 0.1 + step * 0.09 end; if step >= 10 then fc:Disconnect(); ef:Destroy() end end)
+                    task.delay(AGONY_COOLDOWN, function() agonyOnCooldown = false end)
+                    -- Lantern lights back up
+                    local lanternLit = getEquippedLantern()
+                    if lanternLit then
+                        local h = lanternLit:FindFirstChild("Handle")
+                        if h then
+                            local l = h:FindFirstChild("LanternLight")
+                            if l then
+                                l.Enabled = true
+                                l.Color = Color3.fromRGB(255, 220, 150)
+                                local litSnd = Instance.new("Sound")
+                                litSnd.SoundId = "rbxassetid://139419162875767"
+                                litSnd.Volume = 1.6
+                                litSnd.Parent = h
+                                litSnd:Play()
+                                litSnd.Ended:Connect(function() litSnd:Destroy() end)
+                            end
+                        end
+                    end
+                    return
+                else
+                    if humanoid.Health > 0 then humanoid.Health = 0; onDeath() end
+                end
             end
         end
         if newZ <= stopZ then
             ac:Disconnect(); snd:Stop(); agonyActive = false
             if humanoid then humanoid.CameraOffset = Vector3.new(0, 0, 0) end
+            -- Lantern lights back up
+            local lanternLit = getEquippedLantern()
+            if lanternLit then
+                local h = lanternLit:FindFirstChild("Handle")
+                if h then
+                    local l = h:FindFirstChild("LanternLight")
+                    if l then
+                        l.Enabled = true
+                        l.Color = Color3.fromRGB(255, 220, 150)
+                        local litSnd = Instance.new("Sound")
+                        litSnd.SoundId = "rbxassetid://139419162875767"
+                        litSnd.Volume = 1.6
+                        litSnd.Parent = h
+                        litSnd:Play()
+                        litSnd.Ended:Connect(function() litSnd:Destroy() end)
+                    end
+                end
+            end
             local step = 0; local fc; fc = RunService.Heartbeat:Connect(function() step = step + 1; if body and body.Parent then body.Transparency = 0.1 + step * 0.09 end; if step >= 10 then fc:Disconnect(); ef:Destroy() end end)
             task.delay(AGONY_COOLDOWN, function() agonyOnCooldown = false end)
         end
@@ -1311,9 +1562,48 @@ spawnHer = function(doorNum)
                 body.CFrame = CFrame.new(newPos.X, RUINS_FLOOR_Y + 3.75, newPos.Z)
                 local dist = (rootPart.Position - body.Position).Magnitude
                 if dist < 90 and humanoid then local i2 = (90 - dist) / 90; humanoid.CameraOffset = Vector3.new(math.random(-10, 10) * 0.07 * i2, math.random(-10, 10) * 0.07 * i2, 0) end
-                if dist < 4 and humanoid and humanoid.Health > 0 then humanoid.Health = 0; onDeath() end
-                -- Her retreats at dawn
-                if isDaytime() then hc:Disconnect(); snd:Stop(); if humanoid then humanoid.CameraOffset = Vector3.new(0, 0, 0) end; ef:Destroy(); herActive = false; task.delay(HER_COOLDOWN, function() herOnCooldown = false end) end
+
+                -- NEW: Pure Gem counter for Her (chase kill)
+                if dist < 4 and humanoid and humanoid.Health > 0 then
+                    if hasPureGemEquipped() then
+                        local gemTool = character:FindFirstChild("PureGem")
+                        if gemTool then
+                            gemTool:Destroy()
+                            for idx, v in ipairs(inventory) do if v == "PureGem" then table.remove(inventory, idx); break end end
+                        end
+                        -- Her dies with blood trail + special sound (echo + loud)
+                        local deathSnd = Instance.new("Sound")
+                        deathSnd.SoundId = "rbxassetid://139936933116829"
+                        deathSnd.Volume = 3.5
+                        deathSnd.Parent = body
+                        deathSnd:Play()
+                        local echo = Instance.new("EchoSoundEffect")
+                        echo.Delay = 0.3
+                        echo.WetLevel = 0.6
+                        echo.Parent = deathSnd
+                        -- Blood trail
+                        local bloodTrail = Instance.new("Trail")
+                        bloodTrail.Color = ColorSequence.new(Color3.fromRGB(120, 0, 0))
+                        bloodTrail.Lifetime = 3.5
+                        bloodTrail.Parent = body
+                        local att0 = Instance.new("Attachment", body); att0.Position = Vector3.new(0, 3, 0)
+                        local att1 = Instance.new("Attachment", body); att1.Position = Vector3.new(0, -3, 0)
+                        bloodTrail.Attachment0 = att0
+                        bloodTrail.Attachment1 = att1
+                        hc:Disconnect(); snd:Stop(); herActive = false
+                        if humanoid then humanoid.CameraOffset = Vector3.new(0, 0, 0) end
+                        ef:Destroy()
+                        task.delay(HER_COOLDOWN, function() herOnCooldown = false end)
+                        return
+                    else
+                        humanoid.Health = 0; onDeath()
+                    end
+                end
+
+                -- Her retreats at dawn (as requested: long chase until day, disappears after day even if still "crying")
+                if isDaytime() then
+                    hc:Disconnect(); snd:Stop(); if humanoid then humanoid.CameraOffset = Vector3.new(0, 0, 0) end; ef:Destroy(); herActive = false; task.delay(HER_COOLDOWN, function() herOnCooldown = false end)
+                end
             end
         end
     end)
@@ -1326,13 +1616,14 @@ spawnDrain = function(doorNum)
     local ef = Instance.new("Folder"); ef.Name = "DrainEntity"; ef.Parent = workspace
     local centerZ = getRuinsZ(currentDoor)
 
-    -- Black water overlay (large plane that rises)
+    -- Black water overlay (large plane that rises) - can turn white with Pure Gem
     local blackSea = makePart(Vector3.new(1000, 0.5, 1500), CFrame.new(0, SEA_Y + 0.3, -30000), Color3.fromRGB(5, 5, 5), 0.1, ef, Enum.Material.Neon)
     blackSea.Name = "BlackSea"; blackSea.CanCollide = false
 
     local snd = Instance.new("Sound"); snd.SoundId = "rbxassetid://93281700241946"; snd.Volume = 2.2; snd.Looped = true; snd.Parent = blackSea; snd:Play()
 
     local elapsed = 0; local maxRise = RUINS_FLOOR_Y - SEA_Y - 0.2
+    local healTimer = 0  -- for Pure Gem heal
 
     local dc; dc = RunService.Heartbeat:Connect(function(dt)
         if isDead then if dc then dc:Disconnect() end; ef:Destroy(); drainActive = false; drainOnCooldown = false; return end
@@ -1351,11 +1642,29 @@ spawnDrain = function(doorNum)
         local newY = SEA_Y + 0.3 + currentH
         blackSea.CFrame = CFrame.new(0, newY, -30000)
 
-        -- Kill player if water reaches their feet
+        -- NEW: Pure Gem changes drain to white sea + healing touch
+        local gemHeld = hasPureGemEquipped()
+        if gemHeld then
+            blackSea.Color = Color3.fromRGB(220, 240, 255) -- white sea
+        else
+            blackSea.Color = Color3.fromRGB(5, 5, 5)
+        end
+
+        -- Kill / heal player if water reaches their feet
         if rootPart and humanoid and humanoid.Health > 0 and not isHiding then
             if rootPart.Position.Y < newY + 1.5 then
-                local dSnd = Instance.new("Sound"); dSnd.SoundId = "rbxassetid://128701355933535"; dSnd.Volume = 2; dSnd.Parent = workspace; dSnd:Play()
-                humanoid.Health = 0; onDeath()
+                if gemHeld then
+                    healTimer = healTimer + dt
+                    if healTimer >= 1 then
+                        humanoid.Health = math.min(100, humanoid.Health + 12)
+                        healTimer = 0
+                    end
+                else
+                    local dSnd = Instance.new("Sound"); dSnd.SoundId = "rbxassetid://128701355933535"; dSnd.Volume = 2; dSnd.Parent = workspace; dSnd:Play()
+                    humanoid.Health = 0; onDeath()
+                end
+            else
+                healTimer = 0
             end
         end
     end)
@@ -1407,7 +1716,48 @@ spawnPlantera = function(doorNum)
             local dZ = math.abs(rootPart.Position.Z - newZ)
             if dZ < 120 then local i2 = (120 - dZ) / 120; humanoid.CameraOffset = Vector3.new(math.random(-10, 10) * 0.04 * i2, math.random(-10, 10) * 0.04 * i2, 0)
             else humanoid.CameraOffset = Vector3.new(0, 0, 0) end
-            if not isHiding and dZ < RUINS_D * 0.45 then if humanoid.Health > 0 then humanoid.Health = 0; onDeath() end end
+
+            -- NEW: Pure Gem counter for Plantera
+            if not isHiding and dZ < RUINS_D * 0.45 then
+                if hasPureGemEquipped() then
+                    local gemTool = character:FindFirstChild("PureGem")
+                    if gemTool then
+                        gemTool:Destroy()
+                        for idx, v in ipairs(inventory) do if v == "PureGem" then table.remove(inventory, idx); break end end
+                    end
+                    -- Plantera dies with blood trail + sound (echo + loud)
+                    local deathSnd = Instance.new("Sound")
+                    deathSnd.SoundId = "rbxassetid://139916424589528"
+                    deathSnd.Volume = 3
+                    deathSnd.Parent = body
+                    deathSnd:Play()
+                    local echo = Instance.new("EchoSoundEffect")
+                    echo.Delay = 0.25
+                    echo.WetLevel = 0.55
+                    echo.Parent = deathSnd
+                    -- Blood trail particles
+                    local blood = Instance.new("ParticleEmitter", body)
+                    blood.Color = ColorSequence.new(Color3.fromRGB(120, 0, 0))
+                    blood.Size = NumberSequence.new({NumberSequenceKeypoint.new(0, 1.2), NumberSequenceKeypoint.new(1, 0)})
+                    blood.Transparency = NumberSequence.new(0.2, 1)
+                    blood.Rate = 70
+                    blood.Speed = NumberRange.new(1, 5)
+                    blood.Lifetime = NumberRange.new(2, 4)
+                    pc:Disconnect(); snd:Stop(); planteraActive = false
+                    if humanoid then humanoid.CameraOffset = Vector3.new(0, 0, 0) end
+                    -- Immediate fade
+                    local step = 0
+                    local fc; fc = RunService.Heartbeat:Connect(function()
+                        step = step + 1
+                        if body and body.Parent then body.Transparency = 0.45 + step * 0.06 end
+                        if step >= 10 then fc:Disconnect(); ef:Destroy() end
+                    end)
+                    task.delay(PLANTERA_COOLDOWN, function() planteraOnCooldown = false; planteraSpawned = false end)
+                    return
+                else
+                    if humanoid.Health > 0 then humanoid.Health = 0; onDeath() end
+                end
+            end
         end
 
         if newZ <= stopZ then
@@ -1468,8 +1818,48 @@ spawnStem = function()
             local moving = humanoid.MoveDirection.Magnitude > 0.05
             local jumping = humanoid:GetState() == Enum.HumanoidStateType.Jumping
             if moving or jumping then
-                stemPupil.Size = UDim2.new(0, 10, 0, 10); stemPupil.Position = UDim2.new(0.5, -5, 0.5, -5)
-                task.wait(0.06); isEyeOpen = false; humanoid.Health = 0; onDeath(); stemConn:Disconnect()
+                -- NEW: Pure Gem counter for Stem
+                if hasPureGemEquipped() then
+                    local gemTool = character:FindFirstChild("PureGem")
+                    if gemTool then
+                        gemTool:Destroy()
+                        for idx, v in ipairs(inventory) do if v == "PureGem" then table.remove(inventory, idx); break end end
+                    end
+                    isEyeOpen = false
+                    -- Stem death sound (echo + loud)
+                    local stemDeathSnd = Instance.new("Sound")
+                    stemDeathSnd.SoundId = "rbxassetid://140325083438865"
+                    stemDeathSnd.Volume = 3.2
+                    stemDeathSnd.Parent = workspace
+                    stemDeathSnd:Play()
+                    local echo = Instance.new("EchoSoundEffect")
+                    echo.Delay = 0.22
+                    echo.WetLevel = 0.5
+                    echo.Parent = stemDeathSnd
+                    -- Blood splatter on screen that slowly disappears
+                    local bloodOverlay = Instance.new("Frame")
+                    bloodOverlay.Size = UDim2.new(1, 0, 1, 0)
+                    bloodOverlay.BackgroundColor3 = Color3.fromRGB(110, 0, 0)
+                    bloodOverlay.BackgroundTransparency = 0.25
+                    bloodOverlay.BorderSizePixel = 0
+                    bloodOverlay.ZIndex = 200
+                    bloodOverlay.Parent = screenGui
+                    TweenService:Create(bloodOverlay, TweenInfo.new(8, Enum.EasingStyle.Linear), {BackgroundTransparency = 1}):Play()
+                    task.delay(9, function() if bloodOverlay and bloodOverlay.Parent then bloodOverlay:Destroy() end end)
+                    -- Close eye and end
+                    local closeInfo = TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+                    TweenService:Create(stemTopLid, closeInfo, {Size = UDim2.new(1, 0, 0.5, 2), Position = UDim2.new(0, 0, 0, 0)}):Play()
+                    TweenService:Create(stemBottomLid, closeInfo, {Size = UDim2.new(1, 0, 0.5, 2), Position = UDim2.new(0, 0, 0.5, -2)}):Play()
+                    TweenService:Create(stemPupil, closeInfo, {Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0.5, -19, 0.5, -19)}):Play()
+                    task.wait(0.45)
+                    stemEyeContainer.Visible = false; stemActive = false
+                    task.delay(STEM_COOLDOWN, function() stemOnCooldown = false end)
+                    stemConn:Disconnect()
+                    return
+                else
+                    stemPupil.Size = UDim2.new(0, 10, 0, 10); stemPupil.Position = UDim2.new(0.5, -5, 0.5, -5)
+                    task.wait(0.06); isEyeOpen = false; humanoid.Health = 0; onDeath(); stemConn:Disconnect()
+                end
             end
         end
     end)
@@ -1590,7 +1980,7 @@ mainLoop = function()
         -- Footsteps
         if humanoid and humanoid.Health > 0 and not isHiding then
             local moving = humanoid.MoveDirection.Magnitude > 0
-            if moving and humanoid.FloorMaterial ~= Enum.Material.Air then
+            if moving and humanoid.FloorMaterial \~= Enum.Material.Air then
                 local sr = humanoid.WalkSpeed / 16; local siv = 0.36 / math.max(0.1, sr)
                 if tick() - lastStepTime >= siv then
                     lastStepTime = tick()
