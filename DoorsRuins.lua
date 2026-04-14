@@ -19,11 +19,11 @@ local camera = workspace.CurrentCamera
 
 -- ===== CONSTANTS =====
 local RUINS_START       = 375
-local RUINS_D           = 60    -- room depth (studs)
-local RUINS_W           = 50    -- bridge width
-local RUINS_FLOOR_Y     = 5     -- ruins bridge Y
-local SEA_Y             = 0     -- sea surface Y
-local CAVE_EXIT_Y       = -20   -- lobby cave hole bottom
+local RUINS_D           = 60
+local RUINS_W           = 50
+local RUINS_FLOOR_Y     = 5
+local SEA_Y             = 0
+local CAVE_EXIT_Y       = -20
 local DOOR_MAX          = 1000
 local CHECKPOINT_EVERY  = 50
 
@@ -55,11 +55,13 @@ local GEN_AHEAD         = 6
 local CLEAN_BEHIND      = 7
 local MAX_ITEMS         = 3
 
--- Boat constants
 local BOAT_SPEED        = 28
-local BOAT_KILL_DIST    = 110   -- studs from room center before walls push back
+local BOAT_KILL_DIST    = 110
 local GEM_MIN_DIST      = 20
 local GEM_MAX_DIST      = 60
+
+local LANTERN_SPAWN_CHANCE = 15
+local PUREGEM_SPAWN_CHANCE = 5
 
 -- ===== STATE =====
 local character         = nil
@@ -74,8 +76,8 @@ local currentGap        = nil
 local checkpointDoor    = RUINS_START
 local rooms             = {}
 local roomIsDark        = {}
-local roomType          = {}    -- "normal"|"stairs"|"gem"
-local gemRoomStates     = {}    -- [doorNum] = {bridgeRaised=bool, gemTaken=bool}
+local roomType          = {}
+local gemRoomStates     = {}
 
 local diseaseActive     = false
 local diseaseOnCooldown = false
@@ -88,6 +90,7 @@ local drainOnCooldown   = false
 local planteraActive    = false
 local planteraOnCooldown = false
 local planteraSpawned   = false
+local planteraTreeFolders = {}
 local stemActive        = false
 local stemOnCooldown    = false
 
@@ -106,9 +109,18 @@ local playerBoat        = nil
 local boatVel           = nil
 local boatGyro          = nil
 
--- Day / night tracking
 local currentPeriod     = nil
-local clockTime         = 8     -- start at morning
+local clockTime         = 8
+
+-- Item state
+local playerHasLantern  = false
+local lanternBroken     = false
+local lanternLight      = nil
+local lanternSmoke      = nil
+local lanternPart       = nil
+local playerHasPureGem  = false
+local pureGemInHand     = false
+local pureGemUsed       = false
 
 -- ===== FORWARD DECLARATIONS =====
 local setupLighting, applyLightingPreset, advanceDayNight
@@ -123,6 +135,8 @@ local hideInGap, exitGap
 local spawnDisease, spawnAgony, spawnHer, spawnDrain, spawnPlantera, spawnStem
 local onDoorReached, onDeath, updateCharRef, mainLoop
 local getRuinsZ, isNight, isDaytime
+local spawnLantern, spawnPureGem
+local updateLantern
 
 -- ===== GUI REFS =====
 local screenGui, doorLabel, coinLabel, warningFrame, warningLabel
@@ -148,7 +162,7 @@ isDaytime = function()
 end
 
 -- =================================================================
--- DAY / NIGHT CYCLE  (inline presets - no module require)
+-- DAY / NIGHT CYCLE
 -- =================================================================
 local LIGHT_PRESETS = {
     Sunrise = {
@@ -204,7 +218,7 @@ applyLightingPreset = function(name)
     local ti = TweenInfo.new(5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
     for prop, val in pairs(preset) do
         if prop ~= "ClockTime" then
-            local ok, _ = pcall(function()
+            pcall(function()
                 TweenService:Create(L, ti, { [prop] = val }):Play()
             end)
         end
@@ -269,7 +283,6 @@ createHUD = function()
     screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
     screenGui.Parent = player.PlayerGui
 
-    -- Door bar
     local topBar = Instance.new("Frame")
     topBar.Size = UDim2.new(0, 220, 0, 48)
     topBar.Position = UDim2.new(0.5, -110, 0, 12)
@@ -289,7 +302,6 @@ createHUD = function()
     doorLabel.Font = Enum.Font.GothamBold
     doorLabel.Parent = topBar
 
-    -- Coin bar
     local coinBar = Instance.new("Frame")
     coinBar.Size = UDim2.new(0, 150, 0, 42)
     coinBar.Position = UDim2.new(0, 14, 0, 12)
@@ -318,7 +330,6 @@ createHUD = function()
     coinLabel.TextXAlignment = Enum.TextXAlignment.Left
     coinLabel.Parent = coinBar
 
-    -- Time label
     local timeBar = Instance.new("Frame")
     timeBar.Size = UDim2.new(0, 150, 0, 38)
     timeBar.Position = UDim2.new(1, -164, 0, 12)
@@ -337,7 +348,6 @@ createHUD = function()
     timeLabel.Font = Enum.Font.Gotham
     timeLabel.Parent = timeBar
 
-    -- Warning
     warningFrame = Instance.new("Frame")
     warningFrame.Name = "WarningFrame"
     warningFrame.Size = UDim2.new(1, 0, 0, 70)
@@ -359,7 +369,6 @@ createHUD = function()
     warningLabel.TextWrapped = true
     warningLabel.Parent = warningFrame
 
-    -- Hide prompt
     hidePrompt = Instance.new("Frame")
     hidePrompt.Name = "HidePrompt"
     hidePrompt.Size = UDim2.new(0, 260, 0, 62)
@@ -385,7 +394,6 @@ createHUD = function()
         if not isHiding then hideInGap() else exitGap() end
     end)
 
-    -- Stem Eye UI
     stemEyeContainer = Instance.new("Frame")
     stemEyeContainer.Name = "StemEyeContainer"
     stemEyeContainer.Size = UDim2.new(0, 240, 0, 120)
@@ -609,11 +617,11 @@ makeRuinsChest = function(folder, pos, isLocked)
         usesLeft = usesLeft - 1
 
         local r = math.random(1, 100); local loot
-        if r <= 5 then loot = "Pure Gem"
-        elseif r <= 17 then loot = "Gem"
-        elseif r <= 32 then loot = "Lantern"
-        elseif r <= 48 then loot = "Ecstasy"
-        elseif r <= 80 then loot = "Coin"
+        if r <= PUREGEM_SPAWN_CHANCE then loot = "PureGem"
+        elseif r <= PUREGEM_SPAWN_CHANCE + LANTERN_SPAWN_CHANCE then loot = "Lantern"
+        elseif r <= PUREGEM_SPAWN_CHANCE + LANTERN_SPAWN_CHANCE + 7 then loot = "Gem"
+        elseif r <= PUREGEM_SPAWN_CHANCE + LANTERN_SPAWN_CHANCE + 23 then loot = "Ecstasy"
+        elseif r <= PUREGEM_SPAWN_CHANCE + LANTERN_SPAWN_CHANCE + 55 then loot = "Coin"
         else loot = "Nothing" end
 
         if usesLeft == 0 then
@@ -637,22 +645,6 @@ makeRuinsChest = function(folder, pos, isLocked)
             t.Handle.Material = Enum.Material.Neon
             return
         end
-        if loot == "Lantern" then
-            if #inventory >= MAX_ITEMS then showWarning("Inventory full!", 2); return end
-            table.insert(inventory, "Lantern")
-            local t = giveTool(plr, "Lantern", Color3.fromRGB(200, 150, 50), Vector3.new(0.6, 1, 0.6))
-            makeLight(t.Handle, 2, 25, Color3.fromRGB(255, 220, 150))
-            showWarning("Chest: Found a Lantern!" .. leftStr, 2)
-            return
-        end
-        if loot == "Pure Gem" then
-            if #inventory >= MAX_ITEMS then showWarning("Inventory full!", 2); return end
-            table.insert(inventory, "Pure Gem")
-            local t = giveTool(plr, "Pure Gem", Color3.fromRGB(255, 255, 255), Vector3.new(0.5, 0.5, 0.5))
-            t.Handle.Material = Enum.Material.Neon
-            showWarning("Chest: Found the Pure Gem!" .. leftStr, 2)
-            return
-        end
         if loot == "Ecstasy" then
             if #inventory >= MAX_ITEMS then showWarning("Inventory full!", 2); return end
             table.insert(inventory, "Ecstasy")
@@ -668,6 +660,19 @@ makeRuinsChest = function(folder, pos, isLocked)
                 showWarning("Ecstasy active! Speed boost 3 minutes.", 3)
             end)
             showWarning("Chest: Ecstasy!" .. leftStr, 2)
+            return
+        end
+        if loot == "Lantern" then
+            if playerHasLantern then showWarning("You already have a Lantern!", 2); return end
+            showWarning("Chest: Found a Lantern! It will warn you of danger." .. leftStr, 3)
+            spawnLantern(plr)
+            return
+        end
+        if loot == "PureGem" then
+            if playerHasPureGem then showWarning("You already have a Pure Gem!", 2); return end
+            showWarning("Chest: Found a Pure Gem! Hold it to counter any entity." .. leftStr, 3)
+            spawnPureGem(plr)
+            return
         end
     end)
     return body
@@ -679,6 +684,7 @@ end
 makeRuinsGap = function(folder, pos, rotY)
     local cf = CFrame.new(pos) * CFrame.Angles(0, math.rad(rotY or 0), 0)
     local gapColor = Color3.fromRGB(80, 76, 70)
+
     local backWall = makePart(Vector3.new(6, 5, 0.8), cf * CFrame.new(0, 2.5, 1.5), gapColor, 0, folder, Enum.Material.Cobblestone)
     backWall.Name = "GapBack"
     local leftW = makePart(Vector3.new(0.8, 5, 3), cf * CFrame.new(-3, 2.5, 0), gapColor, 0, folder, Enum.Material.Cobblestone)
@@ -695,6 +701,7 @@ makeRuinsGap = function(folder, pos, rotY)
     end
     local innerMoss = makePart(Vector3.new(5.2, 0.2, 2.8), cf * CFrame.new(0, 0.15, 0.5), MOSS_C, 0, folder, Enum.Material.Grass)
     innerMoss.Name = "GapMoss"; innerMoss.CanCollide = false
+
     backWall:SetAttribute("IsLocker", true)
     return backWall
 end
@@ -742,6 +749,7 @@ makeBoat = function(pos)
     local mast = makePart(Vector3.new(0.5, 6, 0.5), CFrame.new(pos + Vector3.new(0, SEA_Y + 4.5, 0)), Color3.fromRGB(80, 55, 25), 0, ef, Enum.Material.Wood)
     mast.Name = "BoatMast"; mast.Anchored = false
     local mw = Instance.new("Weld"); mw.Part0 = hull; mw.Part1 = mast; mw.C0 = CFrame.new(0, 3, 0); mw.Parent = hull
+
     local bv = Instance.new("BodyVelocity"); bv.Velocity = Vector3.new(0, 0, 0); bv.MaxForce = Vector3.new(1e4, 1e4, 1e4); bv.Parent = hull
     local bg = Instance.new("BodyGyro"); bg.MaxTorque = Vector3.new(1e5, 0, 1e5); bg.CFrame = CFrame.new(hull.Position); bg.Parent = hull
 
@@ -794,26 +802,175 @@ makeGem = function(folder, roomCenterX, roomCenterZ, gemDoorNum)
 end
 
 -- =================================================================
+-- LANTERN ITEM
+-- =================================================================
+spawnLantern = function(plr)
+    playerHasLantern = true; lanternBroken = false
+    local tool = Instance.new("Tool"); tool.Name = "Lantern"
+    local handle = Instance.new("Part"); handle.Name = "Handle"
+    handle.Size = Vector3.new(0.6, 1.2, 0.6)
+    handle.Color = Color3.fromRGB(180, 150, 60)
+    handle.Material = Enum.Material.Metal
+    handle.Parent = tool
+    local li = makeLight(handle, 2.5, 30, Color3.fromRGB(255, 210, 100))
+    lanternLight = li
+    lanternPart = handle
+    -- Smoke emitter for disease warning (starts disabled)
+    local smoke = Instance.new("ParticleEmitter", handle)
+    smoke.Name = "LanternSmoke"
+    smoke.Color = ColorSequence.new(Color3.fromRGB(220, 0, 0))
+    smoke.Size = NumberSequence.new({NumberSequenceKeypoint.new(0, 0.5), NumberSequenceKeypoint.new(1, 1.2)})
+    smoke.Rate = 0; smoke.Speed = NumberRange.new(1, 3); smoke.Lifetime = NumberRange.new(1.5, 3)
+    smoke.Transparency = NumberSequence.new({NumberSequenceKeypoint.new(0, 0.4), NumberSequenceKeypoint.new(1, 1)})
+    lanternSmoke = smoke
+
+    tool.Parent = plr.Backpack
+    tool.Equipped:Connect(function() lanternPart = handle end)
+    tool.Unequipped:Connect(function() end)
+end
+
+updateLantern = function(state)
+    -- state: "normal" | "disease" | "agony" | "restore"
+    if not playerHasLantern then return end
+    if state == "disease" then
+        if lanternSmoke then lanternSmoke.Rate = 60 end
+        if lanternLight then lanternLight.Color = Color3.fromRGB(220, 0, 0) end
+    elseif state == "agony" then
+        -- Lantern breaks when agony spawns
+        if not lanternBroken then
+            lanternBroken = true
+            if lanternLight then lanternLight.Brightness = 0 end
+            if lanternSmoke then lanternSmoke.Rate = 0 end
+            -- Play broke sound
+            local bSnd = Instance.new("Sound")
+            bSnd.SoundId = "rbxassetid://140414748697760"
+            bSnd.Volume = 1.5
+            bSnd.Parent = workspace
+            bSnd:Play()
+            game:GetService("Debris"):AddItem(bSnd, 5)
+        end
+    elseif state == "restore" then
+        -- Restore lantern after agony leaves
+        if lanternBroken then
+            lanternBroken = false
+            if lanternLight then lanternLight.Brightness = 2.5; lanternLight.Color = Color3.fromRGB(255, 210, 100) end
+            -- Play lit sound
+            local lSnd = Instance.new("Sound")
+            lSnd.SoundId = "rbxassetid://139419162875767"
+            lSnd.Volume = 1.5
+            lSnd.Parent = workspace
+            lSnd:Play()
+            game:GetService("Debris"):AddItem(lSnd, 5)
+        end
+    elseif state == "normal" then
+        if lanternSmoke then lanternSmoke.Rate = 0 end
+        if lanternLight and not lanternBroken then lanternLight.Color = Color3.fromRGB(255, 210, 100); lanternLight.Brightness = 2.5 end
+    end
+end
+
+-- =================================================================
+-- PURE GEM ITEM
+-- =================================================================
+spawnPureGem = function(plr)
+    playerHasPureGem = true; pureGemUsed = false
+    local tool = Instance.new("Tool"); tool.Name = "PureGem"
+    local handle = Instance.new("Part"); handle.Name = "Handle"
+    handle.Size = Vector3.new(0.8, 0.8, 0.8)
+    handle.Color = Color3.fromRGB(220, 240, 255)
+    handle.Material = Enum.Material.Neon
+    handle.Shape = Enum.PartType.Ball
+    handle.Parent = tool
+    makeLight(handle, 3, 20, Color3.fromRGB(180, 220, 255))
+
+    local pe = Instance.new("ParticleEmitter", handle)
+    pe.Color = ColorSequence.new(Color3.fromRGB(200, 230, 255))
+    pe.Size = NumberSequence.new({NumberSequenceKeypoint.new(0, 0.5), NumberSequenceKeypoint.new(1, 0)})
+    pe.Rate = 20; pe.Speed = NumberRange.new(1, 3); pe.Lifetime = NumberRange.new(1, 2)
+
+    tool.Parent = plr.Backpack
+
+    tool.Equipped:Connect(function() pureGemInHand = true end)
+    tool.Unequipped:Connect(function() pureGemInHand = false end)
+end
+
+local function playPureGemDeathSound(soundId, isHer)
+    local snd = Instance.new("Sound")
+    snd.SoundId = "rbxassetid://" .. soundId
+    snd.Volume = 5
+    snd.RollOffMaxDistance = 999
+    if isHer then
+        -- Add echo effect
+        local eq = Instance.new("EqualizerSoundEffect", snd)
+        eq.LowGain = -5; eq.MidGain = 0; eq.HighGain = 3
+        local rv = Instance.new("ReverbSoundEffect", snd)
+        rv.DecayTime = 3; rv.Density = 0.8; rv.Diffusion = 0.8
+    end
+    snd.Parent = workspace
+    snd:Play()
+    game:GetService("Debris"):AddItem(snd, 8)
+end
+
+local function pureGemKillEntity(entityFolder, bloodTrailColor, soundId, isHer)
+    if not pureGemInHand or pureGemUsed then return false end
+    pureGemUsed = true; playerHasPureGem = false
+    -- Remove from inventory
+    for i, v in ipairs(inventory) do if v == "PureGem" then table.remove(inventory, i); break end end
+    -- Remove tool from character
+    if character and character:FindFirstChild("PureGem") then character.PureGem:Destroy() end
+    if player.Backpack:FindFirstChild("PureGem") then player.Backpack.PureGem:Destroy() end
+
+    -- Blood trail effect on screen
+    local bloodGui = Instance.new("ScreenGui"); bloodGui.Name = "BloodSplatter"; bloodGui.ResetOnSpawn = false; bloodGui.Parent = player.PlayerGui
+    for i = 1, 18 do
+        local splat = Instance.new("Frame")
+        splat.Size = UDim2.new(0, math.random(40, 120), 0, math.random(40, 120))
+        splat.Position = UDim2.new(math.random(0, 100) / 100, 0, math.random(0, 100) / 100, 0)
+        splat.BackgroundColor3 = bloodTrailColor or Color3.fromRGB(180, 0, 0)
+        splat.BackgroundTransparency = math.random(20, 55) / 100
+        splat.BorderSizePixel = 0; splat.Parent = bloodGui
+        local rc = Instance.new("UICorner"); rc.CornerRadius = UDim.new(1, 0); rc.Parent = splat
+    end
+    -- Fade out blood splatter
+    task.spawn(function()
+        for step = 1, 30 do
+            task.wait(0.12)
+            for _, splat in ipairs(bloodGui:GetChildren()) do
+                if splat:IsA("Frame") then splat.BackgroundTransparency = math.min(1, splat.BackgroundTransparency + 0.03) end
+            end
+        end
+        bloodGui:Destroy()
+    end)
+
+    playPureGemDeathSound(soundId, isHer)
+    if entityFolder and entityFolder.Parent then entityFolder:Destroy() end
+    return true
+end
+
+-- =================================================================
 -- ROOM GENERATION
 -- =================================================================
 generateNormalRoom = function(folder, O, doorNum)
     local floorColor = Color3.fromRGB(145, 138, 118)
     local edgeColor  = Color3.fromRGB(120, 114, 96)
+
     local floor = makePart(Vector3.new(RUINS_W, 1, RUINS_D), CFrame.new(O + Vector3.new(0, RUINS_FLOOR_Y - 0.5, 0)), floorColor, 0, folder, Enum.Material.Cobblestone)
     floor.Name = "BridgeFloor"
     for ei = -1, 1, 2 do
         local edge = makePart(Vector3.new(1, 1.5, RUINS_D), CFrame.new(O + Vector3.new(ei * RUINS_W * 0.5, RUINS_FLOOR_Y, 0)), edgeColor, 0, folder, Enum.Material.Cobblestone)
         edge.Name = "BridgeEdge"
     end
+
     local numDecor = math.random(2, 5)
     for di = 1, numDecor do
         local dx = math.random(-18, 18); local dz = math.random(-22, 22)
         makeRuinsDecor(folder, O + Vector3.new(dx, RUINS_FLOOR_Y, dz))
     end
+
     local gapRotY = math.random(0, 3) * 90
     local gapX = (math.random(1, 2) == 1 and 1 or -1) * math.random(8, 18)
     local gapZ = math.random(-18, 18)
     makeRuinsGap(folder, O + Vector3.new(gapX, RUINS_FLOOR_Y, gapZ), gapRotY)
+
     local numChests = math.random(1, 3)
     for ci = 1, numChests do
         local cx = math.random(-18, 18); local cz = math.random(-22, 22)
@@ -824,7 +981,9 @@ end
 generateStairsRoom = function(folder, O, doorNum)
     local floorColor = Color3.fromRGB(145, 138, 118)
     local stepColor  = Color3.fromRGB(130, 124, 106)
+
     makePart(Vector3.new(RUINS_W, 1, RUINS_D), CFrame.new(O + Vector3.new(0, RUINS_FLOOR_Y - 0.5, 0)), floorColor, 0, folder, Enum.Material.Cobblestone).Name = "StairsFloor"
+
     local numSteps = 6
     for si = 0, numSteps - 1 do
         local stepY  = RUINS_FLOOR_Y + si * 1.2
@@ -834,19 +993,24 @@ generateStairsRoom = function(folder, O, doorNum)
     end
     local platH = RUINS_FLOOR_Y + numSteps * 1.2
     makePart(Vector3.new(RUINS_W, 1, RUINS_D * 0.35), CFrame.new(O + Vector3.new(0, platH - 0.5, 0)), floorColor, 0, folder, Enum.Material.Cobblestone).Name = "PlatformTop"
+
     for si = 0, numSteps - 1 do
         local stepY  = platH - si * 1.2
         local stepZ  = -(RUINS_D * 0.5 - 2 - si * 2.2)
         local step = makePart(Vector3.new(RUINS_W, 1.2, 2.2), CFrame.new(O + Vector3.new(0, stepY, stepZ)), stepColor, 0, folder, Enum.Material.Cobblestone)
         step.Name = "StepExit"
     end
+
     for ei = -1, 1, 2 do
         makePart(Vector3.new(1, 1.5, RUINS_D), CFrame.new(O + Vector3.new(ei * RUINS_W * 0.5, RUINS_FLOOR_Y, 0)), Color3.fromRGB(120, 114, 96), 0, folder, Enum.Material.Cobblestone).Name = "BridgeEdge"
     end
+
     makeRuinsGap(folder, O + Vector3.new(math.random(-15, 15), RUINS_FLOOR_Y, RUINS_D * 0.4), math.random(0, 3) * 90)
     makeRuinsGap(folder, O + Vector3.new(math.random(-15, 15), RUINS_FLOOR_Y, -RUINS_D * 0.4), math.random(0, 3) * 90)
+
     makeRuinsChest(folder, O + Vector3.new(math.random(-14, 14), RUINS_FLOOR_Y, RUINS_D * 0.38), false)
     makeRuinsChest(folder, O + Vector3.new(math.random(-14, 14), RUINS_FLOOR_Y, -RUINS_D * 0.38), false)
+
     for di = 1, 2 do
         makeRuinsDecor(folder, O + Vector3.new(math.random(-14, 14), platH, math.random(-8, 8)))
     end
@@ -854,6 +1018,7 @@ end
 
 generateGemRoom = function(folder, O, doorNum)
     gemRoomStates[doorNum] = { bridgeRaised = false, gemTaken = false }
+
     local platformW = RUINS_W
     local platformD = 20
     local gapD = 55
@@ -861,6 +1026,7 @@ generateGemRoom = function(folder, O, doorNum)
 
     makePart(Vector3.new(platformW, 1, platformD), CFrame.new(O + Vector3.new(0, RUINS_FLOOR_Y - 0.5, RUINS_D * 0.5 - platformD * 0.5)), floorC, 0, folder, Enum.Material.Cobblestone).Name = "EntrancePlatform"
     makePart(Vector3.new(platformW, 1, platformD), CFrame.new(O + Vector3.new(0, RUINS_FLOOR_Y - 0.5, -(RUINS_D * 0.5 - platformD * 0.5))), floorC, 0, folder, Enum.Material.Cobblestone).Name = "ExitPlatform"
+
     for side = -1, 1, 2 do
         makePart(Vector3.new(1, 2.5, platformD), CFrame.new(O + Vector3.new(side * platformW * 0.5, RUINS_FLOOR_Y + 0.75, RUINS_D * 0.5 - platformD * 0.5)), STONE, 0, folder, Enum.Material.Cobblestone).Name = "PlatformEdge"
         makePart(Vector3.new(1, 2.5, platformD), CFrame.new(O + Vector3.new(side * platformW * 0.5, RUINS_FLOOR_Y + 0.75, -(RUINS_D * 0.5 - platformD * 0.5))), STONE, 0, folder, Enum.Material.Cobblestone).Name = "PlatformEdge"
@@ -874,7 +1040,6 @@ generateGemRoom = function(folder, O, doorNum)
 
     local bridgeF = Instance.new("Folder"); bridgeF.Name = "GemBridge"; bridgeF.Parent = folder
     local bridgePlanks = {}
-    local gapCenter = O.Z
     local numPlanks = 10
     for pi = 1, numPlanks do
         local pct = pi / (numPlanks + 1)
@@ -918,6 +1083,7 @@ generateGemRoom = function(folder, O, doorNum)
 
     makeRuinsGap(folder, O + Vector3.new(math.random(-14, 14), RUINS_FLOOR_Y, RUINS_D * 0.38), 0)
     makeRuinsGap(folder, O + Vector3.new(math.random(-14, 14), RUINS_FLOOR_Y, -RUINS_D * 0.38), 0)
+
     makeRuinsChest(folder, O + Vector3.new(math.random(-12, 12), RUINS_FLOOR_Y, RUINS_D * 0.3), false)
 
     local boatX = O.X + RUINS_W * 0.6
@@ -1015,10 +1181,7 @@ createLobby = function()
     cp.Triggered:Connect(function()
         if character then character:PivotTo(CFrame.new(0, RUINS_FLOOR_Y + 3, 55)) end
         showWarning("You emerge into The Ruins!", 3)
-        if not gameStarted then
-            task.wait(0.5)
-            startGame()
-        end
+        if not gameStarted then task.wait(0.5); startGame() end
     end)
 
     makePart(Vector3.new(60, 1, 80), CFrame.new(0, RUINS_FLOOR_Y - 0.5, 30), stoneC, 0, folder, Enum.Material.Cobblestone).Name = "LobbyCourtyard"
@@ -1055,7 +1218,7 @@ createLobby = function()
 end
 
 -- =================================================================
--- HIDING 
+-- HIDING
 -- =================================================================
 hideInGap = function()
     if not currentGap or isHiding or not humanoid then return end
@@ -1085,81 +1248,23 @@ showWarning = function(msg, duration)
 end
 
 -- =================================================================
--- ITEM EFFECTS
--- =================================================================
-local function getHeldTool(toolName)
-    if character and character:FindFirstChild(toolName) then
-        return character[toolName]
-    end
-    return nil
-end
-
-local function usePureGem(enemyBody, soundId, leaveBlood)
-    local gem = getHeldTool("Pure Gem")
-    if gem then
-        gem:Destroy()
-        for i, v in ipairs(inventory) do 
-            if v == "Pure Gem" then table.remove(inventory, i) break end 
-        end
-        
-        local s = Instance.new("Sound")
-        s.SoundId = "rbxassetid://" .. soundId
-        s.Volume = 3
-        if soundId == "139936933116829" then
-            local echo = Instance.new("EchoSoundEffect", s)
-            s.Volume = 5
-        end
-        s.Parent = workspace
-        s:Play()
-        
-        if leaveBlood and enemyBody then
-            local b = makePart(Vector3.new(4, 0.2, 8), CFrame.new(enemyBody.Position.X, RUINS_FLOOR_Y + 0.1, enemyBody.Position.Z), Color3.fromRGB(130, 0, 0), 0, workspace, Enum.Material.Mud)
-            b.CanCollide = false
-        end
-        return true
-    end
-    return false
-end
-
-local function effectLantern(eventType)
-    local lant = getHeldTool("Lantern") or (player.Backpack:FindFirstChild("Lantern"))
-    if not lant then return end
-    local handle = lant:FindFirstChild("Handle")
-    if not handle then return end
-    local light = handle:FindFirstChildWhichIsA("PointLight")
-    
-    if eventType == "disease_start" then
-        local pe = Instance.new("ParticleEmitter", handle)
-        pe.Name = "RedSmoke"; pe.Color = ColorSequence.new(Color3.fromRGB(255, 0, 0))
-        pe.Size = NumberSequence.new({NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(1, 3)})
-        pe.Rate = 20
-    elseif eventType == "disease_end" then
-        local pe = handle:FindFirstChild("RedSmoke")
-        if pe then pe:Destroy() end
-    elseif eventType == "agony_start" then
-        if light then light.Enabled = false end
-        local s = Instance.new("Sound", handle); s.SoundId = "rbxassetid://140414748697760"; s:Play()
-    elseif eventType == "agony_end" then
-        if light then light.Enabled = true end
-        local s = Instance.new("Sound", handle); s.SoundId = "rbxassetid://139419162875767"; s:Play()
-    end
-end
-
--- =================================================================
 -- DEATH
 -- =================================================================
 onDeath = function()
     if isDead then return end
     isDead = true; gameStarted = false; isHiding = false; onBoat = false; playerBoat = nil; boatVel = nil; boatGyro = nil
-    
-    for _, obj in ipairs(workspace:GetChildren()) do
-        if obj.Name == "TreeBarrier" then obj:Destroy() end
-    end
-
     if humanoid then humanoid.CameraOffset = Vector3.new(0, 0, 0) end
     inventory = {}; ecstasyActive = false
+    playerHasLantern = false; lanternBroken = false; lanternLight = nil; lanternSmoke = nil; lanternPart = nil
+    playerHasPureGem = false; pureGemInHand = false; pureGemUsed = false
     local ccc = game.Lighting:FindFirstChild("EcstasyCC"); if ccc then ccc:Destroy() end
     if stemEyeContainer then stemEyeContainer.Visible = false end
+
+    -- Clear all Plantera tree barriers on death
+    for _, tbData in ipairs(planteraTreeFolders) do
+        if tbData.folder and tbData.folder.Parent then tbData.folder:Destroy() end
+    end
+    planteraTreeFolders = {}
 
     local dg = Instance.new("ScreenGui"); dg.Name = "RuinsDeathGui"; dg.ResetOnSpawn = false; dg.Parent = player.PlayerGui
     local bg = Instance.new("Frame"); bg.Size = UDim2.new(1, 0, 1, 0); bg.BackgroundColor3 = Color3.fromRGB(60, 45, 20); bg.BackgroundTransparency = 0.45; bg.BorderSizePixel = 0; bg.Parent = dg
@@ -1186,6 +1291,9 @@ end
 spawnDisease = function(doorNum)
     if diseaseActive or diseaseOnCooldown then return end
     diseaseActive = true; diseaseOnCooldown = true
+
+    if playerHasLantern then updateLantern("disease") end
+
     local ef = Instance.new("Folder"); ef.Name = "DiseaseEntity"; ef.Parent = workspace
     local startZ = getRuinsZ(doorNum - DISEASE_BEFORE) + RUINS_D * 0.5
     local stopZ  = getRuinsZ(doorNum + DISEASE_AFTER) - RUINS_D * 0.5
@@ -1201,34 +1309,31 @@ spawnDisease = function(doorNum)
     tr.Attachment0 = a0; tr.Attachment1 = a1
     local snd = Instance.new("Sound"); snd.SoundId = "rbxassetid://125795970503985"; snd.Volume = 1.5; snd.Looped = true; snd.RollOffMaxDistance = 200; snd.Parent = body; snd:Play()
 
-    effectLantern("disease_start")
-
     local mc; mc = RunService.Heartbeat:Connect(function(dt)
         if not body or not body.Parent then mc:Disconnect(); return end
         local newZ = body.CFrame.Position.Z - DISEASE_SPEED * dt
         body.CFrame = CFrame.new(body.CFrame.Position.X, body.CFrame.Position.Y, newZ)
-        
         if rootPart and humanoid and not isDead then
             local dZ = math.abs(rootPart.Position.Z - newZ)
-            if dZ < 140 then 
-                local i2 = (140 - dZ) / 140; humanoid.CameraOffset = Vector3.new(math.random(-10, 10) * 0.05 * i2, math.random(-10, 10) * 0.05 * i2, 0)
+            if dZ < 140 then local i2 = (140 - dZ) / 140; humanoid.CameraOffset = Vector3.new(math.random(-10, 10) * 0.05 * i2, math.random(-10, 10) * 0.05 * i2, 0)
             else humanoid.CameraOffset = Vector3.new(0, 0, 0) end
-            
-            if not isHiding and dZ < RUINS_D * 0.45 then 
-                if usePureGem(body, "139916424589528", true) then
-                    mc:Disconnect(); snd:Stop(); diseaseActive = false; ef:Destroy()
-                    effectLantern("disease_end")
+            if not isHiding and dZ < RUINS_D * 0.45 then
+                -- Pure gem intercepts
+                if playerHasPureGem and pureGemInHand and not pureGemUsed then
+                    pureGemKillEntity(ef, Color3.fromRGB(160, 0, 0), "139916424589528", false)
+                    mc:Disconnect(); diseaseActive = false
+                    if humanoid then humanoid.CameraOffset = Vector3.new(0, 0, 0) end
+                    if playerHasLantern then updateLantern("normal") end
                     task.delay(DISEASE_COOLDOWN, function() diseaseOnCooldown = false end)
                     return
-                elseif humanoid.Health > 0 then 
-                    humanoid.Health = 0; onDeath() 
-                end 
+                end
+                if humanoid.Health > 0 then humanoid.Health = 0; onDeath() end
             end
         end
         if newZ <= stopZ then
             mc:Disconnect(); snd:Stop(); diseaseActive = false
-            effectLantern("disease_end")
             if humanoid then humanoid.CameraOffset = Vector3.new(0, 0, 0) end
+            if playerHasLantern then updateLantern("normal") end
             local step = 0; local fc; fc = RunService.Heartbeat:Connect(function() step = step + 1; if body and body.Parent then body.Transparency = 0.45 + step * 0.06 end; if step >= 10 then fc:Disconnect(); ef:Destroy() end end)
             task.delay(DISEASE_COOLDOWN, function() diseaseOnCooldown = false end)
         end
@@ -1238,6 +1343,9 @@ end
 spawnAgony = function(doorNum)
     if agonyActive or agonyOnCooldown then return end
     agonyActive = true; agonyOnCooldown = true
+
+    if playerHasLantern then updateLantern("agony") end
+
     local ef = Instance.new("Folder"); ef.Name = "AgonyEntity"; ef.Parent = workspace
     local startZ = getRuinsZ(doorNum - 4) + RUINS_D * 0.5
     local stopZ  = getRuinsZ(doorNum + 5) - RUINS_D * 0.5
@@ -1252,43 +1360,49 @@ spawnAgony = function(doorNum)
     tr.Attachment0 = at0; tr.Attachment1 = at1
     local snd = Instance.new("Sound"); snd.SoundId = "rbxassetid://89060529910257"; snd.Volume = 2.5; snd.Looped = true; snd.RollOffMaxDistance = 400; snd.Parent = body; snd:Play()
 
-    effectLantern("agony_start")
-
     local ac; ac = RunService.Heartbeat:Connect(function(dt)
         if not body or not body.Parent then ac:Disconnect(); return end
         local newZ = body.CFrame.Position.Z - AGONY_SPEED * dt
         body.CFrame = CFrame.new(body.CFrame.Position.X, body.CFrame.Position.Y, newZ)
         if rootPart and humanoid and not isDead then
             local dZ = math.abs(rootPart.Position.Z - newZ)
-            if dZ < 160 then 
-                local i2 = (160 - dZ) / 160; humanoid.CameraOffset = Vector3.new(math.random(-10, 10) * 0.09 * i2, math.random(-10, 10) * 0.09 * i2, 0)
+            if dZ < 160 then local i2 = (160 - dZ) / 160; humanoid.CameraOffset = Vector3.new(math.random(-10, 10) * 0.09 * i2, math.random(-10, 10) * 0.09 * i2, 0)
             else humanoid.CameraOffset = Vector3.new(0, 0, 0) end
-            
             local distToPlayer = (rootPart.Position - body.Position).Magnitude
-            local camDir = camera.CFrame.LookVector
-            local dirToAgony = (body.Position - camera.CFrame.Position).Unit
-            
-            local hit = false
-            if camDir:Dot(dirToAgony) > 0.5 then
-                local rp = RaycastParams.new(); rp.FilterDescendantsInstances = {ef, character, rooms[-1]}; rp.FilterType = Enum.RaycastFilterType.Exclude
-                hit = workspace:Raycast(camera.CFrame.Position, dirToAgony * distToPlayer, rp) ~= nil
-            end
-
-            if distToPlayer < 10 or (camDir:Dot(dirToAgony) > 0.5 and not hit) then
-                if usePureGem(body, "139916424589528", true) then
-                    ac:Disconnect(); snd:Stop(); agonyActive = false; ef:Destroy()
-                    effectLantern("agony_end")
+            if distToPlayer < 10 then
+                -- Pure gem intercepts
+                if playerHasPureGem and pureGemInHand and not pureGemUsed then
+                    pureGemKillEntity(ef, Color3.fromRGB(30, 0, 30), "139916424589528", false)
+                    ac:Disconnect(); agonyActive = false
+                    if humanoid then humanoid.CameraOffset = Vector3.new(0, 0, 0) end
+                    if playerHasLantern then updateLantern("restore") end
                     task.delay(AGONY_COOLDOWN, function() agonyOnCooldown = false end)
                     return
-                elseif humanoid.Health > 0 then 
-                    humanoid.Health = 0; onDeath() 
+                end
+                if humanoid.Health > 0 then humanoid.Health = 0; onDeath() end
+            end
+            local camDir = camera.CFrame.LookVector
+            local dirToAgony = (body.Position - camera.CFrame.Position).Unit
+            if camDir:Dot(dirToAgony) > 0.5 then
+                local rp = RaycastParams.new(); rp.FilterDescendantsInstances = {ef, character, rooms[-1]}; rp.FilterType = Enum.RaycastFilterType.Exclude
+                local hit = workspace:Raycast(camera.CFrame.Position, dirToAgony * distToPlayer, rp)
+                if not hit then
+                    if playerHasPureGem and pureGemInHand and not pureGemUsed then
+                        pureGemKillEntity(ef, Color3.fromRGB(30, 0, 30), "139916424589528", false)
+                        ac:Disconnect(); agonyActive = false
+                        if humanoid then humanoid.CameraOffset = Vector3.new(0, 0, 0) end
+                        if playerHasLantern then updateLantern("restore") end
+                        task.delay(AGONY_COOLDOWN, function() agonyOnCooldown = false end)
+                        return
+                    end
+                    if humanoid.Health > 0 then humanoid.Health = 0; onDeath() end
                 end
             end
         end
         if newZ <= stopZ then
             ac:Disconnect(); snd:Stop(); agonyActive = false
-            effectLantern("agony_end")
             if humanoid then humanoid.CameraOffset = Vector3.new(0, 0, 0) end
+            if playerHasLantern then updateLantern("restore") end
             local step = 0; local fc; fc = RunService.Heartbeat:Connect(function() step = step + 1; if body and body.Parent then body.Transparency = 0.1 + step * 0.09 end; if step >= 10 then fc:Disconnect(); ef:Destroy() end end)
             task.delay(AGONY_COOLDOWN, function() agonyOnCooldown = false end)
         end
@@ -1304,21 +1418,21 @@ spawnHer = function(doorNum)
     body.Name = "HerBody"; body.CanCollide = false
     local snd = Instance.new("Sound"); snd.SoundId = "rbxassetid://129136912774651"; snd.Volume = 2; snd.Looped = true; snd.RollOffMaxDistance = 100; snd.Parent = body; snd:Play()
     local lookTimer = 0; local isChasing = false; local hc
-    
     hc = RunService.Heartbeat:Connect(function(dt)
         if not body or not body.Parent or isDead then if hc then hc:Disconnect() end; return end
-        
-        if isDaytime() then
-            hc:Disconnect(); snd:Stop(); if humanoid then humanoid.CameraOffset = Vector3.new(0, 0, 0) end
-            ef:Destroy(); herActive = false; task.delay(HER_COOLDOWN, function() herOnCooldown = false end)
-            return
-        end
-
         if not isChasing then
             if rootPart and camera then
                 local dot = camera.CFrame.LookVector:Dot((body.Position - camera.CFrame.Position).Unit)
                 if dot > 0.75 then lookTimer = lookTimer + dt else lookTimer = math.max(0, lookTimer - dt) end
                 if lookTimer >= 3 then isChasing = true; snd:Stop(); snd.SoundId = "rbxassetid://108968287863512"; snd.Volume = 3; snd:Play(); body.Color = Color3.fromRGB(22, 0, 0) end
+            end
+            -- If not chasing and it becomes day, disappear (was still crying)
+            if isDaytime() then
+                hc:Disconnect(); snd:Stop()
+                if humanoid then humanoid.CameraOffset = Vector3.new(0, 0, 0) end
+                ef:Destroy(); herActive = false
+                task.delay(HER_COOLDOWN, function() herOnCooldown = false end)
+                return
             end
             if currentDoor > doorNum + 2 then hc:Disconnect(); ef:Destroy(); herActive = false; task.delay(HER_COOLDOWN, function() herOnCooldown = false end) end
         else
@@ -1327,18 +1441,24 @@ spawnHer = function(doorNum)
                 local newPos = lCF.Position + lCF.LookVector * HER_SPEED * dt
                 body.CFrame = CFrame.new(newPos.X, RUINS_FLOOR_Y + 3.75, newPos.Z)
                 local dist = (rootPart.Position - body.Position).Magnitude
-                if dist < 90 and humanoid then 
-                    local i2 = (90 - dist) / 90; humanoid.CameraOffset = Vector3.new(math.random(-10, 10) * 0.07 * i2, math.random(-10, 10) * 0.07 * i2, 0) 
-                end
-                
-                if dist < 4 and humanoid then 
-                    if usePureGem(body, "139936933116829", true) then
-                        hc:Disconnect(); snd:Stop(); herActive = false; ef:Destroy()
+                if dist < 90 and humanoid then local i2 = (90 - dist) / 90; humanoid.CameraOffset = Vector3.new(math.random(-10, 10) * 0.07 * i2, math.random(-10, 10) * 0.07 * i2, 0) end
+                if dist < 4 and humanoid and humanoid.Health > 0 then
+                    -- Pure gem intercepts Her
+                    if playerHasPureGem and pureGemInHand and not pureGemUsed then
+                        pureGemKillEntity(ef, Color3.fromRGB(100, 0, 0), "139936933116829", true)
+                        hc:Disconnect(); herActive = false
+                        if humanoid then humanoid.CameraOffset = Vector3.new(0, 0, 0) end
                         task.delay(HER_COOLDOWN, function() herOnCooldown = false end)
                         return
-                    elseif humanoid.Health > 0 then 
-                        humanoid.Health = 0; onDeath() 
                     end
+                    humanoid.Health = 0; onDeath()
+                end
+                -- Her retreats at dawn (chasing state - also disappears)
+                if isDaytime() then
+                    hc:Disconnect(); snd:Stop()
+                    if humanoid then humanoid.CameraOffset = Vector3.new(0, 0, 0) end
+                    ef:Destroy(); herActive = false
+                    task.delay(HER_COOLDOWN, function() herOnCooldown = false end)
                 end
             end
         end
@@ -1349,22 +1469,14 @@ spawnDrain = function(doorNum)
     if drainActive or drainOnCooldown then return end
     drainActive = true; drainOnCooldown = true
     local ef = Instance.new("Folder"); ef.Name = "DrainEntity"; ef.Parent = workspace
-    local centerZ = getRuinsZ(currentDoor)
 
     local blackSea = makePart(Vector3.new(1000, 0.5, 1500), CFrame.new(0, SEA_Y + 0.3, -30000), Color3.fromRGB(5, 5, 5), 0.1, ef, Enum.Material.Neon)
     blackSea.Name = "BlackSea"; blackSea.CanCollide = false
-    
-    local usingPureGem = false
-    local gem = getHeldTool("Pure Gem")
-    if gem then
-        usingPureGem = true
-        blackSea.Color = Color3.fromRGB(255, 255, 255)
-        gem:Destroy()
-        for i, v in ipairs(inventory) do if v == "Pure Gem" then table.remove(inventory, i) break end end
-    end
 
     local snd = Instance.new("Sound"); snd.SoundId = "rbxassetid://93281700241946"; snd.Volume = 2.2; snd.Looped = true; snd.Parent = blackSea; snd:Play()
+
     local elapsed = 0; local maxRise = RUINS_FLOOR_Y - SEA_Y - 0.2
+
     local dc; dc = RunService.Heartbeat:Connect(function(dt)
         if isDead then if dc then dc:Disconnect() end; ef:Destroy(); drainActive = false; drainOnCooldown = false; return end
         elapsed = elapsed + dt
@@ -1384,15 +1496,8 @@ spawnDrain = function(doorNum)
 
         if rootPart and humanoid and humanoid.Health > 0 and not isHiding then
             if rootPart.Position.Y < newY + 1.5 then
-                if usingPureGem then
-                    if tick() - (blackSea:GetAttribute("LastHeal") or 0) >= 1 then
-                        blackSea:SetAttribute("LastHeal", tick())
-                        humanoid.Health = math.min(humanoid.MaxHealth, humanoid.Health + 1)
-                    end
-                else
-                    local dSnd = Instance.new("Sound"); dSnd.SoundId = "rbxassetid://128701355933535"; dSnd.Volume = 2; dSnd.Parent = workspace; dSnd:Play()
-                    humanoid.Health = 0; onDeath()
-                end
+                local dSnd = Instance.new("Sound"); dSnd.SoundId = "rbxassetid://128701355933535"; dSnd.Volume = 2; dSnd.Parent = workspace; dSnd:Play()
+                humanoid.Health = 0; onDeath()
             end
         end
     end)
@@ -1401,13 +1506,13 @@ end
 spawnPlantera = function(doorNum)
     if planteraActive or planteraOnCooldown then return end
     planteraActive = true; planteraOnCooldown = true; planteraSpawned = true
-    
-    local treeBarrierFolders = {}
+    planteraTreeFolders = {}
+
     for d = doorNum, doorNum + PLANTERA_AFTER + 1 do
         if rooms[d] then
             local rZ = getRuinsZ(d) - RUINS_D * 0.5
             local tf = makeTreeBarrier(rooms[d], Vector3.new(0, 0, rZ), rZ)
-            table.insert(treeBarrierFolders, {folder = tf, z = rZ})
+            table.insert(planteraTreeFolders, {folder = tf, z = rZ})
         end
     end
     showWarning("PLANTERA approaches! The exit is blocked - HIDE NOW!", 4)
@@ -1433,32 +1538,50 @@ spawnPlantera = function(doorNum)
         local newZ = body.CFrame.Position.Z - PLANTERA_SPEED * dt
         body.CFrame = CFrame.new(body.CFrame.Position.X, body.CFrame.Position.Y, newZ)
 
-        for idx, tbData in ipairs(treeBarrierFolders) do
+        -- Destroy tree barriers as Plantera passes through them
+        for idx, tbData in ipairs(planteraTreeFolders) do
             if tbData.folder and tbData.folder.Parent and newZ <= tbData.z + 5 then
-                tbData.folder:Destroy(); treeBarrierFolders[idx] = {folder = nil, z = tbData.z}
+                tbData.folder:Destroy(); planteraTreeFolders[idx] = {folder = nil, z = tbData.z}
             end
         end
 
         if rootPart and humanoid and not isDead then
             local dZ = math.abs(rootPart.Position.Z - newZ)
-            if dZ < 120 then 
-                local i2 = (120 - dZ) / 120; humanoid.CameraOffset = Vector3.new(math.random(-10, 10) * 0.04 * i2, math.random(-10, 10) * 0.04 * i2, 0)
+            if dZ < 120 then local i2 = (120 - dZ) / 120; humanoid.CameraOffset = Vector3.new(math.random(-10, 10) * 0.04 * i2, math.random(-10, 10) * 0.04 * i2, 0)
             else humanoid.CameraOffset = Vector3.new(0, 0, 0) end
-            
-            if not isHiding and dZ < RUINS_D * 0.45 then 
-                if usePureGem(body, "139916424589528", true) then
-                    pc:Disconnect(); snd:Stop(); planteraActive = false; ef:Destroy()
+            if not isHiding and dZ < RUINS_D * 0.45 then
+                -- Pure gem intercepts Plantera
+                if playerHasPureGem and pureGemInHand and not pureGemUsed then
+                    -- Clear all remaining tree barriers immediately
+                    for _, tbData in ipairs(planteraTreeFolders) do
+                        if tbData.folder and tbData.folder.Parent then tbData.folder:Destroy() end
+                    end
+                    planteraTreeFolders = {}
+                    pureGemKillEntity(ef, Color3.fromRGB(10, 100, 10), "139916424589528", false)
+                    pc:Disconnect(); planteraActive = false
+                    if humanoid then humanoid.CameraOffset = Vector3.new(0, 0, 0) end
                     task.delay(PLANTERA_COOLDOWN, function() planteraOnCooldown = false; planteraSpawned = false end)
                     return
-                elseif humanoid.Health > 0 then 
-                    humanoid.Health = 0; onDeath() 
-                end 
+                end
+                if humanoid.Health > 0 then
+                    -- Clear all remaining tree barriers on death
+                    for _, tbData in ipairs(planteraTreeFolders) do
+                        if tbData.folder and tbData.folder.Parent then tbData.folder:Destroy() end
+                    end
+                    planteraTreeFolders = {}
+                    humanoid.Health = 0; onDeath()
+                end
             end
         end
 
         if newZ <= stopZ then
             pc:Disconnect(); snd:Stop(); planteraActive = false
             if humanoid then humanoid.CameraOffset = Vector3.new(0, 0, 0) end
+            -- Clear any leftover trees
+            for _, tbData in ipairs(planteraTreeFolders) do
+                if tbData.folder and tbData.folder.Parent then tbData.folder:Destroy() end
+            end
+            planteraTreeFolders = {}
             local step = 0; local fc; fc = RunService.Heartbeat:Connect(function() step = step + 1; if body and body.Parent then body.Transparency = 0.45 + step * 0.06 end; if step >= 10 then fc:Disconnect(); ef:Destroy() end end)
             task.delay(PLANTERA_COOLDOWN, function() planteraOnCooldown = false; planteraSpawned = false end)
         end
@@ -1514,22 +1637,46 @@ spawnStem = function()
             local moving = humanoid.MoveDirection.Magnitude > 0.05
             local jumping = humanoid:GetState() == Enum.HumanoidStateType.Jumping
             if moving or jumping then
-                if usePureGem(nil, "140325083438865", false) then
-                    stemConn:Disconnect()
-                    local bGui = Instance.new("ScreenGui", player.PlayerGui)
-                    local bFrame = Instance.new("Frame", bGui)
-                    bFrame.Size = UDim2.new(1, 0, 1, 0); bFrame.BackgroundColor3 = Color3.fromRGB(150, 0, 0)
-                    bFrame.BackgroundTransparency = 0.3; bFrame.BorderSizePixel = 0
-                    TweenService:Create(bFrame, TweenInfo.new(4), {BackgroundTransparency = 1}):Play()
-                    task.delay(4, function() bGui:Destroy() end)
-                    
-                    isEyeOpen = false; stemEyeContainer.Visible = false; stemActive = false
+                -- Pure gem kills Stem before it kills player
+                if playerHasPureGem and pureGemInHand and not pureGemUsed then
+                    isEyeOpen = false; stemConn:Disconnect()
+                    stemPupil.Size = UDim2.new(0, 10, 0, 10); stemPupil.Position = UDim2.new(0.5, -5, 0.5, -5)
+                    -- Blood splatter on screen
+                    local bloodGui = Instance.new("ScreenGui"); bloodGui.Name = "StemBloodSplatter"; bloodGui.ResetOnSpawn = false; bloodGui.Parent = player.PlayerGui
+                    for i = 1, 22 do
+                        local splat = Instance.new("Frame")
+                        splat.Size = UDim2.new(0, math.random(30, 100), 0, math.random(30, 100))
+                        splat.Position = UDim2.new(math.random(0, 100) / 100, 0, math.random(0, 100) / 100, 0)
+                        splat.BackgroundColor3 = Color3.fromRGB(0, 180, 0)
+                        splat.BackgroundTransparency = math.random(20, 50) / 100
+                        splat.BorderSizePixel = 0; splat.Parent = bloodGui
+                        local rc = Instance.new("UICorner"); rc.CornerRadius = UDim.new(1, 0); rc.Parent = splat
+                    end
+                    task.spawn(function()
+                        for step = 1, 30 do
+                            task.wait(0.12)
+                            for _, splat in ipairs(bloodGui:GetChildren()) do
+                                if splat:IsA("Frame") then splat.BackgroundTransparency = math.min(1, splat.BackgroundTransparency + 0.03) end
+                            end
+                        end
+                        bloodGui:Destroy()
+                    end)
+                    playPureGemDeathSound("140325083438865", false)
+                    -- Remove pure gem
+                    pureGemUsed = true; playerHasPureGem = false; pureGemInHand = false
+                    for i, v in ipairs(inventory) do if v == "PureGem" then table.remove(inventory, i); break end end
+                    if character and character:FindFirstChild("PureGem") then character.PureGem:Destroy() end
+                    if player.Backpack:FindFirstChild("PureGem") then player.Backpack.PureGem:Destroy() end
+                    -- Close eye
+                    local closeInfo = TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+                    TweenService:Create(stemTopLid, closeInfo, {Size = UDim2.new(1, 0, 0.5, 2), Position = UDim2.new(0, 0, 0, 0)}):Play()
+                    TweenService:Create(stemBottomLid, closeInfo, {Size = UDim2.new(1, 0, 0.5, 2), Position = UDim2.new(0, 0, 0.5, -2)}):Play()
+                    task.wait(0.45); stemEyeContainer.Visible = false; stemActive = false
                     task.delay(STEM_COOLDOWN, function() stemOnCooldown = false end)
                     return
-                else
-                    stemPupil.Size = UDim2.new(0, 10, 0, 10); stemPupil.Position = UDim2.new(0.5, -5, 0.5, -5)
-                    task.wait(0.06); isEyeOpen = false; humanoid.Health = 0; onDeath(); stemConn:Disconnect()
                 end
+                stemPupil.Size = UDim2.new(0, 10, 0, 10); stemPupil.Position = UDim2.new(0.5, -5, 0.5, -5)
+                task.wait(0.06); isEyeOpen = false; humanoid.Health = 0; onDeath(); stemConn:Disconnect()
             end
         end
     end)
