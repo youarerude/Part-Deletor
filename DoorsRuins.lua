@@ -2,7 +2,7 @@
 -- THE RUINS - LocalScript Executor
 -- Devious Goober  |  Stage 3  |  Doors 375 to 1000
 -- Room Types : Normal Bridge (75%) | Stairs (50%) | Gem (20%)
--- Entities   : Disease | Her | Agony | Drain | Plantera | Stem
+-- Entities   : Disease | Her | Agony | Drain | Plantera | Stem | Judgement
 -- Day/Night  : Tween-based realistic outdoor lighting cycle
 -- Hiding     : Ruins Gaps (crumbled wall sections)
 -- Sea        : 1000x1000 Terrain Water  -  touch = instant death
@@ -39,9 +39,9 @@ local HER_COOLDOWN      = 90
 local HER_SPEED         = 28
 
 local DRAIN_COOLDOWN    = 40
-local DRAIN_RISE_TIME   = 8
-local DRAIN_STAY_TIME   = 4
-local DRAIN_FALL_TIME   = 6
+local DRAIN_RISE_TIME   = 7
+local DRAIN_STAY_TIME   = 3
+local DRAIN_FALL_TIME   = 4
 
 local PLANTERA_SPEED    = 45
 local PLANTERA_COOLDOWN = 12
@@ -49,6 +49,8 @@ local PLANTERA_BEFORE   = 7
 local PLANTERA_AFTER    = 5
 
 local STEM_COOLDOWN     = 55
+
+local JUDGEMENT_COOLDOWN = 25
 
 local HIDE_DIST         = 5
 local GEN_AHEAD         = 6
@@ -93,6 +95,8 @@ local planteraSpawned   = false
 local planteraTreeFolders = {}
 local stemActive        = false
 local stemOnCooldown    = false
+local judgementActive   = false
+local judgementOnCooldown = false
 
 local isDead            = false
 local hiddenParts       = {}
@@ -132,7 +136,7 @@ local makeBoat, makeGem
 local generateNormalRoom, generateStairsRoom, generateGemRoom
 local generateRoom, createLobby, startGame, showWarning
 local hideInGap, exitGap
-local spawnDisease, spawnAgony, spawnHer, spawnDrain, spawnPlantera, spawnStem
+local spawnDisease, spawnAgony, spawnHer, spawnDrain, spawnPlantera, spawnStem, spawnJudgement
 local onDoorReached, onDeath, updateCharRef, mainLoop
 local getRuinsZ, isNight, isDaytime
 local spawnLantern, spawnPureGem
@@ -1253,6 +1257,7 @@ end
 onDeath = function()
     if isDead then return end
     isDead = true; gameStarted = false; isHiding = false; onBoat = false; playerBoat = nil; boatVel = nil; boatGyro = nil
+    judgementActive = false; judgementOnCooldown = false
     if humanoid then humanoid.CameraOffset = Vector3.new(0, 0, 0) end
     inventory = {}; ecstasyActive = false
     playerHasLantern = false; lanternBroken = false; lanternLight = nil; lanternSmoke = nil; lanternPart = nil
@@ -1466,7 +1471,7 @@ spawnHer = function(doorNum)
 end
 
 spawnDrain = function(doorNum)
-    if drainActive or drainOnCooldown then return end
+    if drainActive or drainOnCooldown or judgementActive then return end
     drainActive = true; drainOnCooldown = true
     local ef = Instance.new("Folder"); ef.Name = "DrainEntity"; ef.Parent = workspace
 
@@ -1475,27 +1480,34 @@ spawnDrain = function(doorNum)
 
     local snd = Instance.new("Sound"); snd.SoundId = "rbxassetid://93281700241946"; snd.Volume = 2.2; snd.Looped = true; snd.Parent = blackSea; snd:Play()
 
-    local elapsed = 0; local maxRise = RUINS_FLOOR_Y - SEA_Y - 0.2
+    local elapsed = 0
+    -- Rises exactly to just below the Ruins Gap roof so you must stand on it
+    local gapStandY = RUINS_FLOOR_Y + 4.5 
+    local maxRise = gapStandY - SEA_Y
 
     local dc; dc = RunService.Heartbeat:Connect(function(dt)
         if isDead then if dc then dc:Disconnect() end; ef:Destroy(); drainActive = false; drainOnCooldown = false; return end
         elapsed = elapsed + dt
         local currentH = 0
 
-        if elapsed <= DRAIN_RISE_TIME then currentH = (elapsed / DRAIN_RISE_TIME) * maxRise
-        elseif elapsed <= DRAIN_RISE_TIME + DRAIN_STAY_TIME then currentH = maxRise
+        if elapsed <= DRAIN_RISE_TIME then 
+            currentH = (elapsed / DRAIN_RISE_TIME) * maxRise
+        elseif elapsed <= DRAIN_RISE_TIME + DRAIN_STAY_TIME then 
+            currentH = maxRise
         elseif elapsed <= DRAIN_RISE_TIME + DRAIN_STAY_TIME + DRAIN_FALL_TIME then
-            local f = elapsed - (DRAIN_RISE_TIME + DRAIN_STAY_TIME); currentH = maxRise - (f / DRAIN_FALL_TIME) * maxRise
+            local f = elapsed - (DRAIN_RISE_TIME + DRAIN_STAY_TIME)
+            currentH = maxRise - (f / DRAIN_FALL_TIME) * maxRise
         else
             dc:Disconnect(); snd:Stop(); ef:Destroy(); drainActive = false
             task.delay(DRAIN_COOLDOWN, function() drainOnCooldown = false end); return
         end
 
-        local newY = SEA_Y + 0.3 + currentH
+        local newY = SEA_Y + currentH
         blackSea.CFrame = CFrame.new(0, newY, -30000)
 
-        if rootPart and humanoid and humanoid.Health > 0 and not isHiding then
-            if rootPart.Position.Y < newY + 1.5 then
+        -- If player touches the black sea, instant death
+        if rootPart and humanoid and humanoid.Health > 0 then
+            if rootPart.Position.Y < newY + 1 then
                 local dSnd = Instance.new("Sound"); dSnd.SoundId = "rbxassetid://128701355933535"; dSnd.Volume = 2; dSnd.Parent = workspace; dSnd:Play()
                 humanoid.Health = 0; onDeath()
             end
@@ -1694,6 +1706,92 @@ spawnStem = function()
     end)
 end
 
+spawnJudgement = function(doorNum)
+    if judgementActive or judgementOnCooldown then return end
+    judgementActive = true; judgementOnCooldown = true
+    showWarning("JUDGEMENT IS UPON YOU. Find cover.", 4)
+
+    local L = game:GetService("Lighting")
+    local oldFogColor = L.FogColor
+    local oldFogEnd = L.FogEnd
+    TweenService:Create(L, TweenInfo.new(2), {FogColor = Color3.fromRGB(200, 180, 0), FogEnd = 250}):Play()
+
+    local ef = Instance.new("Folder"); ef.Name = "JudgementEntity"; ef.Parent = workspace
+    local skyPart = makePart(Vector3.new(1,1,1), CFrame.new(rootPart.Position.X, 150, rootPart.Position.Z - 60), Color3.fromRGB(0,0,0), 1, ef)
+    local bg = Instance.new("BillboardGui", skyPart); bg.Size = UDim2.new(80,0,80,0); bg.AlwaysOnTop = true
+    local eyeOuter = Instance.new("Frame", bg); eyeOuter.Size = UDim2.new(1,0,1,0); eyeOuter.BackgroundColor3 = Color3.fromRGB(0,0,0)
+    local eC = Instance.new("UICorner", eyeOuter); eC.CornerRadius = UDim.new(1,0)
+    local pupil = Instance.new("Frame", eyeOuter); pupil.Size = UDim2.new(0,0,0,0); pupil.Position = UDim2.new(0.5,0,0.5,0); pupil.BackgroundColor3 = Color3.fromRGB(255, 215, 0)
+    local pC = Instance.new("UICorner", pupil); pC.CornerRadius = UDim.new(1,0)
+
+    local updateConn = RunService.Heartbeat:Connect(function()
+        if rootPart then skyPart.CFrame = CFrame.new(rootPart.Position.X, 150, rootPart.Position.Z - 60) end
+    end)
+
+    task.wait(5)
+    TweenService:Create(pupil, TweenInfo.new(1, Enum.EasingStyle.Bounce), {Size = UDim2.new(0.5,0,0.5,0), Position = UDim2.new(0.25,0,0.25,0)}):Play()
+    task.wait(1)
+
+    local raining = true
+    task.spawn(function()
+        for i = 1, 6 do
+            if not raining then break end
+            for j = 1, 5 do
+                if not rootPart or isDead then break end
+                local targetZ = rootPart.Position.Z + math.random(-80, 80)
+                local targetX = rootPart.Position.X + math.random(-40, 40)
+                local startPos = Vector3.new(targetX, 120, targetZ)
+
+                local jav = makePart(Vector3.new(0.8, 12, 0.8), CFrame.lookAt(startPos, Vector3.new(targetX, RUINS_FLOOR_Y, targetZ)) * CFrame.Angles(math.rad(90), 0, 0), Color3.fromRGB(255, 215, 0), 0, ef, Enum.Material.Neon)
+                jav.Name = "GoldenJavelin"; jav.Shape = Enum.PartType.Cylinder
+                local bf = Instance.new("BodyVelocity", jav); bf.Velocity = Vector3.new(0, -180, 0); bf.MaxForce = Vector3.new(1e5, 1e5, 1e5)
+
+                jav.Touched:Connect(function(hit)
+                    if hit:IsDescendantOf(character) then
+                        if playerHasPureGem and pureGemInHand and not pureGemUsed then
+                            pureGemUsed = true; playerHasPureGem = false; raining = false
+                            if character:FindFirstChild("PureGem") then character.PureGem:Destroy() end
+                            jav:Destroy()
+                            
+                            -- Deflect red javelin
+                            local rJav = makePart(Vector3.new(2, 16, 2), CFrame.lookAt(rootPart.Position, skyPart.Position) * CFrame.Angles(math.rad(90),0,0), Color3.fromRGB(255, 0, 0), 0, workspace, Enum.Material.Neon)
+                            rJav.Shape = Enum.PartType.Cylinder
+                            TweenService:Create(rJav, TweenInfo.new(0.3), {CFrame = skyPart.CFrame}):Play()
+                            task.wait(0.3); rJav:Destroy()
+
+                            local exp = Instance.new("Explosion", workspace); exp.Position = skyPart.Position; exp.BlastRadius = 150
+                            if humanoid then humanoid.CameraOffset = Vector3.new(math.random(-8,8), math.random(-8,8), 0) end
+                            task.wait(0.5); if humanoid then humanoid.CameraOffset = Vector3.new(0,0,0) end
+                            
+                            updateConn:Disconnect(); ef:Destroy()
+                            TweenService:Create(L, TweenInfo.new(2), {FogColor = oldFogColor, FogEnd = oldFogEnd}):Play()
+                            task.delay(JUDGEMENT_COOLDOWN, function() judgementOnCooldown = false; judgementActive = false end)
+                            return
+                        else
+                            humanoid:TakeDamage(30)
+                        end
+                    end
+                    
+                    if hit.Name:match("Gap") or (currentGap and (hit.Position - currentGap.Position).Magnitude < 15) then
+                        local exp = Instance.new("Explosion", workspace); exp.Position = hit.Position; exp.BlastRadius = 15; exp.BlastPressure = 500000
+                        if isHiding then exitGap(); humanoid.Health = 0; onDeath() end
+                    end
+                    jav:Destroy()
+                end)
+            end
+            task.wait(1)
+        end
+        if raining then
+            raining = false
+            TweenService:Create(pupil, TweenInfo.new(1), {Size = UDim2.new(0,0,0,0), Position = UDim2.new(0.5,0,0.5,0)}):Play()
+            task.wait(1)
+            updateConn:Disconnect(); ef:Destroy()
+            TweenService:Create(L, TweenInfo.new(2), {FogColor = oldFogColor, FogEnd = oldFogEnd}):Play()
+            task.delay(JUDGEMENT_COOLDOWN, function() judgementOnCooldown = false; judgementActive = false end)
+        end
+    end)
+end
+
 -- =================================================================
 -- DOOR REACHED
 -- =================================================================
@@ -1711,30 +1809,38 @@ onDoorReached = function(doorNum)
         roomType[i] = nil; gemRoomStates[i] = nil
     end
 
-    if not diseaseActive and not diseaseOnCooldown then
-        if math.random(1, 100) <= 35 then spawnDisease(doorNum) end
-    end
-
-    if isNight() then
-        if not herActive and not herOnCooldown and math.random(1, 100) <= 30 then
-            task.spawn(function() spawnHer(doorNum) end)
-        end
-        if not agonyActive and not agonyOnCooldown and not diseaseActive and math.random(1, 100) <= 22 then
-            task.spawn(function() spawnAgony(doorNum) end)
+    if clockTime >= 17 and clockTime <= 23 and doorNum >= 390 then
+        if not judgementActive and not judgementOnCooldown and math.random(1, 100) <= 20 then
+            task.spawn(function() spawnJudgement(doorNum) end)
         end
     end
 
-    if isDaytime() then
-        if not planteraActive and not planteraSpawned and not planteraOnCooldown and doorNum >= RUINS_START + 5 then
-            if math.random(1, 100) <= 40 then task.spawn(function() spawnPlantera(doorNum) end) end
+    if not judgementActive then
+        if not diseaseActive and not diseaseOnCooldown then
+            if math.random(1, 100) <= 35 then spawnDisease(doorNum) end
         end
-        if not stemActive and not stemOnCooldown and math.random(1, 100) <= 50 then
-            task.spawn(function() spawnStem() end)
-        end
-    end
 
-    if not drainActive and not drainOnCooldown and doorNum >= RUINS_START + 3 then
-        if math.random(1, 100) <= 28 then task.spawn(function() spawnDrain(doorNum) end) end
+        if isNight() then
+            if not herActive and not herOnCooldown and math.random(1, 100) <= 30 then
+                task.spawn(function() spawnHer(doorNum) end)
+            end
+            if not agonyActive and not agonyOnCooldown and not diseaseActive and math.random(1, 100) <= 22 then
+                task.spawn(function() spawnAgony(doorNum) end)
+            end
+        end
+
+        if isDaytime() then
+            if not planteraActive and not planteraSpawned and not planteraOnCooldown and doorNum >= RUINS_START + 5 then
+                if math.random(1, 100) <= 40 then task.spawn(function() spawnPlantera(doorNum) end) end
+            end
+            if not stemActive and not stemOnCooldown and math.random(1, 100) <= 50 then
+                task.spawn(function() spawnStem() end)
+            end
+        end
+
+        if not drainActive and not drainOnCooldown and doorNum >= RUINS_START + 3 then
+            if math.random(1, 100) <= 28 then task.spawn(function() spawnDrain(doorNum) end) end
+        end
     end
 
     if doorNum >= DOOR_MAX then
@@ -1800,6 +1906,18 @@ mainLoop = function()
         end
 
         if onBoat and playerBoat and boatVel and rootPart then
+            -- Jump to stop driving
+            if UserInput:IsKeyDown(Enum.KeyCode.Space) or (humanoid and humanoid.Jump) then
+                onBoat = false; boatVel.Velocity = Vector3.new(0, 0, 0)
+                boatVel = nil; boatGyro = nil
+                for _, p in ipairs(playerBoat:GetChildren()) do
+                    if p:IsA("ProximityPrompt") and p.ActionText == "Disembark" then p:Destroy() end
+                end
+                playerBoat = nil
+                rootPart.Velocity = Vector3.new(0, 40, 0)
+                return
+            end
+
             local fwd = 0; local strafe = 0
             if UserInput:IsKeyDown(Enum.KeyCode.W) or UserInput:IsKeyDown(Enum.KeyCode.Up) then fwd = 1 end
             if UserInput:IsKeyDown(Enum.KeyCode.S) or UserInput:IsKeyDown(Enum.KeyCode.Down) then fwd = -1 end
