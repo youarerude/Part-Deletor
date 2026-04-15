@@ -51,8 +51,8 @@ local PLANTERA_AFTER    = 5
 
 local STEM_COOLDOWN     = 55
 
-local JUDGEMENT_COOLDOWN  = 0
-local JUDGEMENT_MIN_DOOR  = 375
+local JUDGEMENT_COOLDOWN  = 25
+local JUDGEMENT_MIN_DOOR  = 390
 
 local HIDE_DIST         = 5
 local GEN_AHEAD         = 6
@@ -103,6 +103,14 @@ local judgementInvincible = false
 local judgementInvincibleEnd = 0
 local judgementEyePart  = nil
 
+local overseerActive    = false
+local overseerDefeated  = false
+local overseerFolder    = nil
+local overseerEyePart   = nil
+local overseerMusic     = nil
+local overseerBossStartTime = 0
+local overseerWallPart  = nil
+
 local isDead            = false
 local hiddenParts       = {}
 local inventory         = {}
@@ -141,7 +149,7 @@ local makeBoat, makeGem
 local generateNormalRoom, generateStairsRoom, generateGemRoom
 local generateRoom, createLobby, startGame, showWarning
 local hideInGap, exitGap
-local spawnDisease, spawnAgony, spawnHer, spawnDrain, spawnPlantera, spawnStem, spawnJudgement
+local spawnDisease, spawnAgony, spawnHer, spawnDrain, spawnPlantera, spawnStem, spawnJudgement, spawnOverseer
 local onDoorReached, onDeath, updateCharRef, mainLoop
 local getRuinsZ, isNight, isDaytime
 local spawnLantern, spawnPureGem, updateLantern
@@ -929,13 +937,139 @@ generateRoom = function(doorNum)
     if rooms[doorNum] then return end
     local folder = Instance.new("Folder"); folder.Name = "RuinsRoom_" .. doorNum; folder.Parent = workspace
     local roomZ = getRuinsZ(doorNum); local O = Vector3.new(0, 0, roomZ)
-    local rType = "normal"
-    if math.random(1,100) <= 20 then rType = "gem"
-    elseif math.random(1,100) <= 50 then rType = "stairs" end
-    roomType[doorNum] = rType
-    if rType == "gem" then generateGemRoom(folder, O, doorNum)
-    elseif rType == "stairs" then generateStairsRoom(folder, O, doorNum)
-    else generateNormalRoom(folder, O, doorNum) end
+
+    -- Special rooms
+    if doorNum == 430 then
+        roomType[doorNum] = "lab"
+        -- ── Floor ──
+        makePart(Vector3.new(RUINS_W, 1, RUINS_D), CFrame.new(O + Vector3.new(0, RUINS_FLOOR_Y-0.5, 0)), Color3.fromRGB(90,88,85), 0, folder, Enum.Material.SmoothPlastic).Name = "LabFloor"
+        -- ── Ruined lab walls (partial, broken) ──
+        local wallC = Color3.fromRGB(140,138,130)
+        for si = -1, 1, 2 do
+            makePart(Vector3.new(1, 10, RUINS_D*0.7), CFrame.new(O + Vector3.new(si*RUINS_W*0.5, RUINS_FLOOR_Y+5, -5)), wallC, 0, folder, Enum.Material.SmoothPlastic).Name = "LabWall"
+        end
+        makePart(Vector3.new(RUINS_W, 10, 1), CFrame.new(O + Vector3.new(0, RUINS_FLOOR_Y+5, RUINS_D*0.5)), wallC, 0, folder, Enum.Material.SmoothPlastic).Name = "LabBackWall"
+        -- ── Lab decor: broken shelves, overturned tables ──
+        for i = 1, 4 do
+            local dx = math.random(-18, 18); local dz = math.random(-20, 18)
+            local tableP = makePart(Vector3.new(4, 0.4, 2.5), CFrame.new(O + Vector3.new(dx, RUINS_FLOOR_Y+1.8, dz)) * CFrame.Angles(0, math.rad(math.random(0,360)), math.rad(math.random(-15,15))), Color3.fromRGB(100,80,55), 0, folder, Enum.Material.Wood); tableP.Name = "LabTable"
+            makePart(Vector3.new(0.2, 1.8, 0.2), CFrame.new(O + Vector3.new(dx-1.5, RUINS_FLOOR_Y+0.9, dz-1)), Color3.fromRGB(80,60,40), 0, folder, Enum.Material.Wood).Name = "TableLeg"
+        end
+        -- ── Computer terminal ──
+        local compBase = makePart(Vector3.new(2.5, 1.5, 1.5), CFrame.new(O + Vector3.new(-14, RUINS_FLOOR_Y+1.75, 10)), Color3.fromRGB(40,40,40), 0, folder, Enum.Material.SmoothPlastic); compBase.Name = "ComputerBase"
+        local compScreen = makePart(Vector3.new(2.2, 1.6, 0.15), CFrame.new(O + Vector3.new(-14, RUINS_FLOOR_Y+3.2, 10)), Color3.fromRGB(0,180,80), 0.3, folder, Enum.Material.Neon); compScreen.Name = "ComputerScreen"
+        makeLight(compScreen, 1.5, 14, Color3.fromRGB(0,200,100))
+        -- Screen text
+        local sg = Instance.new("SurfaceGui"); sg.Face = Enum.NormalId.Front; sg.Parent = compScreen
+        local sl = Instance.new("TextLabel"); sl.Size = UDim2.new(1,0,1,0); sl.BackgroundTransparency = 1; sl.Text = "GATE OVERRIDE\n[ ACTIVATE ]"; sl.TextColor3 = Color3.fromRGB(0,255,100); sl.TextScaled = true; sl.Font = Enum.Font.Code; sl.Parent = sg
+        -- ── Ruined gate blocking exit ──
+        local gate = makePart(Vector3.new(RUINS_W, 14, 1.5), CFrame.new(O + Vector3.new(0, RUINS_FLOOR_Y+7, -RUINS_D*0.5+1)), Color3.fromRGB(50,50,50), 0, folder, Enum.Material.Metal); gate.Name = "OverseerGate"
+        -- Gate bar details
+        for gi = -4, 4 do
+            local bar = makePart(Vector3.new(0.6, 14, 0.6), CFrame.new(O + Vector3.new(gi*4.8, RUINS_FLOOR_Y+7, -RUINS_D*0.5+1)), Color3.fromRGB(30,30,30), 0, folder, Enum.Material.Metal); bar.Name = "GateBar"; bar.CanCollide = false
+        end
+        local gateLight = makeLight(gate, 0.8, 20, Color3.fromRGB(80,0,180)); gateLight.Name = "GateLight"
+        -- ── Computer proximity prompt ──
+        local compPrompt = Instance.new("ProximityPrompt"); compPrompt.ActionText = "Activate Gate Override"; compPrompt.RequiresLineOfSight = false; compPrompt.MaxActivationDistance = 7; compPrompt.Parent = compBase
+        local gateOpened = false
+        compPrompt.Triggered:Connect(function()
+            if gateOpened then return end
+            gateOpened = true; compPrompt:Destroy()
+            compScreen.Color = Color3.fromRGB(180, 0, 0)
+            showWarning("GATE OPENING... Something stirs in the dark.", 3)
+            -- Animate gate rising
+            local gateY = gate.Position.Y
+            TweenService:Create(gate, TweenInfo.new(2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {CFrame = CFrame.new(gate.Position.X, gateY + 16, gate.Position.Z)}):Play()
+            for _, v in ipairs(folder:GetDescendants()) do
+                if v.Name == "GateBar" then
+                    TweenService:Create(v, TweenInfo.new(2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {CFrame = CFrame.new(v.Position.X, v.Position.Y + 16, v.Position.Z)}):Play()
+                end
+            end
+            task.delay(2.2, function()
+                gate.CanCollide = false
+                task.spawn(function() spawnOverseer() end)
+            end)
+        end)
+        -- ── Ruins gap hiding spots ──
+        makeRuinsGap(folder, O + Vector3.new(-16, RUINS_FLOOR_Y, 8), 90)
+        makeRuinsGap(folder, O + Vector3.new(16, RUINS_FLOOR_Y, 8), 270)
+        makeRuinsGap(folder, O + Vector3.new(0, RUINS_FLOOR_Y, 20), 0)
+
+    elseif doorNum == 470 then
+        roomType[doorNum] = "altar470"
+        -- Normal floor
+        makePart(Vector3.new(RUINS_W, 1, RUINS_D), CFrame.new(O + Vector3.new(0, RUINS_FLOOR_Y-0.5, 0)), Color3.fromRGB(145,138,118), 0, folder, Enum.Material.Cobblestone).Name = "BridgeFloor"
+        for ei = -1, 1, 2 do
+            makePart(Vector3.new(1, 1.5, RUINS_D), CFrame.new(O + Vector3.new(ei*RUINS_W*0.5, RUINS_FLOOR_Y, 0)), Color3.fromRGB(120,114,96), 0, folder, Enum.Material.Cobblestone).Name = "BridgeEdge"
+        end
+        -- Overseer altar (center of room)
+        local altarBase = makePart(Vector3.new(6, 1, 6), CFrame.new(O + Vector3.new(0, RUINS_FLOOR_Y+0.5, 0)), Color3.fromRGB(80,0,160), 0, folder, Enum.Material.Cobblestone); altarBase.Name = "OverseerAltarBase"
+        local altarMid  = makePart(Vector3.new(4, 2, 4), CFrame.new(O + Vector3.new(0, RUINS_FLOOR_Y+2, 0)), Color3.fromRGB(60,0,130), 0, folder, Enum.Material.Cobblestone); altarMid.Name = "OverseerAltarMid"
+        local altarTop  = makePart(Vector3.new(3, 0.6, 3), CFrame.new(O + Vector3.new(0, RUINS_FLOOR_Y+3.3, 0)), Color3.fromRGB(120,0,220), 0, folder, Enum.Material.Neon); altarTop.Name = "OverseerAltarTop"
+        makeLight(altarTop, 2, 22, Color3.fromRGB(140,0,255))
+        -- Rune pillars around altar
+        for ri = 0, 3 do
+            local angle = ri * 90
+            local rx = math.cos(math.rad(angle)) * 7; local rz = math.sin(math.rad(angle)) * 7
+            local rp = makePart(Vector3.new(1, 5, 1), CFrame.new(O + Vector3.new(rx, RUINS_FLOOR_Y+2.5, rz)), Color3.fromRGB(70,0,140), 0, folder, Enum.Material.Cobblestone); rp.Name = "RunePillar"
+            local gl = makeLight(rp, 1.2, 10, Color3.fromRGB(120,0,255))
+        end
+        -- Altar prompt (only usable during boss)
+        local altarPrompt = Instance.new("ProximityPrompt"); altarPrompt.ActionText = "Activate Altar"; altarPrompt.RequiresLineOfSight = false; altarPrompt.MaxActivationDistance = 8; altarPrompt.Parent = altarTop
+        altarPrompt.Triggered:Connect(function()
+            if not overseerActive then showWarning("Nothing happens... yet.", 2); return end
+            altarPrompt:Destroy()
+            -- White beam shoots into sky
+            local beam = makePart(Vector3.new(2, 300, 2), CFrame.new(O + Vector3.new(0, RUINS_FLOOR_Y+150, 0)), Color3.fromRGB(255,255,255), 0, folder, Enum.Material.Neon); beam.Name = "AltarBeam"; beam.CanCollide = false
+            makeLight(beam, 8, 80, Color3.fromRGB(200,200,255))
+            -- Screen shake
+            task.spawn(function()
+                for i = 1, 30 do
+                    if humanoid then humanoid.CameraOffset = Vector3.new(math.random(-12,12)*0.25, math.random(-12,12)*0.25, 0) end
+                    task.wait(0.05)
+                end
+                if humanoid then humanoid.CameraOffset = Vector3.new(0,0,0) end
+            end)
+            showWarning("THE OVERSEER IS DESTROYED! The ruins are silent again.", 6)
+            -- Kill overseer
+            overseerActive = false; overseerDefeated = true
+            if overseerMusic then overseerMusic:Stop() end
+            if overseerEyePart and overseerEyePart.Parent then
+                -- Shatter effect
+                for i = 1, 12 do
+                    local shard = makePart(Vector3.new(math.random(2,5)*0.4, math.random(2,5)*0.4, math.random(2,5)*0.4), CFrame.new(overseerEyePart.Position + Vector3.new(math.random(-8,8), math.random(-3,8), math.random(-8,8))), Color3.fromRGB(120,0,220), 0, workspace, Enum.Material.Neon); shard.Anchored = false
+                    game:GetService("Debris"):AddItem(shard, 3)
+                end
+                overseerEyePart.Parent:Destroy()
+            end
+            if overseerFolder and overseerFolder.Parent then overseerFolder:Destroy() end
+            overseerFolder = nil; overseerEyePart = nil
+            -- Remove wall
+            if overseerWallPart and overseerWallPart.Parent then overseerWallPart:Destroy() end
+            overseerWallPart = nil
+            -- Restore lighting
+            local L = game:GetService("Lighting")
+            TweenService:Create(L, TweenInfo.new(4, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                FogColor = Color3.fromRGB(180, 210, 240), FogEnd = 900, FogStart = 200,
+                Brightness = 2.5, Ambient = Color3.fromRGB(130,145,165), OutdoorAmbient = Color3.fromRGB(140,160,185)
+            }):Play()
+            currentPeriod = nil
+            task.delay(3, function() beam:Destroy() end)
+        end)
+        -- Ruins gap and decor
+        makeRuinsGap(folder, O + Vector3.new(math.random(-15,15), RUINS_FLOOR_Y, RUINS_D*0.35), 0)
+        makeRuinsGap(folder, O + Vector3.new(math.random(-15,15), RUINS_FLOOR_Y, -RUINS_D*0.35), 0)
+        for di = 1, 3 do makeRuinsDecor(folder, O + Vector3.new(math.random(-18,18), RUINS_FLOOR_Y, math.random(-22,22))) end
+    else
+        local rType = "normal"
+        if math.random(1,100) <= 20 then rType = "gem"
+        elseif math.random(1,100) <= 50 then rType = "stairs" end
+        roomType[doorNum] = rType
+        if rType == "gem" then generateGemRoom(folder, O, doorNum)
+        elseif rType == "stairs" then generateStairsRoom(folder, O, doorNum)
+        else generateNormalRoom(folder, O, doorNum) end
+    end
+
     if doorNum > RUINS_START and (doorNum - RUINS_START) % CHECKPOINT_EVERY == 0 then
         local cpPart = makePart(Vector3.new(10, 2.5, 0.4), CFrame.new(O + Vector3.new(0, RUINS_FLOOR_Y+4, 0)), Color3.fromRGB(10,80,10), 0, folder, Enum.Material.Neon); cpPart.Name = "CheckpointSign"
         local cpG = Instance.new("SurfaceGui"); cpG.Face = Enum.NormalId.Front; cpG.Parent = cpPart
@@ -1035,6 +1169,18 @@ onDeath = function()
         if tbData.folder and tbData.folder.Parent then tbData.folder:Destroy() end
     end
     planteraTreeFolders = {}
+    -- Clean up overseer on death
+    if overseerActive then
+        overseerActive = false
+        if overseerMusic then overseerMusic:Stop(); overseerMusic = nil end
+        if overseerFolder and overseerFolder.Parent then overseerFolder:Destroy() end
+        overseerFolder = nil; overseerEyePart = nil; overseerWallPart = nil
+        local timerG = player.PlayerGui:FindFirstChild("OverseerTimer"); if timerG then timerG:Destroy() end
+        local L = game:GetService("Lighting")
+        L.FogColor = Color3.fromRGB(180,210,240); L.FogEnd = 900; L.FogStart = 200
+        L.Brightness = 2.5; L.Ambient = Color3.fromRGB(130,145,165); L.OutdoorAmbient = Color3.fromRGB(140,160,185)
+        currentPeriod = nil
+    end
 
     local dg = Instance.new("ScreenGui"); dg.Name = "RuinsDeathGui"; dg.ResetOnSpawn = false; dg.Parent = player.PlayerGui
     local bg = Instance.new("Frame"); bg.Size = UDim2.new(1,0,1,0); bg.BackgroundColor3 = Color3.fromRGB(60,45,20); bg.BackgroundTransparency = 0.45; bg.BorderSizePixel = 0; bg.Parent = dg
@@ -1617,7 +1763,7 @@ spawnJudgement = function(doorNum)
         for wave = 1, waveCount do
             if not judgementActive or judgementEndedByGem then break end
             -- 5 javelins spread across current and adjacent rooms
-            for j = 1, 20 do
+            for j = 1, 5 do
                 if judgementEndedByGem then break end
                 local spreadZ = getRuinsZ(currentDoor) + math.random(-RUINS_D, RUINS_D)
                 local spreadX = math.random(-RUINS_W, RUINS_W) * 0.8
@@ -1655,6 +1801,285 @@ spawnJudgement = function(doorNum)
 end
 
 -- =================================================================
+-- OVERSEER BOSS
+-- =================================================================
+spawnOverseer = function()
+    if overseerActive or overseerDefeated then return end
+    overseerActive = true
+    overseerBossStartTime = tick()
+
+    local L = game:GetService("Lighting")
+    local ef = Instance.new("Folder"); ef.Name = "OverseerBoss"; ef.Parent = workspace
+    overseerFolder = ef
+
+    -- Lock lighting to night / purple
+    TweenService:Create(L, TweenInfo.new(2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+        FogColor      = Color3.fromRGB(80, 0, 140),
+        FogEnd        = 160,
+        FogStart      = 20,
+        Brightness    = 0.08,
+        Ambient       = Color3.fromRGB(50,0,90),
+        OutdoorAmbient= Color3.fromRGB(40,0,70)
+    }):Play()
+    L.ClockTime = 2
+    currentPeriod = nil  -- prevent advanceDayNight overriding
+
+    -- Boss music
+    local music = Instance.new("Sound"); music.Name = "OverseerMusic"
+    music.SoundId = "rbxassetid://126464446044869"; music.Volume = 2.5; music.Looped = true
+    music.RollOffMaxDistance = 99999; music.Parent = workspace; music:Play()
+    overseerMusic = music
+
+    showWarning("THE OVERSEER AWAKENS! Reach door 470 in time — or be crushed!", 6)
+
+    -- ── Build the eye mesh ──
+    local eyePart
+    task.spawn(function()
+        local ok, result = pcall(function()
+            local AssetService = game:GetService("AssetService")
+            local mp = AssetService:CreateMeshPartAsync("rbxassetid://13516160528")
+            mp.Size = Vector3.new(8, 8, 8)
+            return mp
+        end)
+        if ok and result then
+            eyePart = result
+        else
+            -- Fallback sphere eye
+            eyePart = Instance.new("Part")
+            eyePart.Shape = Enum.PartType.Ball
+            eyePart.Size = Vector3.new(8, 8, 8)
+        end
+        eyePart.Name = "OverseerEye"
+        eyePart.Color = Color3.fromRGB(120, 0, 220)
+        eyePart.Material = Enum.Material.Neon
+        eyePart.Anchored = true
+        eyePart.CanCollide = false
+        eyePart.CastShadow = false
+        eyePart.Parent = ef
+        overseerEyePart = eyePart
+        makeLight(eyePart, 5, 50, Color3.fromRGB(160, 0, 255))
+
+        -- Eye iris billboard (2D detail on top)
+        local bb = Instance.new("BillboardGui"); bb.Size = UDim2.new(0, 160, 0, 160); bb.AlwaysOnTop = false; bb.MaxDistance = 500; bb.Parent = eyePart
+        local irisF = Instance.new("Frame"); irisF.Size = UDim2.new(1,0,1,0); irisF.BackgroundColor3 = Color3.fromRGB(80,0,160); irisF.BorderSizePixel = 0; irisF.Parent = bb
+        local irisC = Instance.new("UICorner"); irisC.CornerRadius = UDim.new(1,0); irisC.Parent = irisF
+        local pupilF = Instance.new("Frame"); pupilF.Size = UDim2.new(0.35,0,0.35,0); pupilF.Position = UDim2.new(0.325,0,0.325,0); pupilF.BackgroundColor3 = Color3.fromRGB(0,0,0); pupilF.BorderSizePixel = 0; pupilF.Parent = irisF
+        local pupilC = Instance.new("UICorner"); pupilC.CornerRadius = UDim.new(1,0); pupilC.Parent = pupilF
+    end)
+
+    -- Wait for mesh to load (max 3s)
+    local waitStart = tick()
+    while not overseerEyePart and tick() - waitStart < 3 do task.wait(0.1) end
+    if not overseerActive then return end
+
+    -- ── Purple chasing wall (must reach 470 in 2min 7sec = 127s) ──
+    local wallZ = getRuinsZ(430) + RUINS_D     -- starts behind room 430
+    local wall470Z = getRuinsZ(470)
+    local wallSpeed = math.abs(wallZ - wall470Z) / 127  -- studs per second to match timer
+
+    local wPart = makePart(
+        Vector3.new(RUINS_W + 60, 80, 4),
+        CFrame.new(0, RUINS_FLOOR_Y + 35, wallZ),
+        Color3.fromRGB(100, 0, 200), 0.25, ef, Enum.Material.Neon
+    )
+    wPart.Name = "OverseerWall"; wPart.CanCollide = true
+    makeLight(wPart, 4, 40, Color3.fromRGB(140, 0, 255))
+    overseerWallPart = wPart
+
+    -- Timer label on HUD
+    local timerGui = Instance.new("ScreenGui"); timerGui.Name = "OverseerTimer"; timerGui.ResetOnSpawn = false; timerGui.Parent = player.PlayerGui
+    local timerFrame = Instance.new("Frame"); timerFrame.Size = UDim2.new(0,200,0,44); timerFrame.Position = UDim2.new(0.5,-100,0,62); timerFrame.BackgroundColor3 = Color3.fromRGB(60,0,120); timerFrame.BackgroundTransparency = 0.3; timerFrame.BorderSizePixel = 0; timerFrame.Parent = timerGui
+    local tCorner = Instance.new("UICorner"); tCorner.CornerRadius = UDim.new(0,10); tCorner.Parent = timerFrame
+    local timerLabel = Instance.new("TextLabel"); timerLabel.Size = UDim2.new(1,0,1,0); timerLabel.BackgroundTransparency = 1; timerLabel.TextColor3 = Color3.fromRGB(255,180,255); timerLabel.TextScaled = true; timerLabel.Font = Enum.Font.GothamBold; timerLabel.Text = "REACH DOOR 470 - 2:07"; timerLabel.Parent = timerFrame
+
+    -- ── Eye follow loop ──
+    local eyeAngle = 0
+    local eyeTargetPos = Vector3.new(0, RUINS_FLOOR_Y + 18, getRuinsZ(430))
+    local eyeRadius = 14
+    local eyeHeight = RUINS_FLOOR_Y + 18
+
+    -- ── Ability timers ──
+    local lastAbility1 = tick()
+    local lastAbility2 = tick() + 6   -- offset so they don't all fire at once
+    local lastAbility3 = tick() + 14
+
+    local function fireBeamAbility1()
+        if not overseerEyePart or not overseerActive then return end
+        -- 3 beams at random rotations, warn first
+        for bi = 1, 3 do
+            local angle = math.random(0, 360)
+            local len = 55
+            local beamCF = CFrame.new(overseerEyePart.Position) * CFrame.Angles(math.rad(math.random(-40,40)), math.rad(angle), 0)
+            -- Warning beam (semi-transparent)
+            local warnB = makePart(Vector3.new(1.2, len, 1.2), beamCF * CFrame.new(0, -len*0.5, 0), Color3.fromRGB(255,200,0), 0.6, ef, Enum.Material.Neon)
+            warnB.Name = "BeamWarn"; warnB.CanCollide = false
+            task.delay(3, function()
+                if not warnB or not warnB.Parent then return end
+                warnB:Destroy()
+                if not overseerActive then return end
+                -- Solid damage beam
+                local dmgB = makePart(Vector3.new(1.6, len, 1.6), beamCF * CFrame.new(0, -len*0.5, 0), Color3.fromRGB(255,80,0), 0, ef, Enum.Material.Neon)
+                dmgB.Name = "BeamDamage"; dmgB.CanCollide = false
+                makeLight(dmgB, 3, 20, Color3.fromRGB(255,100,0))
+                dmgB.Touched:Connect(function(hit)
+                    if hit and hit.Parent == character and humanoid and humanoid.Health > 0 and not isDead then
+                        humanoid:TakeDamage(30)
+                    end
+                end)
+                game:GetService("Debris"):AddItem(dmgB, 1.5)
+            end)
+        end
+    end
+
+    local function fireBeamRain()
+        if not overseerActive then return end
+        -- 30 beams rain down across rooms 430-470
+        for bi = 1, 30 do
+            task.delay(bi * 0.08, function()
+                if not overseerActive then return end
+                local rz = getRuinsZ(430) + math.random(0, 40) * (-RUINS_D)
+                local rx = math.random(-RUINS_W, RUINS_W) * 0.8
+                local rainB = Instance.new("Part"); rainB.Name = "RainBeam"
+                rainB.Size = Vector3.new(1, 60, 1); rainB.Color = Color3.fromRGB(160,0,255)
+                rainB.Material = Enum.Material.Neon; rainB.Anchored = false; rainB.CanCollide = true; rainB.CastShadow = false
+                rainB.CFrame = CFrame.new(rx, RUINS_FLOOR_Y + 90, rz)
+                rainB.Parent = ef
+                local bv = Instance.new("BodyVelocity"); bv.MaxForce = Vector3.new(1e5,1e5,1e5)
+                bv.Velocity = Vector3.new(0, -90, 0); bv.Parent = rainB
+                rainB.Touched:Connect(function(hit)
+                    if not rainB or not rainB.Parent then return end
+                    if hit and hit.Parent == character and humanoid and humanoid.Health > 0 and not isDead then
+                        humanoid:TakeDamage(35)
+                    end
+                    if hit and hit.Parent ~= ef then
+                        local flash = Instance.new("Part"); flash.Size = Vector3.new(2,2,2); flash.Shape = Enum.PartType.Ball
+                        flash.Color = Color3.fromRGB(180,0,255); flash.Material = Enum.Material.Neon
+                        flash.Anchored = true; flash.CanCollide = false; flash.CFrame = rainB.CFrame; flash.Parent = workspace
+                        game:GetService("Debris"):AddItem(flash, 0.15)
+                        rainB:Destroy()
+                    end
+                end)
+                game:GetService("Debris"):AddItem(rainB, 5)
+            end)
+        end
+    end
+
+    local spinnerFolder = nil
+    local function spawnSpinner()
+        if not overseerActive then return end
+        if spinnerFolder and spinnerFolder.Parent then spinnerFolder:Destroy() end
+        spinnerFolder = Instance.new("Folder"); spinnerFolder.Name = "OverseerSpinner"; spinnerFolder.Parent = ef
+
+        local centerZ = rootPart and rootPart.Position.Z or getRuinsZ(currentDoor)
+        -- The spinner is a 300x5 bar centered at player position
+        local spinner = makePart(
+            Vector3.new(300, 5, 5),
+            CFrame.new(0, RUINS_FLOOR_Y + 4, centerZ),
+            Color3.fromRGB(120, 0, 200), 0, spinnerFolder, Enum.Material.Neon
+        )
+        spinner.Name = "OverseerSpinner"; spinner.CanCollide = true
+        makeLight(spinner, 4, 30, Color3.fromRGB(160, 0, 255))
+
+        local spinAngle = 0
+        local spinConn; spinConn = RunService.Heartbeat:Connect(function(dt)
+            if not spinner or not spinner.Parent or not overseerActive then spinConn:Disconnect(); return end
+            spinAngle = spinAngle + dt * 140  -- degrees per second
+            spinner.CFrame = CFrame.new(0, RUINS_FLOOR_Y + 4, centerZ) * CFrame.Angles(0, math.rad(spinAngle), 0)
+        end)
+
+        spinner.Touched:Connect(function(hit)
+            if hit and hit.Parent == character and humanoid and humanoid.Health > 0 and not isDead then
+                humanoid:TakeDamage(50)
+                -- Knock player sideways off bridge into sea
+                local hrp = character:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    local knockDir = (hrp.Position - spinner.Position).Unit
+                    local bv2 = Instance.new("BodyVelocity"); bv2.MaxForce = Vector3.new(1e5,1e5,1e5)
+                    bv2.Velocity = Vector3.new(knockDir.X * 80, 15, knockDir.Z * 80); bv2.Parent = hrp
+                    game:GetService("Debris"):AddItem(bv2, 0.35)
+                end
+            end
+        end)
+
+        -- Show warning
+        showWarning("SPINNER! Get clear — touching it launches you into the sea!", 4)
+
+        task.delay(10, function()
+            spinConn:Disconnect()
+            if spinnerFolder and spinnerFolder.Parent then spinnerFolder:Destroy(); spinnerFolder = nil end
+        end)
+    end
+
+    -- ── Main boss loop ──
+    local bossConn; bossConn = RunService.Heartbeat:Connect(function(dt)
+        if not overseerActive then
+            bossConn:Disconnect()
+            if timerGui and timerGui.Parent then timerGui:Destroy() end
+            return
+        end
+        if isDead then return end
+
+        local elapsed = tick() - overseerBossStartTime
+        local remaining = math.max(0, 127 - elapsed)
+        local mins = math.floor(remaining / 60); local secs = math.floor(remaining % 60)
+        if timerLabel then
+            timerLabel.Text = string.format("REACH 470: %d:%02d", mins, secs)
+            timerLabel.TextColor3 = remaining < 20 and Color3.fromRGB(255,80,80) or Color3.fromRGB(255,180,255)
+        end
+
+        -- Keep lighting purple and night
+        L.ClockTime = 2
+
+        -- Move wall forward
+        if wPart and wPart.Parent then
+            local wp = wPart.Position
+            local newWZ = wp.Z - wallSpeed * dt
+            wPart.CFrame = CFrame.new(wp.X, wp.Y, newWZ)
+            -- Wall touches player = death
+            if rootPart then
+                local wallDist = rootPart.Position.Z - newWZ
+                if wallDist < 3 and humanoid and humanoid.Health > 0 then
+                    humanoid.Health = 0; onDeath()
+                end
+            end
+        end
+
+        -- Eye follows player with smooth lerp
+        if overseerEyePart and rootPart then
+            eyeAngle = eyeAngle + dt * 25  -- slow orbit
+            local orbitX = math.cos(math.rad(eyeAngle)) * eyeRadius
+            local orbitZ = math.sin(math.rad(eyeAngle)) * eyeRadius
+            local targetFollow = Vector3.new(
+                rootPart.Position.X + orbitX,
+                eyeHeight,
+                rootPart.Position.Z + orbitZ
+            )
+            -- Smooth in/out easing via lerp
+            overseerEyePart.CFrame = CFrame.new(overseerEyePart.Position:Lerp(targetFollow, math.min(1, dt * 2.5)))
+                * CFrame.Angles(0, math.rad(eyeAngle * 0.6), 0)
+        end
+
+        -- Ability 1: every 5s, 3 rotated beams
+        if tick() - lastAbility1 >= 5 then
+            lastAbility1 = tick()
+            task.spawn(fireBeamAbility1)
+        end
+
+        -- Ability 2: every 13s, beam rain
+        if tick() - lastAbility2 >= 13 then
+            lastAbility2 = tick()
+            task.spawn(fireBeamRain)
+        end
+
+        -- Ability 3: every 30s, spinner
+        if tick() - lastAbility3 >= 30 then
+            lastAbility3 = tick()
+            task.spawn(spawnSpinner)
+        end
+    end)
+end
+
+-- =================================================================
 -- DOOR REACHED
 -- =================================================================
 onDoorReached = function(doorNum)
@@ -1671,41 +2096,41 @@ onDoorReached = function(doorNum)
         roomType[i] = nil; gemRoomStates[i] = nil
     end
 
+    -- During Overseer boss all entity chances drop to 10%
+    local spawnMult = (overseerActive and not overseerDefeated) and 0.286 or 1  -- 10/35 ≈ 0.286
+
     -- Disease: blocked while judgement active
     if not diseaseActive and not diseaseOnCooldown and not judgementActive then
-        if math.random(1,100) <= 35 then spawnDisease(doorNum) end
+        if math.random(1,100) <= math.floor(35 * spawnMult) then spawnDisease(doorNum) end
     end
 
     if isNight() then
-        if not herActive and not herOnCooldown and math.random(1,100) <= 30 then
+        if not herActive and not herOnCooldown and math.random(1,100) <= math.floor(30 * spawnMult) then
             task.spawn(function() spawnHer(doorNum) end)
         end
-        if not agonyActive and not agonyOnCooldown and not diseaseActive and math.random(1,100) <= 22 then
+        if not agonyActive and not agonyOnCooldown and not diseaseActive and math.random(1,100) <= math.floor(22 * spawnMult) then
             task.spawn(function() spawnAgony(doorNum) end)
         end
     end
 
     if isDaytime() then
-        -- Plantera: blocked while judgement active
         if not planteraActive and not planteraSpawned and not planteraOnCooldown and not judgementActive and doorNum >= RUINS_START + 5 then
-            if math.random(1,100) <= 40 then task.spawn(function() spawnPlantera(doorNum) end) end
+            if math.random(1,100) <= math.floor(40 * spawnMult) then task.spawn(function() spawnPlantera(doorNum) end) end
         end
-        if not stemActive and not stemOnCooldown and math.random(1,100) <= 50 then
+        if not stemActive and not stemOnCooldown and math.random(1,100) <= math.floor(50 * spawnMult) then
             task.spawn(function() spawnStem() end)
         end
     end
 
-    -- Drain: blocked while judgement active
-    if not drainActive and not drainOnCooldown and not judgementActive and doorNum >= RUINS_START + 3 then
+    -- Drain: blocked while judgement or overseer active
+    if not drainActive and not drainOnCooldown and not judgementActive and not overseerActive and doorNum >= RUINS_START + 3 then
         if math.random(1,100) <= 28 then task.spawn(function() spawnDrain(doorNum) end) end
     end
 
-    -- Judgement: 17:00-23:00, door >= 390, 20% chance
-    if not judgementActive and not judgementOnCooldown and doorNum >= JUDGEMENT_MIN_DOOR then
+    -- Judgement: 17:00-23:00, door >= 390, 20% chance, blocked during overseer
+    if not judgementActive and not judgementOnCooldown and not overseerActive and doorNum >= JUDGEMENT_MIN_DOOR then
         if clockTime >= 17 and clockTime <= 23 then
-            if math.random(1,100) <= 20 then
-                task.spawn(function() spawnJudgement(doorNum) end)
-            end
+            if math.random(1,100) <= 20 then task.spawn(function() spawnJudgement(doorNum) end) end
         end
     end
 
