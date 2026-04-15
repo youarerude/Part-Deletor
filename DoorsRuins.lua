@@ -51,8 +51,8 @@ local PLANTERA_AFTER    = 5
 
 local STEM_COOLDOWN     = 55
 
-local JUDGEMENT_COOLDOWN  = 25
-local JUDGEMENT_MIN_DOOR  = 390
+local JUDGEMENT_COOLDOWN  = 0
+local JUDGEMENT_MIN_DOOR  = 375
 
 local HIDE_DIST         = 5
 local GEN_AHEAD         = 6
@@ -1617,7 +1617,7 @@ spawnJudgement = function(doorNum)
         for wave = 1, waveCount do
             if not judgementActive or judgementEndedByGem then break end
             -- 5 javelins spread across current and adjacent rooms
-            for j = 1, 5 do
+            for j = 1, 20 do
                 if judgementEndedByGem then break end
                 local spreadZ = getRuinsZ(currentDoor) + math.random(-RUINS_D, RUINS_D)
                 local spreadX = math.random(-RUINS_W, RUINS_W) * 0.8
