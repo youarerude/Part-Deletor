@@ -221,7 +221,7 @@ Instance.new("UICorner", EntityToggleBtn).CornerRadius = UDim.new(0,8)
 
 local EntityPanel = Instance.new("Frame")
 EntityPanel.Name                    = "EntityPanel"
-EntityPanel.Size                    = UDim2.new(0,260,0,200)
+EntityPanel.Size                    = UDim2.new(0,260,0,364)  -- fixed: 44 title + 320 scroll view
 EntityPanel.AnchorPoint             = Vector2.new(1,0)
 EntityPanel.Position                = UDim2.new(1,-12,0,62)
 EntityPanel.BackgroundColor3        = Color3.fromRGB(10,10,10)
@@ -261,8 +261,12 @@ EntityScroll.Size                   = UDim2.new(1,0,1,-44)
 EntityScroll.Position               = UDim2.new(0,0,0,44)
 EntityScroll.BackgroundTransparency = 1
 EntityScroll.BorderSizePixel        = 0
-EntityScroll.ScrollBarThickness     = 3
+EntityScroll.ScrollBarThickness     = 5   -- thicker for mobile finger use
 EntityScroll.ScrollBarImageColor3   = Color3.fromRGB(255,215,0)
+EntityScroll.ScrollingEnabled       = true
+EntityScroll.ElasticBehavior        = Enum.ElasticBehavior.Always  -- mobile rubber-band
+EntityScroll.ScrollingDirection     = Enum.ScrollingDirection.Y
+EntityScroll.VerticalScrollBarPosition = Enum.VerticalScrollBarPosition.Right
 EntityScroll.ZIndex                 = 21
 EntityScroll.CanvasSize             = UDim2.new(0,0,0,0)
 EntityScroll.Parent                 = EntityPanel
@@ -279,9 +283,10 @@ EntityPad.PaddingRight = UDim.new(0,10)
 EntityPad.Parent       = EntityScroll
 
 EntityList:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+    -- Only update canvas height so the scroll frame knows how far to scroll.
+    -- Panel height is fixed (364px) — no auto-resize needed.
     local h = EntityList.AbsoluteContentSize.Y + 20
     EntityScroll.CanvasSize = UDim2.new(0,0,0,h)
-    EntityPanel.Size = UDim2.new(0,260,0, math.min(h+64, 460))
 end)
 
 local panelOpen = false
@@ -1169,9 +1174,10 @@ MouthWarn.Parent                 = ScreenGui
 local function BuildMouthBillboard(anchorPart)
     local bb = Instance.new("BillboardGui")
     bb.Name         = "MouthfeedBB"
-    bb.Size         = UDim2.new(0, 90, 0, 60)
+    -- Base size at REFERENCE_DIST (20 studs). Scaled every frame in Heartbeat.
+    bb.Size         = UDim2.new(0, 180, 0, 120)
     bb.StudsOffset  = Vector3.new(0, 0, 0)
-    bb.AlwaysOnTop  = true   -- noclips visually too
+    bb.AlwaysOnTop  = true
     bb.Adornee      = anchorPart
     bb.Parent       = anchorPart
 
@@ -1372,6 +1378,22 @@ local function OnMouthfeedEnable()
         local newPos = pos + Mouthfeed.velocity * dt
         Mouthfeed.part.CFrame = CFrame.new(newPos)
 
+        -- ── PERSPECTIVE SCALING ──────────────────────────────
+        -- Make the billboard appear bigger when camera is close and
+        -- smaller when zoomed out, mimicking real 3D perspective.
+        -- Formula: pixelSize = BASE_PX * REFERENCE_DIST / camDist
+        -- BASE_PX=180, REFERENCE_DIST=20 → at 20 studs = 180px wide.
+        if Mouthfeed.billboard then
+            local camDist = (Camera.CFrame.Position - newPos).Magnitude
+            camDist = math.max(camDist, 1)  -- no div by zero
+            local BASE_PX     = 180
+            local BASE_PX_H   = 120
+            local REF_DIST    = 20
+            local scaledW = math.clamp(BASE_PX   * REF_DIST / camDist, 40,  500)
+            local scaledH = math.clamp(BASE_PX_H * REF_DIST / camDist, 26,  330)
+            Mouthfeed.billboard.Size = UDim2.new(0, scaledW, 0, scaledH)
+        end
+
         -- ── JAW ANIMATION based on distance ─────────────────
         local distToPlayer = (newPos - hrpNow.Position).Magnitude
         -- Wide open when close (< 5 studs), mostly closed when far (> 25 studs)
@@ -1384,8 +1406,8 @@ local function OnMouthfeedEnable()
             if Mouthfeed.dmgCDTimer <= 0 then Mouthfeed.dmgCooldown = false end
         end
 
-        -- ── TOUCH CHECK (2.5 stud radius) ───────────────────
-        if not Mouthfeed.dmgCooldown and distToPlayer < 2.5 then
+        -- ── TOUCH CHECK (5 stud radius) ─────────────────────
+        if not Mouthfeed.dmgCooldown and distToPlayer < 5 then
             Mouthfeed.dmgCooldown = true
             Mouthfeed.dmgCDTimer  = Mouthfeed.DMG_CD
             ModifyFate(-30)
