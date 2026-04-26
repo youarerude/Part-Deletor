@@ -1483,22 +1483,18 @@ RegisterEntity("Mouthfeed","Recklessness",
 local Piece = {
     active        = false,
     conn          = nil,
-    -- Per-limb state
-    limbs         = {},   -- array of { name, part, stolen, pos, vel }
-    -- Back-follower model
+    limbs         = {},
     follower      = nil,
-    followerParts = {},   -- [limbName] = Part
-    -- HUD label frames
-    hudParts      = {},   -- [limbName] = Frame
-    -- Chase state
+    followerParts = {},
+    hudParts      = {},
     chasing       = false,
     chaseSpeed    = 0,
     chaseAccTimer = 0,
     CHASE_ACC_INT = 0.1,
-    -- Damage cooldown
     dmgCooldown   = false,
     dmgCDTimer    = 0,
     DMG_CD        = 1.5,
+    pendingReset  = false,   -- set true when Piece kills the player
 }
 
 local PIECE_LIMB_NAMES = {"Head","Torso","LeftArm","RightArm","LeftLeg","RightLeg"}
@@ -1716,6 +1712,45 @@ local function StealLimb(limbEntry)
     end
 end
 
+-- Clears all 3D objects and GUI, then restarts the entity from scratch.
+-- Called on respawn when Piece was the cause of death.
+local function PieceHardReset()
+    -- Stop heartbeat loop
+    if Piece.conn then Piece.conn:Disconnect(); Piece.conn = nil end
+    -- Destroy floating limbs
+    for _, le in ipairs(Piece.limbs) do
+        if le.part then le.part:Destroy(); le.part = nil end
+    end
+    Piece.limbs = {}
+    -- Destroy follower
+    if Piece.follower then Piece.follower:Destroy(); Piece.follower = nil end
+    Piece.followerParts = {}
+    -- Reset chase state
+    Piece.chasing       = false
+    Piece.chaseSpeed    = 0
+    Piece.chaseAccTimer = 0
+    Piece.dmgCooldown   = false
+    Piece.dmgCDTimer    = 0
+    Piece.pendingReset  = false
+    -- Reset HUD slots to invisible
+    for _, nm in ipairs(PIECE_LIMB_NAMES) do
+        local hf = Piece.hudParts[nm]
+        if hf then hf.BackgroundTransparency = 1 end
+    end
+    -- Rebuild everything after a short delay (let respawn finish)
+    task.delay(1.5, function()
+        if not Piece.active then return end
+        local followerModel, fParts = BuildFollowerModel()
+        Piece.follower      = followerModel
+        Piece.followerParts = fParts
+        Piece.limbs         = BuildFloatingLimbs()
+        PieceHUDFrame.Visible = true
+        PieceShowWarn("𝙎𝙩𝙚𝙖𝙡 𝙞𝙩.")
+        -- Restart heartbeat
+        OnPieceEnable()
+    end)
+end
+
 local function OnPieceEnable()
     Piece.active      = true
     Piece.chasing     = false
@@ -1762,8 +1797,8 @@ local function OnPieceEnable()
             local targetPos = hrp.Position + LIMB_ORBIT_OFFSETS[le.name]
             local distToTarget = (targetPos - curPos).Magnitude
 
-            -- Speed: 100 if far from target (>30), else 7
-            local speed = distToTarget > 30 and 100 or 7
+            -- Speed: 100 if far from target (>30), else 4
+            local speed = distToTarget > 30 and 100 or 4
 
             local dir = (targetPos - curPos)
             local dist = dir.Magnitude
@@ -1815,6 +1850,8 @@ local function OnPieceEnable()
                     Piece.dmgCDTimer  = Piece.DMG_CD
                     InstantFateDamage(100)
                     PieceShowWarn("𝙄𝙩𝙨 𝙟𝙪𝙨𝙩 𝙖 𝙥𝙞𝙚𝙘𝙚 𝙤𝙛 𝙪𝙨𝙚𝙡𝙚𝙨𝙨 𝙤𝙗𝙟𝙚𝙘𝙩.")
+                    -- Flag that Piece killed the player — reset will trigger on respawn
+                    Piece.pendingReset = true
                 end
             end
         end
@@ -1841,6 +1878,265 @@ end
 RegisterEntity("Piece","Injustice",
     "Why waste money on a useless object? Steal it. Get it. Hide it. It's just a piece anyway.",
     OnPieceEnable, OnPieceDisable)
+
+-- ═══════════════════════════════════════════════════════════
+--        ENTITY: DELICTUM  (Symbolizes: Past Mistakes)
+-- ═══════════════════════════════════════════════════════════
+--[[
+    RECORDING PHASE:
+    ▸ From the moment Delictum is enabled, it silently records the
+      local player's CFrame (position + rotation) every 0.05s into
+      a rolling history buffer per "life".
+
+    SHADOW SPAWN:
+    ▸ Each time the player dies (CharacterAdded fires), after 2 seconds
+      a new shadow clone spawns and plays back that life's recorded path.
+    ▸ It loops infinitely once it reaches the end of the recording.
+    ▸ Multiple deaths = multiple shadows running simultaneously, each
+      replaying a different life's path.
+    ▸ Shadow appearance: dark semi-transparent R6 body with a faint
+      purple/grey tint, always at the recorded CFrame (no physics).
+
+    DAMAGE:
+    ▸ If the local player gets within 3 studs of ANY shadow's torso:
+      -45% fate instantly, 2s immunity.
+
+    LIMIT: max 8 simultaneous shadows to avoid performance issues.
+--]]
+
+local Delictum = {
+    active         = false,
+    recordConn     = nil,
+    shadowConn     = nil,
+    -- Recording
+    currentRecord  = {},       -- {cf, t} per frame this life
+    recordTimer    = 0,
+    RECORD_INTERVAL = 0.05,
+    -- Shadows
+    shadows        = {},       -- array of { frames={cf}, index, model, parts, looping }
+    MAX_SHADOWS    = 8,
+    -- Damage
+    dmgCooldown    = false,
+    dmgCDTimer     = 0,
+    DMG_CD         = 2,
+}
+
+local DelictumWarn = Instance.new("TextLabel")
+DelictumWarn.Name                   = "DelictumWarn"
+DelictumWarn.Size                   = UDim2.new(0,300,0,24)
+DelictumWarn.AnchorPoint            = Vector2.new(0.5,1)
+DelictumWarn.Position               = UDim2.new(0.5,0,1,-158)
+DelictumWarn.BackgroundTransparency = 1
+DelictumWarn.Text                   = ""
+DelictumWarn.Font                   = Enum.Font.GothamBold
+DelictumWarn.TextSize               = 14
+DelictumWarn.TextColor3             = Color3.fromRGB(160,120,200)
+DelictumWarn.TextTransparency       = 1
+DelictumWarn.ZIndex                 = 12
+DelictumWarn.Parent                 = ScreenGui
+
+-- Shadow screen tint (purple flash on touch)
+local DelictumTint = Instance.new("Frame")
+DelictumTint.Size                   = UDim2.new(1,0,1,0)
+DelictumTint.BackgroundColor3       = Color3.fromRGB(80,0,120)
+DelictumTint.BackgroundTransparency = 1
+DelictumTint.ZIndex                 = 7
+DelictumTint.Parent                 = ScreenGui
+
+local function DelictumShowWarn(txt)
+    DelictumWarn.Text = txt
+    TweenService:Create(DelictumWarn, TweenInfo.new(0.2), {TextTransparency=0}):Play()
+    task.delay(2.5, function()
+        TweenService:Create(DelictumWarn, TweenInfo.new(0.8), {TextTransparency=1}):Play()
+    end)
+end
+
+-- Build a shadow R6 model
+local function BuildShadowModel()
+    local m = Instance.new("Model")
+    m.Name = "Delictum_Shadow_"..tostring(tick())
+    local shadowCol = Color3.fromRGB(30, 10, 50)
+    local function mkP(nm, sz)
+        local p = Instance.new("Part")
+        p.Name = nm; p.Size = sz; p.Anchored = true
+        p.CanCollide = false; p.CastShadow = false
+        p.Material = Enum.Material.SmoothPlastic
+        p.Color = shadowCol; p.Transparency = 0.45
+        p.Parent = m; return p
+    end
+    local torso = mkP("Torso",    Vector3.new(2,2,1))
+    mkP("Head",     Vector3.new(1,1,1))
+    mkP("LeftArm",  Vector3.new(1,2,1))
+    mkP("RightArm", Vector3.new(1,2,1))
+    mkP("LeftLeg",  Vector3.new(1,2,1))
+    mkP("RightLeg", Vector3.new(1,2,1))
+    m.PrimaryPart = torso
+
+    -- Faint purple glow eyes via BillboardGui
+    local hd = m:FindFirstChild("Head")
+    if hd then
+        local eyeBB = Instance.new("BillboardGui")
+        eyeBB.Size = UDim2.new(0,30,0,10); eyeBB.StudsOffset = Vector3.new(0,0,0.52)
+        eyeBB.AlwaysOnTop = false; eyeBB.Adornee = hd; eyeBB.Parent = hd
+        local function mkEye(ax)
+            local e = Instance.new("Frame")
+            e.Size = UDim2.new(0.35,0,0.7,0); e.AnchorPoint = Vector2.new(ax,0.5)
+            e.Position = UDim2.new(ax==0 and 0.08 or 0.92, 0, 0.5, 0)
+            e.BackgroundColor3 = Color3.fromRGB(160,80,255)
+            e.BorderSizePixel = 0; e.Parent = eyeBB
+            Instance.new("UICorner",e).CornerRadius = UDim.new(1,0)
+            TweenService:Create(e, TweenInfo.new(1.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut,-1,true),
+                {BackgroundColor3=Color3.fromRGB(80,20,140)}):Play()
+        end
+        mkEye(0); mkEye(1)
+    end
+
+    m.Parent = Workspace
+
+    -- Collect parts into a table for fast CFrame setting
+    local parts = {}
+    for _, p in ipairs(m:GetChildren()) do
+        if p:IsA("BasePart") then parts[p.Name] = p end
+    end
+    return m, parts
+end
+
+-- Position a shadow model at a recorded CFrame (torso = base)
+local function PlaceShadowAt(shadowParts, cf)
+    local offsets = {
+        Torso    = CFrame.new(0, 0,    0),
+        Head     = CFrame.new(0, 1.5,  0),
+        LeftArm  = CFrame.new(-1.5, 0, 0),
+        RightArm = CFrame.new( 1.5, 0, 0),
+        LeftLeg  = CFrame.new(-0.5,-2, 0),
+        RightLeg = CFrame.new( 0.5,-2, 0),
+    }
+    for nm, off in pairs(offsets) do
+        if shadowParts[nm] then shadowParts[nm].CFrame = cf * off end
+    end
+end
+
+-- Finalise the current recording and spawn a shadow that plays it back
+local function SpawnShadowFromRecording(frames)
+    if #frames < 2 then return end
+    if #Delictum.shadows >= Delictum.MAX_SHADOWS then
+        -- Remove the oldest shadow to stay under limit
+        local oldest = table.remove(Delictum.shadows, 1)
+        if oldest.model then oldest.model:Destroy() end
+    end
+
+    local model, parts = BuildShadowModel()
+    local shadow = {
+        frames = frames,
+        index  = 1,
+        model  = model,
+        parts  = parts,
+        timer  = 0,
+        STEP   = 0.05,   -- matches recording interval
+    }
+    table.insert(Delictum.shadows, shadow)
+    -- Place immediately at first recorded position
+    PlaceShadowAt(parts, frames[1])
+end
+
+-- Called on each death while Delictum is active
+local function DelictumOnDeath()
+    if not Delictum.active then return end
+    local frames = Delictum.currentRecord
+    Delictum.currentRecord = {}   -- start fresh recording for next life
+
+    if #frames < 2 then return end
+
+    task.delay(2, function()
+        if not Delictum.active then return end
+        SpawnShadowFromRecording(frames)
+        DelictumShowWarn("𝙢𝙞𝙨𝙩𝙖𝙠𝙚𝙨 𝙙𝙤𝙣'𝙩 𝙙𝙞𝙨𝙖𝙥𝙥𝙚𝙖𝙧.")
+    end)
+end
+
+local function OnDelictumEnable()
+    Delictum.active        = true
+    Delictum.currentRecord = {}
+    Delictum.recordTimer   = 0
+    Delictum.dmgCooldown   = false
+    Delictum.dmgCDTimer    = 0
+
+    -- Recording loop
+    Delictum.recordConn = RunService.Heartbeat:Connect(function(dt)
+        if not Delictum.active then return end
+        local hrp = HumanoidRootPart; if not hrp then return end
+
+        Delictum.recordTimer = Delictum.recordTimer + dt
+        if Delictum.recordTimer >= Delictum.RECORD_INTERVAL then
+            Delictum.recordTimer = 0
+            -- Record torso CFrame (position + facing)
+            table.insert(Delictum.currentRecord, hrp.CFrame)
+            -- Cap recording length to 20 minutes worth of frames to save memory
+            if #Delictum.currentRecord > 24000 then
+                table.remove(Delictum.currentRecord, 1)
+            end
+        end
+
+        -- ── ADVANCE SHADOW PLAYBACK ──────────────────────────
+        for _, shadow in ipairs(Delictum.shadows) do
+            if not shadow.model or not shadow.model.Parent then continue end
+
+            shadow.timer = shadow.timer + dt
+            if shadow.timer >= shadow.STEP then
+                shadow.timer = 0
+                shadow.index = shadow.index + 1
+                -- Loop back to start
+                if shadow.index > #shadow.frames then
+                    shadow.index = 1
+                end
+                PlaceShadowAt(shadow.parts, shadow.frames[shadow.index])
+            end
+        end
+
+        -- ── DAMAGE CHECK ─────────────────────────────────────
+        if Delictum.dmgCooldown then
+            Delictum.dmgCDTimer = Delictum.dmgCDTimer - dt
+            if Delictum.dmgCDTimer <= 0 then Delictum.dmgCooldown = false end
+        end
+
+        if not Delictum.dmgCooldown and HumanoidRootPart then
+            local playerPos = HumanoidRootPart.Position
+            for _, shadow in ipairs(Delictum.shadows) do
+                if shadow.parts and shadow.parts["Torso"] then
+                    local d = (shadow.parts["Torso"].Position - playerPos).Magnitude
+                    if d < 3 then
+                        Delictum.dmgCooldown = true
+                        Delictum.dmgCDTimer  = Delictum.DMG_CD
+                        InstantFateDamage(45)
+                        TweenService:Create(DelictumTint, TweenInfo.new(0.15), {BackgroundTransparency=0.75}):Play()
+                        task.delay(0.3, function()
+                            TweenService:Create(DelictumTint, TweenInfo.new(0.7), {BackgroundTransparency=1}):Play()
+                        end)
+                        DelictumShowWarn("𝙩𝙝𝙖𝙩 𝙬𝙖𝙨 𝙮𝙤𝙪.")
+                        break
+                    end
+                end
+            end
+        end
+    end)
+end
+
+local function OnDelictumDisable()
+    Delictum.active = false
+    if Delictum.recordConn then Delictum.recordConn:Disconnect(); Delictum.recordConn = nil end
+    -- Destroy all shadows
+    for _, shadow in ipairs(Delictum.shadows) do
+        if shadow.model then shadow.model:Destroy() end
+    end
+    Delictum.shadows       = {}
+    Delictum.currentRecord = {}
+    TweenService:Create(DelictumWarn, TweenInfo.new(0.3), {TextTransparency=1}):Play()
+    TweenService:Create(DelictumTint, TweenInfo.new(0.3), {BackgroundTransparency=1}):Play()
+end
+
+RegisterEntity("Delictum","Past Mistakes",
+    "Every mistake, every scar I left in the past... it affects the future. What else can I do?",
+    OnDelictumEnable, OnDelictumDisable)
 
 -- ═══════════════════════════════════════════════════════════
 --                    FATE UPDATE LOOP
@@ -1907,6 +2203,14 @@ LocalPlayer.CharacterAdded:Connect(function()
     TweenService:Create(DeathScreen, TweenInfo.new(0.8), {BackgroundTransparency=1}):Play()
     TweenService:Create(DeathLabel,  TweenInfo.new(0.4), {TextTransparency=1}):Play()
     task.delay(1, function() DeathScreen.Visible = false end)
+    -- Piece: reset and restart if it killed the player
+    if Piece.pendingReset then
+        PieceHardReset()
+    end
+    -- Delictum: save last life's recording, spawn a shadow after 2s
+    if Delictum.active then
+        DelictumOnDeath()
+    end
 end)
 
 -- ═══════════════════════════════════════════════════════════
@@ -1971,16 +2275,17 @@ task.spawn(function()
 end)
 
 -- ═══════════════════════════════════════════════════════════
-print("╔═══════════════════════════════════════════════════╗")
-print("║        GRACE Fanmade v5 — Loaded ✓             ║")
-print("║  FATE system            ✓                       ║")
-print("║  Entity panel           ✓  top-right 👁         ║")
-print("║  GAZE                   ✓  Envy                 ║")
-print("║  ELUDE  v3              ✓  Paranoia             ║")
-print("║  NUMB                   ✓  Wrath                ║")
-print("║  MOUTHFEED              ✓  Recklessness         ║")
-print("║  PIECE                  ✓  Injustice            ║")
-print("║    ↳ 6 limbs, HUD body, follower, chase mode   ║")
-print("║  FIX: instant damage    ✓  InstantFateDamage    ║")
-print("║    ↳ Elude + Mouthfeed now correctly drain fate ║")
-print("╚═══════════════════════════════════════════════════╝")
+print("╔══════════════════════════════════════════════════════╗")
+print("║         GRACE Fanmade v6 — Loaded ✓               ║")
+print("║  FATE system              ✓                        ║")
+print("║  Entity panel             ✓  top-right 👁          ║")
+print("║  GAZE                     ✓  Envy                  ║")
+print("║  ELUDE  v3                ✓  Paranoia              ║")
+print("║  NUMB                     ✓  Wrath                 ║")
+print("║  MOUTHFEED                ✓  Recklessness          ║")
+print("║  PIECE                    ✓  Injustice             ║")
+print("║    ↳ resets + respawns after killing player       ║")
+print("║  DELICTUM                 ✓  Past Mistakes         ║")
+print("║    ↳ records movement, shadows replay each life   ║")
+print("║    ↳ up to 8 simultaneous shadows, -45% on touch  ║")
+print("╚══════════════════════════════════════════════════════╝")
