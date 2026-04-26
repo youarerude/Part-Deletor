@@ -6,13 +6,15 @@
    ╚██████╔╝██║  ██║██║  ██║╚██████╗███████╗
     ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝╚══════╝
     F A N M A D E  —  by Wowiera
-    Script by Claude (Anthropic) & Gemini
+    Script by Claude (Anthropic)
 
     ▸ FATE system      — yellow → white as health drains
     ▸ Entity Panel     — top-right 👁 button
-    ▸ Custom Deaths    — Personalized avatar executions
+    ▸ GAZE             — Envy
+    ▸ ELUDE  v3        — Paranoia  (open ground spawn, outside camera)
+    ▸ NUMB             — Wrath     (blood rain, find cover or die)
 
-    Executor: Codex (mobile)  | Game Script Category
+    Executor: Codex (mobile)  |  Game Script Category
 --]]
 
 -- ═══════════════════════════════════════════════════════════
@@ -32,250 +34,515 @@ local Humanoid         = Character:WaitForChild("Humanoid")
 local HumanoidRootPart = Character:WaitForChild("HumanoidRootPart")
 local Head             = Character:WaitForChild("Head")
 
+LocalPlayer.CharacterAdded:Connect(function(nc)
+    Character          = nc
+    Humanoid           = nc:WaitForChild("Humanoid")
+    HumanoidRootPart   = nc:WaitForChild("HumanoidRootPart")
+    Head               = nc:WaitForChild("Head")
+end)
+
 -- ═══════════════════════════════════════════════════════════
---                     FATE SYSTEM & CUSTOM DEATH
+--                     FATE SYSTEM
 -- ═══════════════════════════════════════════════════════════
 local FateData = {
     current    = 100,
     max        = 100,
     dead       = false,
     drainRates = {},
-    lastCause  = nil,
 }
-
-local CustomCorpse = nil
 
 local FATE_FULL  = Color3.fromRGB(255, 215, 0)
 local FATE_EMPTY = Color3.fromRGB(220, 220, 220)
 
 local function GetFateColor(pct)   return FATE_EMPTY:Lerp(FATE_FULL, pct) end
-
-local function AddFateDrain(id,r)  
-    FateData.drainRates[id] = r 
-    FateData.lastCause = id
-end
-
-local function RemoveFateDrain(id) 
-    FateData.drainRates[id] = nil 
-end
-
-local function ModifyFate(n, cause)
-    if cause then FateData.lastCause = cause end
+local function AddFateDrain(id,r)  FateData.drainRates[id] = r end
+local function RemoveFateDrain(id) FateData.drainRates[id] = nil end
+local function ModifyFate(n)
     FateData.current = math.clamp(FateData.current + n, 0, FateData.max)
 end
 
-local function InstantFateDamage(pct, cause)
-    ModifyFate(-pct, cause)
+-- Use this for INSTANT burst damage (not drain-rate).
+-- ModifyFate alone gets overwritten by SyncFateToHealth next frame
+-- because SyncFateToHealth reads from Humanoid.Health.
+-- This writes BOTH so they stay in sync.
+local function InstantFateDamage(pct)
+    ModifyFate(-pct)
     if Humanoid and Humanoid.MaxHealth > 0 then
         local newHP = math.clamp(Humanoid.Health - (pct / 100) * Humanoid.MaxHealth, 0, Humanoid.MaxHealth)
         Humanoid.Health = newHP
     end
 end
 
--- ── CUSTOM DEATH ANIMATOR ──────────────────────────────────
-local function CreateBloodPuddle(parent, pos, size)
-    local ray = RaycastParams.new()
-    ray.FilterType = Enum.RaycastFilterType.Exclude
-    ray.FilterDescendantsInstances = {parent, Character}
-    
-    local hit = Workspace:Raycast(pos + Vector3.new(0,2,0), Vector3.new(0,-10,0), ray)
-    if hit then
-        local puddle = Instance.new("Part")
-        puddle.Name = "BloodPuddle"
-        puddle.Size = Vector3.new(size, 0.05, size)
-        puddle.Anchored = true
-        puddle.CanCollide = false
-        puddle.Color = Color3.fromRGB(110, 0, 0)
-        puddle.Material = Enum.Material.SmoothPlastic
-        puddle.CFrame = CFrame.new(hit.Position) * CFrame.Angles(0, math.random()*math.pi*2, 0)
-        Instance.new("CylinderMesh", puddle)
-        puddle.Parent = parent
-        TweenService:Create(puddle, TweenInfo.new(2.5), {Size = Vector3.new(size*2.5, 0.05, size*2.5)}):Play()
+-- ═══════════════════════════════════════════════════════════
+--               ENTITY DEATH EFFECTS
+-- ═══════════════════════════════════════════════════════════
+-- Tracks which entity caused the most recent kill so the right
+-- death effect fires on Humanoid.Died.
+local lastDeathCause = nil  -- "Gaze"|"Elude"|"Numb"|"Mouthfeed"|"Piece"|"Delictum"|nil
+
+-- ── Helpers ────────────────────────────────────────────────
+
+-- Deep-clone the player's current avatar (shirts, pants, accessories, face)
+-- into Workspace as a static corpse model.  All BaseParts come out
+-- anchored=false so callers can apply physics or re-anchor as needed.
+local function CloneAvatarAsCorpse()
+    local char = Character; if not char then return nil end
+    local clone = char:Clone()
+    clone.Name  = "GraceCorpse_"..tostring(tick())
+    -- Strip live scripts / animator so it won't move on its own
+    for _, obj in ipairs(clone:GetDescendants()) do
+        if obj:IsA("Script") or obj:IsA("LocalScript")
+        or obj:IsA("Animator") or obj:IsA("Animation") then
+            obj:Destroy()
+        end
+    end
+    -- Disable humanoid so it doesn't stand up
+    local hum = clone:FindFirstChildOfClass("Humanoid")
+    if hum then
+        hum:ChangeState(Enum.HumanoidStateType.Physics)
+        hum.PlatformStand = true
+    end
+    -- Unanchor every BasePart so callers control physics
+    for _, p in ipairs(clone:GetDescendants()) do
+        if p:IsA("BasePart") then
+            p.Anchored   = false
+            p.CanCollide = true
+            p.CastShadow = false
+        end
+    end
+    clone.Parent = Workspace
+    return clone
+end
+
+-- Spawn a flat blood puddle (Cylinder) at pos, growing over time
+local function SpawnBloodPuddle(pos, startR, endR, growTime)
+    startR   = startR  or 0.5
+    endR     = endR    or 3
+    growTime = growTime or 3
+    local p  = Instance.new("Part")
+    p.Name        = "BloodPuddle"
+    p.Shape       = Enum.PartType.Cylinder
+    p.Size        = Vector3.new(0.18, startR*2, startR*2)
+    p.CFrame      = CFrame.new(pos + Vector3.new(0,0.06,0)) * CFrame.Angles(0,0,math.pi/2)
+    p.Anchored    = true
+    p.CanCollide  = false
+    p.CastShadow  = false
+    p.Color       = Color3.fromRGB(110,0,0)
+    p.Material    = Enum.Material.SmoothPlastic
+    p.Transparency = 0.15
+    p.Parent      = Workspace
+    TweenService:Create(p, TweenInfo.new(growTime),
+        {Size = Vector3.new(0.18, endR*2, endR*2)}):Play()
+    return p
+end
+
+-- Spray small blood droplets from pos with random velocities
+local function SprayBlood(pos, count, speed)
+    speed = speed or 18
+    for _ = 1, count do
+        local d = Instance.new("Part")
+        d.Size        = Vector3.new(0.12,0.12,0.12)
+        d.Color       = Color3.fromRGB(100+math.random(40),0,0)
+        d.Material    = Enum.Material.SmoothPlastic
+        d.Transparency = 0.1
+        d.CanCollide  = false
+        d.CastShadow  = false
+        d.CFrame      = CFrame.new(pos + Vector3.new((math.random()-0.5)*0.5, 0, (math.random()-0.5)*0.5))
+        d.Parent      = Workspace
+        local bv = Instance.new("BodyVelocity")
+        local dir = Vector3.new(math.random()-0.5, math.random()*1.2-0.2, math.random()-0.5).Unit
+        bv.Velocity = dir * (speed * (0.5 + math.random()*0.8))
+        bv.MaxForce = Vector3.new(1,1,1) * 1e5
+        bv.P        = 3000
+        bv.Parent   = d
+        game:GetService("Debris"):AddItem(bv, 0.35)
+        game:GetService("Debris"):AddItem(d,  3)
     end
 end
 
-local function TriggerCustomDeathSequence(cause)
-    if not Character then return end
-    
-    -- Hide the real player instantly
-    for _, v in ipairs(Character:GetDescendants()) do
-        if v:IsA("BasePart") or v:IsA("Decal") then v.Transparency = 1 end
-    end
-    if Character:FindFirstChild("HumanoidRootPart") then
-        Character.HumanoidRootPart.Anchored = true
-    end
-
-    -- Create perfect clone
-    Character.Archivable = true
-    CustomCorpse = Character:Clone()
-    Character.Archivable = false
-    CustomCorpse.Name = "Dead_" .. LocalPlayer.Name
-    CustomCorpse.Parent = Workspace
-    
-    -- Clean up scripts
-    for _, v in ipairs(CustomCorpse:GetDescendants()) do
-        if v:IsA("Script") or v:IsA("LocalScript") then v:Destroy() end
-    end
-
-    local hrp = CustomCorpse:FindFirstChild("HumanoidRootPart")
-    local cHead = CustomCorpse:FindFirstChild("Head")
-    local cHum = CustomCorpse:FindFirstChild("Humanoid")
-    if cHum then cHum.Health = 0; cHum.PlatformStand = true end
-
-    -- EXECUTE ANIMATIONS
-    if cause == "Gaze" then
-        if hrp then hrp.Anchored = true end
-        if cHead then
-            for _, v in ipairs(cHead:GetDescendants()) do
-                if v:IsA("BasePart") or v:IsA("Decal") then v.Transparency = 1 end
-            end
-            
-            -- Censor Bar
-            local bb = Instance.new("BillboardGui", cHead)
-            bb.Size = UDim2.new(0, 140, 0, 45)
-            bb.AlwaysOnTop = true
-            local bar = Instance.new("Frame", bb)
-            bar.Size = UDim2.new(1,0,1,0)
-            bar.BackgroundColor3 = Color3.fromRGB(0,0,0)
-            bar.BorderSizePixel = 0
-
-            -- Blood spray
-            local pe = Instance.new("ParticleEmitter", cHead)
-            pe.Color = ColorSequence.new(Color3.fromRGB(120,0,0))
-            pe.Size = NumberSequence.new(0.3, 0)
-            pe.Speed = NumberRange.new(8, 14)
-            pe.EmissionDirection = Enum.NormalId.Top
-            pe.Rate = 80
-            pe.Lifetime = NumberRange.new(1, 2)
-            pe.Acceleration = Vector3.new(0, -20, 0)
+-- Continuous drip from pos for duration seconds
+local function StartBloodDrip(posFunc, duration)
+    local running = true
+    task.spawn(function()
+        while running do
+            local pos = posFunc()
+            if pos then SprayBlood(pos, 3, 4) end
+            task.wait(0.14)
         end
+    end)
+    task.delay(duration, function() running = false end)
+end
 
-    elseif cause == "Elude" or cause == "Mouthfeed" then
-        if hrp then hrp:Destroy() end
-        CustomCorpse:BreakJoints()
-        for _, v in ipairs(CustomCorpse:GetChildren()) do
-            if v:IsA("BasePart") then
-                v.Velocity = Vector3.new(math.random(-50,50), math.random(40,80), math.random(-50,50))
-                v.RotVelocity = Vector3.new(math.random(-30,30), math.random(-30,30), math.random(-30,30))
-                
-                local pe = Instance.new("ParticleEmitter", v)
-                pe.Color = ColorSequence.new(Color3.fromRGB(110,0,0))
-                pe.Size = NumberSequence.new(0.4, 0)
-                pe.Speed = NumberRange.new(2, 6)
-                pe.Rate = 30
-                pe.Lifetime = NumberRange.new(0.5, 1)
-                task.delay(2, function() pe.Enabled = false end)
+-- Schedule any instance for destruction after 5 minutes
+local function AutoCleanup(inst)
+    game:GetService("Debris"):AddItem(inst, 300)
+end
+
+-- ── GAZE DEATH ──────────────────────────────────────────────
+-- Headless body at death position + censored black bar on neck stump
+-- + decapitated head tossed nearby with looping blood drip
+local function GazeDeathEffect()
+    local char = Character; if not char then return end
+    local hrp  = char:FindFirstChild("HumanoidRootPart"); if not hrp then return end
+    local deathPos = hrp.Position
+
+    local corpse = CloneAvatarAsCorpse(); if not corpse then return end
+
+    -- Detach head from corpse
+    local corpseHead = corpse:FindFirstChild("Head")
+    local neckPos    = deathPos + Vector3.new(0,1.5,0)
+    if corpseHead then
+        neckPos = corpseHead.Position
+        -- Detach: remove motor/weld so it's free
+        for _, w in ipairs(corpseHead:GetChildren()) do
+            if w:IsA("Motor6D") or w:IsA("Weld") or w:IsA("WeldConstraint") then
+                w:Destroy()
             end
         end
-        if Character.PrimaryPart then
-            CreateBloodPuddle(CustomCorpse, Character.PrimaryPart.Position, 6)
-        end
+    end
 
-    elseif cause == "Numb" then
-        if hrp then hrp.Anchored = true end
-        for _, v in ipairs(CustomCorpse:GetChildren()) do
-            if v:IsA("BasePart") then
-                v.Anchored = true
-                v.CanCollide = false
-                TweenService:Create(v, TweenInfo.new(2, Enum.EasingStyle.Sine), {
-                    Size = Vector3.new(v.Size.X*1.3, 0.05, v.Size.Z*1.3),
-                    Position = v.Position - Vector3.new(0, v.Size.Y/2, 0),
-                    Color = Color3.fromRGB(90,0,0)
+    -- Anchor body (headless static pose)
+    for _, p in ipairs(corpse:GetDescendants()) do
+        if p:IsA("BasePart") then
+            p.Anchored   = true
+            p.CanCollide = false
+        end
+    end
+
+    -- Censored black bar over neck stump
+    local torso = corpse:FindFirstChild("Torso") or corpse:FindFirstChild("UpperTorso")
+    if torso then
+        local bb = Instance.new("BillboardGui")
+        bb.Size        = UDim2.new(0,100,0,24)
+        bb.StudsOffset = Vector3.new(0,1.45,0)
+        bb.AlwaysOnTop = false
+        bb.Adornee     = torso
+        bb.Parent      = torso
+
+        local bar = Instance.new("Frame")
+        bar.Size             = UDim2.new(1,0,1,0)
+        bar.BackgroundColor3 = Color3.fromRGB(0,0,0)
+        bar.BorderSizePixel  = 0
+        bar.Parent           = bb
+
+        local ct = Instance.new("TextLabel")
+        ct.Size                   = UDim2.new(1,0,1,0)
+        ct.BackgroundTransparency = 1
+        ct.Text                   = "████████████"
+        ct.Font                   = Enum.Font.GothamBold
+        ct.TextSize               = 13
+        ct.TextColor3             = Color3.fromRGB(25,25,25)
+        ct.Parent                 = bb
+    end
+
+    -- Blood spray from neck
+    SprayBlood(neckPos, 30, 12)
+    local puddle = SpawnBloodPuddle(deathPos, 0.4, 3.5, 4)
+    AutoCleanup(puddle)
+
+    -- Toss decapitated head
+    if corpseHead and corpseHead.Parent then
+        corpseHead.Anchored   = false
+        corpseHead.CanCollide = true
+        local bv = Instance.new("BodyVelocity")
+        local dir = Vector3.new(math.random()-0.5, 0.8+math.random()*0.5, math.random()-0.5).Unit
+        bv.Velocity = dir * (10 + math.random()*8)
+        bv.MaxForce = Vector3.new(1,1,1)*1e5
+        bv.P        = 5000
+        bv.Parent   = corpseHead
+        game:GetService("Debris"):AddItem(bv, 0.5)
+
+        -- Settle then drip
+        task.delay(1.5, function()
+            if corpseHead and corpseHead.Parent then
+                corpseHead.Anchored = true
+                local headPuddle = SpawnBloodPuddle(corpseHead.Position + Vector3.new(0,-0.5,0), 0.2, 1.8, 5)
+                AutoCleanup(headPuddle)
+                StartBloodDrip(function()
+                    return corpseHead and corpseHead.Parent and (corpseHead.Position + Vector3.new(0,-0.5,0)) or nil
+                end, 60)
+            end
+        end)
+        AutoCleanup(corpseHead)
+    end
+
+    -- Ongoing neck drip from body
+    StartBloodDrip(function()
+        if torso and torso.Parent then
+            return torso.Position + Vector3.new(0,1.4,0)
+        end
+        return nil
+    end, 30)
+
+    AutoCleanup(corpse)
+end
+
+-- ── ELUDE / MOUTHFEED DEATH ─────────────────────────────────
+-- Limbs explode outward with BodyVelocity + blood spray + puddle
+local function ExplodingLimbsDeathEffect()
+    local char = Character; if not char then return end
+    local hrp  = char:FindFirstChild("HumanoidRootPart"); if not hrp then return end
+    local deathPos = hrp.Position
+
+    local corpse = CloneAvatarAsCorpse(); if not corpse then return end
+
+    -- Unanchor, give each BasePart an outward blast
+    for _, p in ipairs(corpse:GetDescendants()) do
+        if p:IsA("BasePart") then
+            p.Anchored   = false
+            p.CanCollide = true
+            local dir = Vector3.new(math.random()-0.5, 0.4+math.random()*0.8, math.random()-0.5).Unit
+            local bv  = Instance.new("BodyVelocity")
+            bv.Velocity = dir * (18 + math.random()*28)
+            bv.MaxForce = Vector3.new(1,1,1)*1e5
+            bv.P        = 6000
+            bv.Parent   = p
+            game:GetService("Debris"):AddItem(bv, 0.4)
+        end
+    end
+
+    -- Blood burst at center
+    SprayBlood(deathPos + Vector3.new(0,1,0), 35, 22)
+
+    -- Puddle after parts land
+    task.delay(0.6, function()
+        local puddle = SpawnBloodPuddle(deathPos, 0.4, 5, 3.5)
+        AutoCleanup(puddle)
+    end)
+
+    AutoCleanup(corpse)
+end
+
+-- ── NUMB DEATH ──────────────────────────────────────────────
+-- Body squishes flat and turns red, then dissolves into blood puddle
+local function NumbDeathEffect()
+    local char = Character; if not char then return end
+    local hrp  = char:FindFirstChild("HumanoidRootPart"); if not hrp then return end
+    local deathPos = hrp.Position
+
+    local corpse = CloneAvatarAsCorpse(); if not corpse then return end
+
+    -- Anchor everything static
+    for _, p in ipairs(corpse:GetDescendants()) do
+        if p:IsA("BasePart") then
+            p.Anchored   = true
+            p.CanCollide = false
+        end
+    end
+
+    -- Phase 1 (0–1.5s): turn red
+    for _, p in ipairs(corpse:GetDescendants()) do
+        if p:IsA("BasePart") then
+            TweenService:Create(p, TweenInfo.new(1.5), {Color = Color3.fromRGB(150,0,0)}):Play()
+        end
+    end
+
+    -- Phase 2 (1.5–4s): squish flat downward
+    task.delay(1.5, function()
+        if not corpse or not corpse.Parent then return end
+        for _, p in ipairs(corpse:GetDescendants()) do
+            if p:IsA("BasePart") then
+                TweenService:Create(p,
+                    TweenInfo.new(2, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+                    Size  = Vector3.new(p.Size.X*1.8, math.max(p.Size.Y*0.04, 0.04), p.Size.Z*1.8),
+                    CFrame = CFrame.new(
+                        deathPos.X + (p.Position.X-deathPos.X)*1.15,
+                        deathPos.Y + 0.05,
+                        deathPos.Z + (p.Position.Z-deathPos.Z)*1.15),
+                    Transparency = 0.65,
                 }):Play()
             end
         end
-        if Character.PrimaryPart then
-            CreateBloodPuddle(CustomCorpse, Character.PrimaryPart.Position, 7)
-        end
 
-    elseif cause == "Piece" then
-        if hrp then hrp:Destroy() end
-        -- Ragdoll
-        for _, v in ipairs(CustomCorpse:GetDescendants()) do
-            if v:IsA("Motor6D") then
-                local a0, a1 = Instance.new("Attachment"), Instance.new("Attachment")
-                a0.CFrame = v.C0; a1.CFrame = v.C1
-                a0.Parent = v.Part0; a1.Parent = v.Part1
-                local bsc = Instance.new("BallSocketConstraint")
-                bsc.Attachment0 = a0; bsc.Attachment1 = a1; bsc.Parent = v.Part0
-                v:Destroy()
+        local puddle = SpawnBloodPuddle(deathPos, 0.3, 7, 2.8)
+        AutoCleanup(puddle)
+
+        -- Phase 3 (3.5s): fade out completely
+        task.delay(2.8, function()
+            if not corpse or not corpse.Parent then return end
+            for _, p in ipairs(corpse:GetDescendants()) do
+                if p:IsA("BasePart") then
+                    TweenService:Create(p, TweenInfo.new(0.6), {Transparency=1}):Play()
+                end
+            end
+            task.delay(0.7, function()
+                if corpse and corpse.Parent then corpse:Destroy() end
+            end)
+        end)
+    end)
+
+    AutoCleanup(corpse)
+end
+
+-- ── PIECE DEATH ─────────────────────────────────────────────
+-- Ragdoll briefly, then both wrists yanked upward by infinite white chains
+local function PieceDeathEffect()
+    local char = Character; if not char then return end
+    local hrp  = char:FindFirstChild("HumanoidRootPart"); if not hrp then return end
+    local deathPos = hrp.Position
+
+    local corpse = CloneAvatarAsCorpse(); if not corpse then return end
+
+    -- Brief ragdoll settle (unanchored)
+    for _, p in ipairs(corpse:GetDescendants()) do
+        if p:IsA("BasePart") then
+            p.Anchored   = false
+            p.CanCollide = true
+        end
+    end
+
+    task.delay(0.7, function()
+        if not corpse or not corpse.Parent then return end
+
+        -- Anchor everything
+        for _, p in ipairs(corpse:GetDescendants()) do
+            if p:IsA("BasePart") then
+                p.Anchored   = true
+                p.CanCollide = false
             end
         end
 
-        local function AttachChain(armName)
-            local arm = CustomCorpse:FindFirstChild(armName)
-            if arm then
-                local chain = Instance.new("Part")
-                chain.Size = Vector3.new(0.2, 500, 0.2)
-                chain.Anchored = true
-                chain.CanCollide = false
-                chain.Color = Color3.fromRGB(255,255,255)
-                chain.Material = Enum.Material.Neon
-                chain.CFrame = arm.CFrame * CFrame.new(0, 250, 0)
-                chain.Parent = CustomCorpse
-                
-                local weld = Instance.new("WeldConstraint")
-                weld.Part0 = chain
-                weld.Part1 = arm
-                weld.Parent = chain
-                
-                arm.Anchored = false
-                -- Lift to the sky
-                TweenService:Create(chain, TweenInfo.new(10, Enum.EasingStyle.Linear), {
-                    Position = chain.Position + Vector3.new(0, 100, 0)
+        -- Find arm parts (R6 naming)
+        local lArm = corpse:FindFirstChild("Left Arm")  or corpse:FindFirstChild("LeftHand")
+        local rArm = corpse:FindFirstChild("Right Arm") or corpse:FindFirstChild("RightHand")
+        local torso = corpse:FindFirstChild("Torso") or corpse:FindFirstChild("UpperTorso")
+
+        -- Tween whole corpse upward 12 studs over 2s
+        for _, p in ipairs(corpse:GetDescendants()) do
+            if p:IsA("BasePart") then
+                TweenService:Create(p,
+                    TweenInfo.new(2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                    CFrame = p.CFrame + Vector3.new(0,12,0)
                 }):Play()
             end
         end
-        AttachChain("Left Arm")
-        AttachChain("Right Arm")
-        AttachChain("LeftHand") 
-        AttachChain("RightHand")
 
-    elseif cause == "Delictum" then
-        if hrp then hrp:Destroy() end
-        for _, v in ipairs(CustomCorpse:GetChildren()) do
-            if v:IsA("BasePart") and v.Name ~= "Head" then
-                v:Destroy()
-            elseif v:IsA("Accessory") then
-                local h = v:FindFirstChild("Handle")
-                if h and h:FindFirstChild("AccessoryWeld") and h.AccessoryWeld.Part1 ~= cHead then
-                    v:Destroy()
+        -- After lift, spawn tall white chain segments from each hand going to sky
+        task.delay(2.1, function()
+            local function MakeChain(armPart)
+                if not armPart or not armPart.Parent then return end
+                local chainPart = Instance.new("Part")
+                chainPart.Name        = "PieceChain"
+                chainPart.Size        = Vector3.new(0.18, 800, 0.18)
+                chainPart.Color       = Color3.fromRGB(245,245,255)
+                chainPart.Material    = Enum.Material.SmoothPlastic
+                chainPart.Transparency = 0.08
+                chainPart.Anchored    = true
+                chainPart.CanCollide  = false
+                chainPart.CastShadow  = false
+                -- Centre the tall cylinder so bottom is at hand position
+                chainPart.CFrame      = CFrame.new(armPart.Position + Vector3.new(0,400,0))
+                chainPart.Parent      = Workspace
+                AutoCleanup(chainPart)
+
+                -- Subtle chain link texture via UIGradient BillboardGui won't work on Part,
+                -- so add thin dark rings along the chain for visual rhythm
+                for i = 1, 12 do
+                    local ring = Instance.new("Part")
+                    ring.Size        = Vector3.new(0.35, 0.12, 0.35)
+                    ring.Color       = Color3.fromRGB(200,200,220)
+                    ring.Material    = Enum.Material.SmoothPlastic
+                    ring.Transparency = 0.2
+                    ring.Anchored    = true
+                    ring.CanCollide  = false
+                    ring.CastShadow  = false
+                    ring.CFrame      = CFrame.new(armPart.Position + Vector3.new(0, i*4, 0))
+                    ring.Parent      = Workspace
+                    AutoCleanup(ring)
+                end
+            end
+
+            MakeChain(lArm)
+            MakeChain(rArm)
+        end)
+    end)
+
+    AutoCleanup(corpse)
+end
+
+-- ── DELICTUM DEATH ──────────────────────────────────────────
+-- Only the head remains on the ground; rest of body gone; blood floods out
+local function DelictumDeathEffect()
+    local char = Character; if not char then return end
+    local hrp  = char:FindFirstChild("HumanoidRootPart"); if not hrp then return end
+    local deathPos = hrp.Position
+
+    -- Clone the full avatar for accessories/appearance on head
+    local corpse = CloneAvatarAsCorpse(); if not corpse then return end
+
+    -- Immediately destroy everything except Head and accessories
+    for _, p in ipairs(corpse:GetChildren()) do
+        local keep = false
+        if p:IsA("BasePart") and p.Name == "Head" then keep = true end
+        if p:IsA("Accessory") then keep = true end  -- hats, hair stay
+        if p:IsA("SpecialMesh") then keep = true end
+        if not keep and p:IsA("BasePart") then p:Destroy()
+        elseif not keep and p:IsA("Motor6D") then p:Destroy()
+        end
+    end
+    -- Also destroy any non-head BaseParts that snuck in
+    for _, p in ipairs(corpse:GetDescendants()) do
+        if p:IsA("BasePart") and p.Name ~= "Head" then p:Destroy() end
+    end
+
+    local head = corpse:FindFirstChild("Head")
+    if head then
+        head.Anchored   = true
+        head.CanCollide = false
+        -- Drop it to the ground slightly
+        local groundRay = Workspace:Raycast(
+            deathPos + Vector3.new(0,5,0), Vector3.new(0,-15,0),
+            RaycastParams.new()
+        )
+        local groundY = groundRay and groundRay.Position.Y or (deathPos.Y)
+        head.CFrame = CFrame.new(deathPos.X, groundY + 0.55, deathPos.Z)
+            * CFrame.Angles(0, math.random()*math.pi*2, math.random()*0.3-0.15)
+
+        -- Snap accessories to head position
+        for _, acc in ipairs(corpse:GetChildren()) do
+            if acc:IsA("Accessory") then
+                local handle = acc:FindFirstChild("Handle")
+                if handle then
+                    handle.Anchored   = true
+                    handle.CanCollide = false
+                    handle.CFrame = head.CFrame * CFrame.new(0, 0.5 + math.random()*0.3, 0)
                 end
             end
         end
-        if cHead then
-            cHead.Anchored = false
-            cHead.CanCollide = true
-            cHead.Velocity = Vector3.new(0, -10, 0)
-            
-            local pe = Instance.new("ParticleEmitter", cHead)
-            pe.Color = ColorSequence.new(Color3.fromRGB(110,0,0))
-            pe.Size = NumberSequence.new(0.3, 0)
-            pe.Speed = NumberRange.new(3, 6)
-            pe.Rate = 40
-            pe.Lifetime = NumberRange.new(1, 2.5)
-            
-            CreateBloodPuddle(CustomCorpse, cHead.Position, 4)
-        end
+
+        -- Growing blood pool from head
+        local puddle = SpawnBloodPuddle(head.Position + Vector3.new(0,-0.5,0), 0.2, 5.5, 6)
+        AutoCleanup(puddle)
+
+        -- Long blood drip animation
+        StartBloodDrip(function()
+            return head and head.Parent and (head.Position + Vector3.new(0,-0.45,0)) or nil
+        end, 90)
     end
+
+    AutoCleanup(corpse)
 end
 
-LocalPlayer.CharacterAdded:Connect(function(nc)
-    Character          = nc
-    Humanoid           = nc:WaitForChild("Humanoid")
-    HumanoidRootPart   = nc:WaitForChild("HumanoidRootPart")
-    Head               = nc:WaitForChild("Head")
-    
-    FateData.dead    = false
-    FateData.current = 100
-    FateData.lastCause = nil
-
-    if CustomCorpse then CustomCorpse:Destroy(); CustomCorpse = nil end
-
-    TweenService:Create(DeathScreen, TweenInfo.new(0.8), {BackgroundTransparency=1}):Play()
-    TweenService:Create(DeathLabel,  TweenInfo.new(0.4), {TextTransparency=1}):Play()
-    task.delay(1, function() DeathScreen.Visible = false end)
-end)
+-- ── DISPATCH ────────────────────────────────────────────────
+-- Connect to Humanoid.Died and fire the correct effect.
+local function ConnectDeathEffect()
+    if not Humanoid then return end
+    Humanoid.Died:Connect(function()
+        local cause = lastDeathCause
+        lastDeathCause = nil
+        -- Small delay so the character model is still present in Workspace
+        task.delay(0.05, function()
+            if cause == "Gaze"     then GazeDeathEffect()
+            elseif cause == "Elude"     then ExplodingLimbsDeathEffect()
+            elseif cause == "Numb"      then NumbDeathEffect()
+            elseif cause == "Mouthfeed" then ExplodingLimbsDeathEffect()
+            elseif cause == "Piece"     then PieceDeathEffect()
+            elseif cause == "Delictum"  then DelictumDeathEffect()
+            end
+        end)
+    end)
+end
+ConnectDeathEffect()
 
 -- ═══════════════════════════════════════════════════════════
 --                      MAIN GUI
@@ -352,16 +619,16 @@ FatePct.ZIndex                 = 10
 FatePct.Parent                 = ScreenGui
 
 -- ── DEATH SCREEN ───────────────────────────────────────────
-DeathScreen = Instance.new("Frame")
+local DeathScreen = Instance.new("Frame")
 DeathScreen.Name                   = "DeathScreen"
 DeathScreen.Size                   = UDim2.new(1,0,1,0)
-DeathScreen.BackgroundColor3       = Color3.fromRGB(0,0,0) -- Changed to pitch black for effect
+DeathScreen.BackgroundColor3       = Color3.fromRGB(255,255,255)
 DeathScreen.BackgroundTransparency = 1
 DeathScreen.ZIndex                 = 100
 DeathScreen.Visible                = false
 DeathScreen.Parent                 = ScreenGui
 
-DeathLabel = Instance.new("TextLabel")
+local DeathLabel = Instance.new("TextLabel")
 DeathLabel.Size                   = UDim2.new(1,0,0,80)
 DeathLabel.AnchorPoint            = Vector2.new(0.5,0.5)
 DeathLabel.Position               = UDim2.new(0.5,0,0.5,0)
@@ -369,7 +636,7 @@ DeathLabel.BackgroundTransparency = 1
 DeathLabel.Text                   = "your fate ran out."
 DeathLabel.Font                   = Enum.Font.GothamBold
 DeathLabel.TextSize               = 38
-DeathLabel.TextColor3             = Color3.fromRGB(200,0,0)
+DeathLabel.TextColor3             = Color3.fromRGB(30,30,30)
 DeathLabel.TextTransparency       = 1
 DeathLabel.ZIndex                 = 101
 DeathLabel.Parent                 = DeathScreen
@@ -437,7 +704,7 @@ Instance.new("UICorner", EntityToggleBtn).CornerRadius = UDim.new(0,8)
 
 local EntityPanel = Instance.new("Frame")
 EntityPanel.Name                    = "EntityPanel"
-EntityPanel.Size                    = UDim2.new(0,260,0,364)
+EntityPanel.Size                    = UDim2.new(0,260,0,364)  -- fixed: 44 title + 320 scroll view
 EntityPanel.AnchorPoint             = Vector2.new(1,0)
 EntityPanel.Position                = UDim2.new(1,-12,0,62)
 EntityPanel.BackgroundColor3        = Color3.fromRGB(10,10,10)
@@ -477,10 +744,10 @@ EntityScroll.Size                   = UDim2.new(1,0,1,-44)
 EntityScroll.Position               = UDim2.new(0,0,0,44)
 EntityScroll.BackgroundTransparency = 1
 EntityScroll.BorderSizePixel        = 0
-EntityScroll.ScrollBarThickness     = 5
+EntityScroll.ScrollBarThickness     = 5   -- thicker for mobile finger use
 EntityScroll.ScrollBarImageColor3   = Color3.fromRGB(255,215,0)
 EntityScroll.ScrollingEnabled       = true
-EntityScroll.ElasticBehavior        = Enum.ElasticBehavior.Always
+EntityScroll.ElasticBehavior        = Enum.ElasticBehavior.Always  -- mobile rubber-band
 EntityScroll.ScrollingDirection     = Enum.ScrollingDirection.Y
 EntityScroll.VerticalScrollBarPosition = Enum.VerticalScrollBarPosition.Right
 EntityScroll.ZIndex                 = 21
@@ -499,6 +766,8 @@ EntityPad.PaddingRight = UDim.new(0,10)
 EntityPad.Parent       = EntityScroll
 
 EntityList:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+    -- Only update canvas height so the scroll frame knows how far to scroll.
+    -- Panel height is fixed (364px) — no auto-resize needed.
     local h = EntityList.AbsoluteContentSize.Y + 20
     EntityScroll.CanvasSize = UDim2.new(0,0,0,h)
 end)
@@ -572,7 +841,7 @@ local function RegisterEntity(name, symbolizes, desc, onEnable, onDisable)
     tb.MouseButton1Click:Connect(function()
         entry.enabled = not entry.enabled
         if entry.enabled then
-            tb.Text = "ON"; tb.BackgroundColor3 = Color3.fromRGB(60,180,60)
+            tb.Text = "ON";  tb.BackgroundColor3 = Color3.fromRGB(60,180,60)
             if onEnable then pcall(onEnable) end
         else
             tb.Text = "OFF"; tb.BackgroundColor3 = Color3.fromRGB(180,60,60)
@@ -586,6 +855,15 @@ end
 -- ═══════════════════════════════════════════════════════════
 --           ENTITY: GAZE  (Symbolizes: Envy)
 -- ═══════════════════════════════════════════════════════════
+--[[
+    ▸ Every 5s → 35% chance: random player gets eye billboard on head
+    ▸ 60% bias toward same-team friends
+    ▸ Look at it (FOV + raycast, walls block, target head doesn't):
+        → -5% fate/s while looking
+    ▸ Eye disappears after 15s → 5s cooldown → cycle repeats
+    ▸ Red screen tint + "you see it." while draining
+--]]
+
 local Gaze = {
     active   = false,  target  = nil,  eyeBB      = nil,
     conn     = nil,    draining= false, spawnTick  = 0,
@@ -713,6 +991,22 @@ RegisterEntity("Gaze","Envy",
 -- ═══════════════════════════════════════════════════════════
 --          ENTITY: ELUDE  (Symbolizes: Paranoia)  v3
 -- ═══════════════════════════════════════════════════════════
+--[[
+    SPAWN LOGIC (fixed):
+    ▸ Casts DOWN from a random elevated point 10–100 studs away
+      to find the ground surface — lands ON TOP of ground, never inside parts
+    ▸ Only accepts spots that are OUTSIDE the player's camera view
+      (either behind the player or obstructed from camera angle)
+    ▸ Falls back to more attempts before skipping the cycle
+    ▸ Every 5s: teleports to another such ground spot outside camera view
+    ▸ Floats above ground and always faces local player (no moving)
+    ▸ If player gets clear camera line-of-sight to Elude:
+        → -25% fate instantly + Elude teleports immediately
+        → 2s immunity before next damage
+    ▸ Teal screen flicker + paranoia hint text on every teleport
+    ▸ "𝘼𝙘𝙘𝙚𝙥𝙩 𝙞𝙩." text flashes when caught
+--]]
+
 local Elude = {
     active          = false,
     conn            = nil,
@@ -778,6 +1072,7 @@ local function BuildEludeModel()
     mkP("LeftLeg",  Vector3.new(0.8,1.8,0.8), 0.22)
     mkP("RightLeg", Vector3.new(0.8,1.8,0.8), 0.22)
     m.PrimaryPart = torso
+    -- Teal slit eyes
     local hd = m:FindFirstChild("Head")
     if hd then
         local eyeBB = Instance.new("BillboardGui")
@@ -808,39 +1103,75 @@ local function PlaceElude(model, cf)
     end
 end
 
+-- Check if a position is outside the player's camera FOV or obstructed from camera
 local function EludeOutsideCameraView(pos)
     local camCF  = Camera.CFrame
     local camPos = camCF.Position
     local toPos  = pos - camPos
     local dist   = toPos.Magnitude
+
+    -- Outside 70° half-angle FOV → consider out of view
     if camCF.LookVector:Dot(toPos.Unit) < 0.34 then return true end
+
+    -- Within FOV — check if something blocks the line of sight from camera
     local excl = {Character}
     if Elude.model then table.insert(excl, Elude.model) end
     local rp = RaycastParams.new()
     rp.FilterType = Enum.RaycastFilterType.Exclude
     rp.FilterDescendantsInstances = excl
     local hit = Workspace:Raycast(camPos, toPos.Unit * (dist - 0.4), rp)
+    -- If something is blocking, then Elude is not visible from camera
     return hit ~= nil
 end
 
+-- Check if a position is also out of HRP direct line of sight (backs of walls still ok)
+local function EludeOutsideHRPView(pos)
+    local hrp = HumanoidRootPart; if not hrp then return true end
+    local origin = hrp.Position + Vector3.new(0,1,0)
+    local dir    = pos - origin; local dist = dir.Magnitude
+    if dist < 0.5 then return false end
+    local rp = RaycastParams.new()
+    rp.FilterType = Enum.RaycastFilterType.Exclude
+    rp.FilterDescendantsInstances = {Character}
+    local hit = Workspace:Raycast(origin, dir.Unit * (dist - 0.4), rp)
+    return hit ~= nil
+end
+
+--[[
+    FindEludeSpot:
+    Strategy — cast DOWN from elevated sample points around the player
+    to find solid ground. Then check the found ground position is:
+    1. Not occupied by a solid part (the ground IS a part surface, that's fine,
+       but we don't want to be embedded inside a wall or closed room).
+    2. Not visible from the camera.
+    We verify "not inside anything" by doing a quick sphere check: cast rays
+    in 4 lateral directions a short distance. If ALL are immediately blocked,
+    we're probably inside something — skip that spot.
+]]
 local function FindEludeSpot(tries)
     local hrp = HumanoidRootPart; if not hrp then return nil end
     tries = tries or 32
+
     local rp = RaycastParams.new()
     rp.FilterType = Enum.RaycastFilterType.Exclude
     rp.FilterDescendantsInstances = {Character}
 
     for _ = 1, tries do
         local angle = math.random() * math.pi * 2
-        local dist  = 12 + math.random() * 88
+        local dist  = 12 + math.random() * 88  -- 12–100 studs
         local dir   = Vector3.new(math.cos(angle), 0, math.sin(angle))
         local sampleXZ = hrp.Position + dir * dist
 
+        -- Cast downward from high up to find ground surface
         local downOrigin = sampleXZ + Vector3.new(0, 60, 0)
         local downHit    = Workspace:Raycast(downOrigin, Vector3.new(0, -120, 0), rp)
         if not downHit then continue end
 
+        -- Candidate: a small hover above ground surface
         local groundPos = downHit.Position + Vector3.new(0, 1.2, 0)
+
+        -- Verify NOT inside a part: cast tiny rays outward in 4 directions.
+        -- If any direction is immediately open (no hit within 1 stud), we're fine.
         local openSides = 0
         local checkDirs = {
             Vector3.new(1,0,0), Vector3.new(-1,0,0),
@@ -850,13 +1181,18 @@ local function FindEludeSpot(tries)
             local sideHit = Workspace:Raycast(groundPos, cd * 1.2, rp)
             if not sideHit then openSides = openSides + 1 end
         end
-        if openSides < 2 then continue end
+        if openSides < 2 then continue end  -- surrounded — skip
+
+        -- Check it's outside the camera's view
         if not EludeOutsideCameraView(groundPos) then continue end
+
         return groundPos
     end
+
     return nil
 end
 
+-- Damage check: is Elude CLEARLY in camera view with no obstruction?
 local function EludeVisibleFromCam(pos)
     local camCF  = Camera.CFrame; local camPos = camCF.Position
     local toE    = pos - camPos; local dist = toE.Magnitude
@@ -908,12 +1244,14 @@ local function OnEludeEnable()
             if Elude.dmgCDTimer <= 0 then Elude.dmgCooldown = false end
         end
 
+        -- Switch timer
         Elude.switchTimer = Elude.switchTimer + dt
         if Elude.switchTimer >= Elude.SWITCH_INT then
             Elude.switchTimer = 0
             task.spawn(EludeTeleport)
         end
 
+        -- Keep Elude facing player + floating bob
         if Elude.model and Elude.currentPos then
             local sp    = Elude.currentPos
             local floatY = math.sin(tick() * 1.8) * 0.12
@@ -924,11 +1262,13 @@ local function OnEludeEnable()
             PlaceElude(Elude.model, faceCF)
         end
 
+        -- Damage check
         if not Elude.dmgCooldown and Elude.currentPos then
             local checkPos = Elude.currentPos + Vector3.new(0,1.5,0)
             if EludeVisibleFromCam(checkPos) then
                 Elude.dmgCooldown = true; Elude.dmgCDTimer = Elude.dmgCooldownTime
-                InstantFateDamage(25, "Elude")
+                lastDeathCause = "Elude"
+                InstantFateDamage(25)
                 EludeFlash(nil, Color3.fromRGB(180,190,255))
                 task.delay(0.12, function()
                     EludeFlicker.BackgroundColor3 = Color3.fromRGB(0,80,80)
@@ -960,6 +1300,26 @@ RegisterEntity("Elude","Paranoia",
 -- ═══════════════════════════════════════════════════════════
 --           ENTITY: NUMB  (Symbolizes: Wrath)
 -- ═══════════════════════════════════════════════════════════
+--[[
+    ▸ Every 10s: 30% chance to trigger a blood rain event
+    ▸ Phase 1 (5s) — WARNING PHASE:
+        - Sky turns dark red  (Lighting.Ambient, OutdoorAmbient, FogColor)
+        - Thin red fog begins (FogStart=80, FogEnd=300)
+        - Blood droplets (small red parts) fall from above the player
+        - Subtle rumble text: "find cover."
+    ▸ Phase 2 (2s) — WRATH PHASE (triggered at 5s):
+        - Intense screen shake (camera offset loop)
+        - Fog goes very thick (FogEnd=30)
+        - Blood rain gets heavier and faster
+        - If player has NO cover (no solid part within 40 studs above) → -100% fate (instant death)
+        - "𝙉𝙤𝙢𝙚𝙧𝙘𝙮." flashes on screen
+    ▸ Phase 3 — CLEAR:
+        - Everything resets to normal
+        - "it's gone." text fades in, then out
+    ▸ Cover check: raycast straight UP from player — if a solid part is hit within
+      40 studs → the player is covered (roof / ceiling / overhang counts)
+--]]
+
 local Numb = {
     active      = false,
     conn        = nil,
@@ -970,6 +1330,7 @@ local Numb = {
     shakeConn   = nil,
 }
 
+-- Store original lighting values to restore after event
 local OrigLighting = {
     Ambient        = Lighting.Ambient,
     OutdoorAmbient = Lighting.OutdoorAmbient,
@@ -979,11 +1340,13 @@ local OrigLighting = {
     Brightness     = Lighting.Brightness,
 }
 
+-- Overlay for rain tint
 local NumbOverlay = Instance.new("Frame")
 NumbOverlay.Name = "NumbOverlay"; NumbOverlay.Size = UDim2.new(1,0,1,0)
 NumbOverlay.BackgroundColor3 = Color3.fromRGB(80,0,0)
 NumbOverlay.BackgroundTransparency = 1; NumbOverlay.ZIndex = 5; NumbOverlay.Parent = ScreenGui
 
+-- Numb warning label (bottom center)
 local NumbText = Instance.new("TextLabel")
 NumbText.Name = "NumbText"; NumbText.Size = UDim2.new(0,340,0,30)
 NumbText.AnchorPoint = Vector2.new(0.5,1); NumbText.Position = UDim2.new(0.5,0,1,-50)
@@ -992,6 +1355,7 @@ NumbText.Font = Enum.Font.GothamBold; NumbText.TextSize = 20
 NumbText.TextColor3 = Color3.fromRGB(200,40,40); NumbText.TextTransparency = 1
 NumbText.ZIndex = 13; NumbText.Parent = ScreenGui
 
+-- Shake overlay flicker
 local NumbShakeFlicker = Instance.new("Frame")
 NumbShakeFlicker.Name = "NumbShake"; NumbShakeFlicker.Size = UDim2.new(1,0,1,0)
 NumbShakeFlicker.BackgroundColor3 = Color3.fromRGB(120,0,0)
@@ -1002,6 +1366,7 @@ local function PlayerHasCover()
     local rp = RaycastParams.new()
     rp.FilterType = Enum.RaycastFilterType.Exclude
     rp.FilterDescendantsInstances = {Character}
+    -- Cast upward up to 40 studs
     local hit = Workspace:Raycast(hrp.Position + Vector3.new(0,1,0), Vector3.new(0,40,0), rp)
     return hit ~= nil
 end
@@ -1025,6 +1390,15 @@ local function SpawnBloodDrop(heavy)
     drop.CFrame      = CFrame.new(spawnX, spawnY, spawnZ)
     drop.Parent      = Workspace
 
+    local vel = Instance.new("LinearVelocity")
+    vel.MaxForce     = Vector3.new(0, math.huge, 0)
+    vel.VelocityConstraintMode = Enum.VelocityConstraintMode.Vector
+    vel.FreeLength   = 0
+    vel.Attachment0  = Instance.new("Attachment", drop)
+    vel.Parent       = drop
+
+    -- Use BodyVelocity as fallback (more compatible with executors)
+    vel:Destroy()
     local bv = Instance.new("BodyVelocity")
     bv.Velocity       = Vector3.new(math.random()*2-1, heavy and -(55+math.random()*15) or -(35+math.random()*10), math.random()*2-1)
     bv.MaxForce       = Vector3.new(0, math.huge, 0)
@@ -1032,6 +1406,8 @@ local function SpawnBloodDrop(heavy)
     bv.Parent         = drop
 
     table.insert(Numb.bloodParts, drop)
+
+    -- Destroy after it's fallen long enough
     task.delay(3, function()
         if drop and drop.Parent then drop:Destroy() end
     end)
@@ -1048,7 +1424,7 @@ local function StartBloodRain(heavy)
         if spawnTimer >= interval then
             spawnTimer = 0
             SpawnBloodDrop(heavy)
-            if heavy then SpawnBloodDrop(true) end 
+            if heavy then SpawnBloodDrop(true) end  -- double density when heavy
         end
     end)
 end
@@ -1074,7 +1450,8 @@ end
 
 local function StopScreenShake()
     if Numb.shakeConn then Numb.shakeConn:Disconnect(); Numb.shakeConn = nil end
-    Camera.CFrame = Camera.CFrame
+    -- restore camera offset
+    Camera.CFrame = Camera.CFrame  -- camera handles itself on next frame
 end
 
 local function StartScreenShake(intensity)
@@ -1093,6 +1470,7 @@ local function TriggerNumbEvent()
     if Numb.inEvent then return end
     Numb.inEvent = true
 
+    -- ── PHASE 1: Red sky + thin fog + light blood rain ──────
     TweenService:Create(Lighting, TweenInfo.new(1.2), {
         Ambient        = Color3.fromRGB(60, 0, 0),
         OutdoorAmbient = Color3.fromRGB(80, 10, 10),
@@ -1105,23 +1483,35 @@ local function TriggerNumbEvent()
 
     NumbText.Text = "find cover."
     TweenService:Create(NumbText, TweenInfo.new(0.5), {TextTransparency=0}):Play()
+
     StartBloodRain(false)
+
+    -- Light camera rumble in phase 1
     StartScreenShake(0.04)
 
+    -- ── PHASE 2 at t=5s: Wrath ──────────────────────────────
     task.delay(5, function()
         if not Numb.inEvent then return end
+
+        -- Fog goes very thick
         TweenService:Create(Lighting, TweenInfo.new(0.3), {
             FogStart = 10,
             FogEnd   = 30,
             Ambient  = Color3.fromRGB(80, 0, 0),
         }):Play()
         TweenService:Create(NumbOverlay, TweenInfo.new(0.2), {BackgroundTransparency=0.65}):Play()
+
+        -- Heavy blood rain
         StartBloodRain(true)
+
+        -- Intense shake
         StartScreenShake(0.22)
 
+        -- Flash warning
         NumbText.Text = "𝙉𝙤 𝙢𝙚𝙧𝙘𝙮."
         TweenService:Create(NumbText, TweenInfo.new(0.1), {TextTransparency=0}):Play()
 
+        -- Repeated shake flicker
         local flickTimer = 0
         local flickConn
         flickConn = RunService.Heartbeat:Connect(function(dt)
@@ -1133,14 +1523,18 @@ local function TriggerNumbEvent()
             end
         end)
 
+        -- ── PHASE 3 at t=7s (5+2): Check cover + clear ──────
         task.delay(2, function()
             if flickConn then flickConn:Disconnect() end
             NumbShakeFlicker.BackgroundTransparency = 1
             StopScreenShake()
             StopBloodRain()
 
+            -- Cover check: did the player have a roof above them?
             if not PlayerHasCover() then
-                ModifyFate(-100, "Numb")
+                -- No cover → INSTANT DEATH
+                lastDeathCause = "Numb"
+                ModifyFate(-100)
                 if Humanoid then Humanoid.Health = 0 end
                 NumbText.Text = "you didn't hide."
                 NumbText.TextColor3 = Color3.fromRGB(255,255,255)
@@ -1156,16 +1550,21 @@ local function TriggerNumbEvent()
                     TweenService:Create(NumbText, TweenInfo.new(1), {TextTransparency=1}):Play()
                 end)
             end
+
+            -- Restore lighting & overlay
             RestoreLighting()
             TweenService:Create(NumbOverlay, TweenInfo.new(2), {BackgroundTransparency=1}):Play()
-            task.delay(2, function() Numb.inEvent = false end)
+
+            task.delay(2, function()
+                Numb.inEvent = false
+            end)
         end)
     end)
 end
 
 local function OnNumbEnable()
     Numb.active     = true
-    Numb.cycleTimer = Numb.CYCLE_INT 
+    Numb.cycleTimer = Numb.CYCLE_INT  -- first check after full interval
 
     Numb.conn = RunService.Heartbeat:Connect(function(dt)
         if not Numb.active or Numb.inEvent then return end
@@ -1200,23 +1599,40 @@ RegisterEntity("Numb","Wrath",
 -- ═══════════════════════════════════════════════════════════
 --         ENTITY: MOUTHFEED  (Symbolizes: Recklessness)
 -- ═══════════════════════════════════════════════════════════
+--[[
+    ▸ A 2D-in-3D floating open mouth that follows the local player.
+    ▸ Built entirely from BillboardGui frames (no asset IDs needed).
+    ▸ Movement:
+        - Follows the player through walls (noclip — Anchored Part, no collision).
+        - Has an "icy" velocity: it drifts toward you slowly and overshoots,
+          missing frequently.  Simulated with a spring/damper formula:
+          acceleration toward player but with low friction and some random drift.
+    ▸ Vertical bobbing: moves up and down in a sine wave independently.
+    ▸ The mouth animates: jaw opens wider when it gets closer to you.
+    ▸ If the mouth Part touches the local player's HumanoidRootPart
+      (distance < ~2.5 studs) → -30% fate instantly, 1.5s immunity.
+    ▸ A faint ambient "breathing" screen pulse plays while Mouthfeed is active.
+--]]
+
 local Mouthfeed = {
     active       = false,
     conn         = nil,
-    part         = nil,
-    billboard    = nil,
-    jawFrame     = nil,
+    part         = nil,   -- invisible anchor Part that moves in 3D
+    billboard    = nil,   -- BillboardGui on the part
+    jawFrame     = nil,   -- the lower jaw frame (animated)
     velocity     = Vector3.new(0,0,0),
     spawnPos     = nil,
     dmgCooldown  = false,
     dmgCDTimer   = 0,
     DMG_CD       = 1.5,
-    SPRING_K     = 1.8,
-    DAMPING      = 0.18,
-    DRIFT_FORCE  = 0.35,
-    MAX_SPEED    = 22,
+    -- Spring constants for icy movement
+    SPRING_K     = 1.8,   -- low attraction force
+    DAMPING      = 0.18,  -- almost no friction → overshoots
+    DRIFT_FORCE  = 0.35,  -- random sideways push per second
+    MAX_SPEED    = 22,    -- stud/s cap
 }
 
+-- Ambient pulse overlay while Mouthfeed is active
 local MouthPulse = Instance.new("Frame")
 MouthPulse.Name                   = "MouthPulse"
 MouthPulse.Size                   = UDim2.new(1,0,1,0)
@@ -1225,6 +1641,7 @@ MouthPulse.BackgroundTransparency = 1
 MouthPulse.ZIndex                 = 5
 MouthPulse.Parent                 = ScreenGui
 
+-- Touch warning text
 local MouthWarn = Instance.new("TextLabel")
 MouthWarn.Name                   = "MouthWarn"
 MouthWarn.Size                   = UDim2.new(0,300,0,26)
@@ -1242,12 +1659,14 @@ MouthWarn.Parent                 = ScreenGui
 local function BuildMouthBillboard(anchorPart)
     local bb = Instance.new("BillboardGui")
     bb.Name         = "MouthfeedBB"
+    -- Base size at REFERENCE_DIST (20 studs). Scaled every frame in Heartbeat.
     bb.Size         = UDim2.new(0, 180, 0, 120)
     bb.StudsOffset  = Vector3.new(0, 0, 0)
     bb.AlwaysOnTop  = true
     bb.Adornee      = anchorPart
     bb.Parent       = anchorPart
 
+    -- ── OUTER FACE (dark oval background) ──
     local face = Instance.new("Frame")
     face.Name             = "Face"
     face.Size             = UDim2.new(1,0,1,0)
@@ -1257,6 +1676,7 @@ local function BuildMouthBillboard(anchorPart)
     face.Parent           = bb
     Instance.new("UICorner", face).CornerRadius = UDim.new(0.4,0)
 
+    -- ── UPPER LIP ──
     local upperLip = Instance.new("Frame")
     upperLip.Name             = "UpperLip"
     upperLip.Size             = UDim2.new(0.82,0,0.28,0)
@@ -1267,6 +1687,7 @@ local function BuildMouthBillboard(anchorPart)
     upperLip.Parent           = bb
     Instance.new("UICorner", upperLip).CornerRadius = UDim.new(0.5,0)
 
+    -- ── LOWER JAW (animated — moves down when close) ──
     local lowerJaw = Instance.new("Frame")
     lowerJaw.Name             = "LowerJaw"
     lowerJaw.Size             = UDim2.new(0.82,0,0.28,0)
@@ -1277,6 +1698,7 @@ local function BuildMouthBillboard(anchorPart)
     lowerJaw.Parent           = bb
     Instance.new("UICorner", lowerJaw).CornerRadius = UDim.new(0.5,0)
 
+    -- ── MOUTH CAVITY (dark hole between lips) ──
     local cavity = Instance.new("Frame")
     cavity.Name             = "Cavity"
     cavity.Size             = UDim2.new(0.74,0,0.20,0)
@@ -1288,6 +1710,7 @@ local function BuildMouthBillboard(anchorPart)
     cavity.Parent           = bb
     Instance.new("UICorner", cavity).CornerRadius = UDim.new(0.4,0)
 
+    -- ── TEETH (upper row) ──
     for i = 1, 5 do
         local tooth = Instance.new("Frame")
         tooth.Size             = UDim2.new(0.10,0,0.16,0)
@@ -1300,6 +1723,7 @@ local function BuildMouthBillboard(anchorPart)
         Instance.new("UICorner", tooth).CornerRadius = UDim.new(0,3)
     end
 
+    -- ── TEETH (lower row, attached to lowerJaw logically) ──
     for i = 1, 5 do
         local tooth = Instance.new("Frame")
         tooth.Name             = "LowerTooth"..i
@@ -1313,6 +1737,7 @@ local function BuildMouthBillboard(anchorPart)
         Instance.new("UICorner", tooth).CornerRadius = UDim.new(0,3)
     end
 
+    -- ── TONGUE (inside cavity) ──
     local tongue = Instance.new("Frame")
     tongue.Size             = UDim2.new(0.44,0,0.14,0)
     tongue.AnchorPoint      = Vector2.new(0.5,1)
@@ -1323,11 +1748,13 @@ local function BuildMouthBillboard(anchorPart)
     tongue.Parent           = bb
     Instance.new("UICorner", tongue).CornerRadius = UDim.new(0.5,0)
 
+    -- Tongue pulse
     TweenService:Create(tongue,
         TweenInfo.new(1.1, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
         {BackgroundColor3 = Color3.fromRGB(200,40,60)}
     ):Play()
 
+    -- Drool drop (subtle)
     local drool = Instance.new("Frame")
     drool.Size             = UDim2.new(0.04,0,0.22,0)
     drool.AnchorPoint      = Vector2.new(0.5,0)
@@ -1339,6 +1766,7 @@ local function BuildMouthBillboard(anchorPart)
     drool.Parent           = bb
     Instance.new("UICorner", drool).CornerRadius = UDim.new(0.5,0)
 
+    -- Drool drip animation
     TweenService:Create(drool,
         TweenInfo.new(1.6, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut, -1, true),
         {Size = UDim2.new(0.04,0,0.35,0)}
@@ -1348,8 +1776,11 @@ local function BuildMouthBillboard(anchorPart)
 end
 
 local function UpdateJawOpenAmount(lowerJaw, cavity, openPct)
+    -- openPct: 0 = closed (lips touching), 1 = wide open
     openPct = math.clamp(openPct, 0, 1)
+    -- Lower jaw drops down
     lowerJaw.Position = UDim2.new(0.5, 0, 0.52 + openPct * 0.26, 0)
+    -- Cavity grows taller
     cavity.Size = UDim2.new(0.74, 0, 0.08 + openPct * 0.28, 0)
 end
 
@@ -1358,6 +1789,7 @@ local function OnMouthfeedEnable()
     Mouthfeed.dmgCooldown  = false
     Mouthfeed.dmgCDTimer   = 0
 
+    -- Spawn the invisible anchor Part a bit behind the player
     local hrp = HumanoidRootPart
     local spawnCF = hrp and (hrp.CFrame * CFrame.new(0,2,-15)) or CFrame.new(0,5,0)
 
@@ -1378,6 +1810,7 @@ local function OnMouthfeedEnable()
     Mouthfeed.cavity    = cavity
     Mouthfeed.velocity  = Vector3.new(0,0,0)
 
+    -- Ambient pulse tween (breathing)
     local pulseRunning = true
     task.spawn(function()
         while pulseRunning and Mouthfeed.active do
@@ -1388,38 +1821,56 @@ local function OnMouthfeedEnable()
         end
     end)
 
-    local vertTimer = 0
+    local vertTimer = 0  -- for vertical sine bob
 
     Mouthfeed.conn = RunService.Heartbeat:Connect(function(dt)
         if not Mouthfeed.active then pulseRunning = false; return end
         local hrpNow = HumanoidRootPart; if not hrpNow then return end
 
         vertTimer = vertTimer + dt
-        local bobY = math.sin(vertTimer * 1.2) * 3.5
+        local bobY = math.sin(vertTimer * 1.2) * 3.5  -- ±3.5 studs vertical bob
 
+        -- ── ICY SPRING PHYSICS ──────────────────────────────
+        -- Target: slightly in front of player at eye level
         local targetPos = hrpNow.Position + Vector3.new(0, 1 + bobY, 0)
+
         local pos = Mouthfeed.part.Position
         local diff = targetPos - pos
+
+        -- Spring attraction (weak)
         local attraction = diff * Mouthfeed.SPRING_K
+
+        -- Random drift (icy slide off-axis)
         local drift = Vector3.new(
             (math.random()*2-1) * Mouthfeed.DRIFT_FORCE,
             0,
             (math.random()*2-1) * Mouthfeed.DRIFT_FORCE
         )
+
+        -- Damping (very low → stays slippery)
         local damping = -Mouthfeed.velocity * Mouthfeed.DAMPING
+
+        -- Integrate velocity
         Mouthfeed.velocity = Mouthfeed.velocity + (attraction + damping + drift) * dt
 
+        -- Speed cap
         local speed = Mouthfeed.velocity.Magnitude
         if speed > Mouthfeed.MAX_SPEED then
             Mouthfeed.velocity = Mouthfeed.velocity.Unit * Mouthfeed.MAX_SPEED
         end
 
+        -- Move the part
         local newPos = pos + Mouthfeed.velocity * dt
         Mouthfeed.part.CFrame = CFrame.new(newPos)
 
+        -- ── PERSPECTIVE SCALING ──────────────────────────────
+        -- Make the billboard appear bigger when camera is close and
+        -- smaller when zoomed out, mimicking real 3D perspective.
+        -- Formula: pixelSize = BASE_PX * REFERENCE_DIST / camDist
+        -- BASE_PX=180, REFERENCE_DIST=20 → at 20 studs = 180px wide.
         if Mouthfeed.billboard then
             local camDist = (Camera.CFrame.Position - newPos).Magnitude
-            camDist = math.max(camDist, 1)
+            camDist = math.max(camDist, 1)  -- no div by zero
             local BASE_PX     = 180
             local BASE_PX_H   = 120
             local REF_DIST    = 20
@@ -1428,23 +1879,30 @@ local function OnMouthfeedEnable()
             Mouthfeed.billboard.Size = UDim2.new(0, scaledW, 0, scaledH)
         end
 
+        -- ── JAW ANIMATION based on distance ─────────────────
         local distToPlayer = (newPos - hrpNow.Position).Magnitude
+        -- Wide open when close (< 5 studs), mostly closed when far (> 25 studs)
         local openAmt = math.clamp(1 - (distToPlayer - 3) / 22, 0, 1)
         UpdateJawOpenAmount(Mouthfeed.jawFrame, Mouthfeed.cavity, openAmt)
 
+        -- ── DAMAGE COOLDOWN ──────────────────────────────────
         if Mouthfeed.dmgCooldown then
             Mouthfeed.dmgCDTimer = Mouthfeed.dmgCDTimer - dt
             if Mouthfeed.dmgCDTimer <= 0 then Mouthfeed.dmgCooldown = false end
         end
 
+        -- ── TOUCH CHECK (5 stud radius) ─────────────────────
         if not Mouthfeed.dmgCooldown and distToPlayer < 5 then
             Mouthfeed.dmgCooldown = true
             Mouthfeed.dmgCDTimer  = Mouthfeed.DMG_CD
-            InstantFateDamage(30, "Mouthfeed")
+            lastDeathCause = "Mouthfeed"
+            InstantFateDamage(30)
 
+            -- Flash screen
             MouthPulse.BackgroundTransparency = 0.72
             TweenService:Create(MouthPulse, TweenInfo.new(0.6), {BackgroundTransparency=1}):Play()
 
+            -- Bounce velocity away from player on contact
             local awayDir = (newPos - hrpNow.Position)
             if awayDir.Magnitude > 0 then
                 Mouthfeed.velocity = awayDir.Unit * (Mouthfeed.MAX_SPEED * 0.9)
@@ -1475,6 +1933,27 @@ RegisterEntity("Mouthfeed","Recklessness",
 -- ═══════════════════════════════════════════════════════════
 --           ENTITY: PIECE  (Symbolizes: Injustice)
 -- ═══════════════════════════════════════════════════════════
+--[[
+    ▸ 6 monochrome see-through spinning Limbs float and follow you
+      in the 3D world at walkspeed 7.
+    ▸ If a limb is >30 studs away it rushes at speed 100,
+      then slows back to 7 once inside 30 studs.
+    ▸ Touch a limb (within 2.5 studs) → it is "stolen":
+        - Disappears from the world.
+        - That slot on the TOP-SCREEN R6 body HUD becomes visible.
+        - That slot on the back-following ghost body becomes opaque.
+    ▸ Back-follower: a full semi-transparent R6 ghost body sits 3 studs
+      behind you at all times. Limb slots start invisible, fill in
+      as you steal each piece.
+    ▸ When ALL 6 limbs are stolen → CHASE MODE:
+        - The complete back-follower detaches and chases you.
+        - Speed starts at 0 and increases by +1 every 0.1 seconds.
+        - Touching the chasing body → -100% fate (instant death).
+    ▸ HUD: a small R6 silhouette panel at the top-left of the screen.
+      Each body-part frame is monochrome and starts transparent,
+      fills with a grey tone when stolen.
+--]]
+
 local Piece = {
     active        = false,
     conn          = nil,
@@ -1489,11 +1968,12 @@ local Piece = {
     dmgCooldown   = false,
     dmgCDTimer    = 0,
     DMG_CD        = 1.5,
-    pendingReset  = false,
+    pendingReset  = false,   -- set true when Piece kills the player
 }
 
 local PIECE_LIMB_NAMES = {"Head","Torso","LeftArm","RightArm","LeftLeg","RightLeg"}
 
+-- Limb floating offsets (relative to player, spread around them)
 local LIMB_ORBIT_OFFSETS = {
     Head     = Vector3.new( 0,   6,  -8),
     Torso    = Vector3.new(-8,   3,   4),
@@ -1503,6 +1983,7 @@ local LIMB_ORBIT_OFFSETS = {
     RightLeg = Vector3.new(-3,   5,   9),
 }
 
+-- Limb sizes matching R6 roughly
 local LIMB_SIZES = {
     Head     = Vector3.new(2,2,2),
     Torso    = Vector3.new(2,2,1),
@@ -1512,6 +1993,7 @@ local LIMB_SIZES = {
     RightLeg = Vector3.new(1,2,1),
 }
 
+-- ── HUD: R6 silhouette (top-left corner) ───────────────────
 local PieceHUDFrame = Instance.new("Frame")
 PieceHUDFrame.Name                   = "PieceHUD"
 PieceHUDFrame.Size                   = UDim2.new(0,80,0,120)
@@ -1535,6 +2017,7 @@ PieceHUDTitle.TextColor3             = Color3.fromRGB(180,180,180)
 PieceHUDTitle.ZIndex                 = 16
 PieceHUDTitle.Parent                 = PieceHUDFrame
 
+-- Body part positions on the HUD (pixel positions inside the 80x120 frame)
 local HUD_PART_LAYOUT = {
     Head     = {x=30, y=15,  w=20, h=20},
     Torso    = {x=22, y=36,  w=36, h=28},
@@ -1551,7 +2034,7 @@ for _, nm in ipairs(PIECE_LIMB_NAMES) do
     f.Size             = UDim2.new(0, layout.w, 0, layout.h)
     f.Position         = UDim2.new(0, layout.x, 0, layout.y)
     f.BackgroundColor3 = Color3.fromRGB(160,160,160)
-    f.BackgroundTransparency = 1
+    f.BackgroundTransparency = 1   -- invisible until stolen
     f.BorderSizePixel  = 1
     f.BorderColor3     = Color3.fromRGB(80,80,80)
     f.ZIndex           = 16
@@ -1562,6 +2045,7 @@ for _, nm in ipairs(PIECE_LIMB_NAMES) do
     Piece.hudParts[nm] = f
 end
 
+-- Touch warning
 local PieceWarn = Instance.new("TextLabel")
 PieceWarn.Name                   = "PieceWarn"
 PieceWarn.Size                   = UDim2.new(0,300,0,24)
@@ -1584,6 +2068,7 @@ local function PieceShowWarn(txt)
     end)
 end
 
+-- Build back-follower model (transparent R6 body behind player)
 local function BuildFollowerModel()
     local model = Instance.new("Model")
     model.Name = "PieceFollower"
@@ -1597,7 +2082,7 @@ local function BuildFollowerModel()
         p.CastShadow   = false
         p.Material     = Enum.Material.SmoothPlastic
         p.Color        = Color3.fromRGB(160,160,160)
-        p.Transparency = 1 
+        p.Transparency = 1   -- invisible until stolen
         p.Parent       = model
         parts[nm]      = p
     end
@@ -1606,7 +2091,9 @@ local function BuildFollowerModel()
     return model, parts
 end
 
+-- Position follower behind the player
 local function UpdateFollowerPose(followerParts, baseCF)
+    -- CFrames relative to the Torso
     local offsets = {
         Torso    = CFrame.new(0,  0,   0),
         Head     = CFrame.new(0,  1.5, 0),
@@ -1622,6 +2109,7 @@ local function UpdateFollowerPose(followerParts, baseCF)
     end
 end
 
+-- Build the 3D floating limb parts
 local function BuildFloatingLimbs()
     local hrp = HumanoidRootPart
     local limbs = {}
@@ -1644,27 +2132,32 @@ local function BuildFloatingLimbs()
             part   = p,
             stolen = false,
             vel    = Vector3.new(0,0,0),
-            spinT  = math.random() * math.pi * 2,
+            spinT  = math.random() * math.pi * 2,  -- random spin start
         })
     end
     return limbs
 end
 
+-- Mark a limb as stolen
 local function StealLimb(limbEntry)
     if limbEntry.stolen then return end
     limbEntry.stolen = true
 
+    -- Remove from world
     if limbEntry.part then
         limbEntry.part:Destroy()
         limbEntry.part = nil
     end
 
     local nm = limbEntry.name
+
+    -- Make HUD slot visible
     local hudF = Piece.hudParts[nm]
     if hudF then
         TweenService:Create(hudF, TweenInfo.new(0.3), {BackgroundTransparency=0.2}):Play()
     end
 
+    -- Make follower part visible
     local fPart = Piece.followerParts[nm]
     if fPart then
         TweenService:Create(fPart, TweenInfo.new(0.4), {Transparency=0.35}):Play()
@@ -1672,6 +2165,7 @@ local function StealLimb(limbEntry)
 
     PieceShowWarn("you took the "..nm:lower()..".")
 
+    -- Check if all stolen
     local allStolen = true
     for _, le in ipairs(Piece.limbs) do
         if not le.stolen then allStolen = false; break end
@@ -1684,6 +2178,7 @@ local function StealLimb(limbEntry)
             Piece.chaseSpeed   = 0
             Piece.chaseAccTimer = 0
             PieceShowWarn("𝙄𝙩𝙨 𝙘𝙤𝙢𝙥𝙡𝙚𝙩𝙚.")
+            -- Make follower more opaque/ominous
             for _, fp in pairs(Piece.followerParts) do
                 TweenService:Create(fp, TweenInfo.new(0.6), {Transparency=0.1, Color=Color3.fromRGB(30,30,30)}):Play()
             end
@@ -1691,24 +2186,32 @@ local function StealLimb(limbEntry)
     end
 end
 
+-- Clears all 3D objects and GUI, then restarts the entity from scratch.
+-- Called on respawn when Piece was the cause of death.
 local function PieceHardReset()
+    -- Stop heartbeat loop
     if Piece.conn then Piece.conn:Disconnect(); Piece.conn = nil end
+    -- Destroy floating limbs
     for _, le in ipairs(Piece.limbs) do
         if le.part then le.part:Destroy(); le.part = nil end
     end
     Piece.limbs = {}
+    -- Destroy follower
     if Piece.follower then Piece.follower:Destroy(); Piece.follower = nil end
     Piece.followerParts = {}
+    -- Reset chase state
     Piece.chasing       = false
     Piece.chaseSpeed    = 0
     Piece.chaseAccTimer = 0
     Piece.dmgCooldown   = false
     Piece.dmgCDTimer    = 0
     Piece.pendingReset  = false
+    -- Reset HUD slots to invisible
     for _, nm in ipairs(PIECE_LIMB_NAMES) do
         local hf = Piece.hudParts[nm]
         if hf then hf.BackgroundTransparency = 1 end
     end
+    -- Rebuild everything after a short delay (let respawn finish)
     task.delay(1.5, function()
         if not Piece.active then return end
         local followerModel, fParts = BuildFollowerModel()
@@ -1717,6 +2220,7 @@ local function PieceHardReset()
         Piece.limbs         = BuildFloatingLimbs()
         PieceHUDFrame.Visible = true
         PieceShowWarn("𝙎𝙩𝙚𝙖𝙡 𝙞𝙩.")
+        -- Restart heartbeat
         OnPieceEnable()
     end)
 end
@@ -1727,13 +2231,19 @@ local function OnPieceEnable()
     Piece.chaseSpeed  = 0
     Piece.dmgCooldown = false
     Piece.dmgCDTimer  = 0
+
+    -- Reset stolen state
     Piece.limbs = {}
 
+    -- Build follower
     local followerModel, fParts = BuildFollowerModel()
     Piece.follower      = followerModel
     Piece.followerParts = fParts
+
+    -- Build floating limbs
     Piece.limbs = BuildFloatingLimbs()
 
+    -- Show HUD
     PieceHUDFrame.Visible = true
     for _, nm in ipairs(PIECE_LIMB_NAMES) do
         local hf = Piece.hudParts[nm]
@@ -1746,11 +2256,13 @@ local function OnPieceEnable()
         if not Piece.active then return end
         local hrp = HumanoidRootPart; if not hrp then return end
 
+        -- ── DAMAGE COOLDOWN ──
         if Piece.dmgCooldown then
             Piece.dmgCDTimer = Piece.dmgCDTimer - dt
             if Piece.dmgCDTimer <= 0 then Piece.dmgCooldown = false end
         end
 
+        -- ── MOVE & SPIN FLOATING LIMBS ───────────────────────
         for _, le in ipairs(Piece.limbs) do
             if le.stolen or not le.part then continue end
 
@@ -1759,7 +2271,9 @@ local function OnPieceEnable()
             local targetPos = hrp.Position + LIMB_ORBIT_OFFSETS[le.name]
             local distToTarget = (targetPos - curPos).Magnitude
 
+            -- Speed: 100 if far from target (>30), else 4
             local speed = distToTarget > 30 and 100 or 4
+
             local dir = (targetPos - curPos)
             local dist = dir.Magnitude
             if dist > 0.1 then
@@ -1767,24 +2281,30 @@ local function OnPieceEnable()
                 curPos = curPos + dir.Unit * moveAmt
             end
 
+            -- Spin
             le.spinT = le.spinT + dt * 2.2
             p.CFrame = CFrame.new(curPos) * CFrame.Angles(le.spinT, le.spinT * 0.7, 0)
 
+            -- Touch check (2.5 studs)
             if (curPos - hrp.Position).Magnitude < 2.5 then
                 StealLimb(le)
             end
         end
 
+        -- ── FOLLOWER POSITIONING ─────────────────────────────
         if not Piece.chasing then
+            -- Sit 3 studs behind player, mirroring their CFrame
             local behindCF = hrp.CFrame * CFrame.new(0, 0, 3)
             UpdateFollowerPose(Piece.followerParts, behindCF)
         else
+            -- ── CHASE MODE ──────────────────────────────────
             Piece.chaseAccTimer = Piece.chaseAccTimer + dt
             if Piece.chaseAccTimer >= Piece.CHASE_ACC_INT then
                 Piece.chaseAccTimer = 0
                 Piece.chaseSpeed    = Piece.chaseSpeed + 1
             end
 
+            -- Move follower torso toward player
             local torso = Piece.followerParts["Torso"]
             if torso then
                 local curTorsoPos = torso.Position
@@ -1798,11 +2318,13 @@ local function OnPieceEnable()
                     UpdateFollowerPose(Piece.followerParts, faceCF)
                 end
 
+                -- Chase touch check (3 studs)
                 if not Piece.dmgCooldown and (torso.Position - hrp.Position).Magnitude < 3 then
                     Piece.dmgCooldown = true
                     Piece.dmgCDTimer  = Piece.DMG_CD
-                    InstantFateDamage(100, "Piece")
+                    InstantFateDamage(100)
                     PieceShowWarn("𝙄𝙩𝙨 𝙟𝙪𝙨𝙩 𝙖 𝙥𝙞𝙚𝙘𝙚 𝙤𝙛 𝙪𝙨𝙚𝙡𝙚𝙨𝙨 𝙤𝙗𝙟𝙚𝙘𝙩.")
+                    -- Flag that Piece killed the player — reset will trigger on respawn
                     Piece.pendingReset = true
                 end
             end
@@ -1814,12 +2336,15 @@ local function OnPieceDisable()
     Piece.active  = false
     Piece.chasing = false
     if Piece.conn then Piece.conn:Disconnect(); Piece.conn = nil end
+    -- Destroy floating limbs
     for _, le in ipairs(Piece.limbs) do
         if le.part then le.part:Destroy(); le.part = nil end
     end
     Piece.limbs = {}
+    -- Destroy follower
     if Piece.follower then Piece.follower:Destroy(); Piece.follower = nil end
     Piece.followerParts = {}
+    -- Hide HUD
     PieceHUDFrame.Visible = false
     TweenService:Create(PieceWarn, TweenInfo.new(0.3), {TextTransparency=1}):Play()
 end
@@ -1831,15 +2356,40 @@ RegisterEntity("Piece","Injustice",
 -- ═══════════════════════════════════════════════════════════
 --        ENTITY: DELICTUM  (Symbolizes: Past Mistakes)
 -- ═══════════════════════════════════════════════════════════
+--[[
+    RECORDING PHASE:
+    ▸ From the moment Delictum is enabled, it silently records the
+      local player's CFrame (position + rotation) every 0.05s into
+      a rolling history buffer per "life".
+
+    SHADOW SPAWN:
+    ▸ Each time the player dies (CharacterAdded fires), after 2 seconds
+      a new shadow clone spawns and plays back that life's recorded path.
+    ▸ It loops infinitely once it reaches the end of the recording.
+    ▸ Multiple deaths = multiple shadows running simultaneously, each
+      replaying a different life's path.
+    ▸ Shadow appearance: dark semi-transparent R6 body with a faint
+      purple/grey tint, always at the recorded CFrame (no physics).
+
+    DAMAGE:
+    ▸ If the local player gets within 3 studs of ANY shadow's torso:
+      -45% fate instantly, 2s immunity.
+
+    LIMIT: max 8 simultaneous shadows to avoid performance issues.
+--]]
+
 local Delictum = {
     active         = false,
     recordConn     = nil,
     shadowConn     = nil,
-    currentRecord  = {},
+    -- Recording
+    currentRecord  = {},       -- {cf, t} per frame this life
     recordTimer    = 0,
     RECORD_INTERVAL = 0.05,
-    shadows        = {},
+    -- Shadows
+    shadows        = {},       -- array of { frames={cf}, index, model, parts, looping }
     MAX_SHADOWS    = 8,
+    -- Damage
     dmgCooldown    = false,
     dmgCDTimer     = 0,
     DMG_CD         = 2,
@@ -1859,6 +2409,7 @@ DelictumWarn.TextTransparency       = 1
 DelictumWarn.ZIndex                 = 12
 DelictumWarn.Parent                 = ScreenGui
 
+-- Shadow screen tint (purple flash on touch)
 local DelictumTint = Instance.new("Frame")
 DelictumTint.Size                   = UDim2.new(1,0,1,0)
 DelictumTint.BackgroundColor3       = Color3.fromRGB(80,0,120)
@@ -1874,6 +2425,7 @@ local function DelictumShowWarn(txt)
     end)
 end
 
+-- Build a shadow R6 model
 local function BuildShadowModel()
     local m = Instance.new("Model")
     m.Name = "Delictum_Shadow_"..tostring(tick())
@@ -1894,6 +2446,7 @@ local function BuildShadowModel()
     mkP("RightLeg", Vector3.new(1,2,1))
     m.PrimaryPart = torso
 
+    -- Faint purple glow eyes via BillboardGui
     local hd = m:FindFirstChild("Head")
     if hd then
         local eyeBB = Instance.new("BillboardGui")
@@ -1913,6 +2466,8 @@ local function BuildShadowModel()
     end
 
     m.Parent = Workspace
+
+    -- Collect parts into a table for fast CFrame setting
     local parts = {}
     for _, p in ipairs(m:GetChildren()) do
         if p:IsA("BasePart") then parts[p.Name] = p end
@@ -1920,9 +2475,10 @@ local function BuildShadowModel()
     return m, parts
 end
 
+-- Position a shadow model at a recorded CFrame (torso = base)
 local function PlaceShadowAt(shadowParts, cf)
     local offsets = {
-        Torso    = CFrame.new(0, 0, 0),
+        Torso    = CFrame.new(0, 0,    0),
         Head     = CFrame.new(0, 1.5,  0),
         LeftArm  = CFrame.new(-1.5, 0, 0),
         RightArm = CFrame.new( 1.5, 0, 0),
@@ -1934,9 +2490,11 @@ local function PlaceShadowAt(shadowParts, cf)
     end
 end
 
+-- Finalise the current recording and spawn a shadow that plays it back
 local function SpawnShadowFromRecording(frames)
     if #frames < 2 then return end
     if #Delictum.shadows >= Delictum.MAX_SHADOWS then
+        -- Remove the oldest shadow to stay under limit
         local oldest = table.remove(Delictum.shadows, 1)
         if oldest.model then oldest.model:Destroy() end
     end
@@ -1948,16 +2506,18 @@ local function SpawnShadowFromRecording(frames)
         model  = model,
         parts  = parts,
         timer  = 0,
-        STEP   = 0.05, 
+        STEP   = 0.05,   -- matches recording interval
     }
     table.insert(Delictum.shadows, shadow)
+    -- Place immediately at first recorded position
     PlaceShadowAt(parts, frames[1])
 end
 
+-- Called on each death while Delictum is active
 local function DelictumOnDeath()
     if not Delictum.active then return end
     local frames = Delictum.currentRecord
-    Delictum.currentRecord = {}
+    Delictum.currentRecord = {}   -- start fresh recording for next life
 
     if #frames < 2 then return end
 
@@ -1975,6 +2535,7 @@ local function OnDelictumEnable()
     Delictum.dmgCooldown   = false
     Delictum.dmgCDTimer    = 0
 
+    -- Recording loop
     Delictum.recordConn = RunService.Heartbeat:Connect(function(dt)
         if not Delictum.active then return end
         local hrp = HumanoidRootPart; if not hrp then return end
@@ -1982,18 +2543,23 @@ local function OnDelictumEnable()
         Delictum.recordTimer = Delictum.recordTimer + dt
         if Delictum.recordTimer >= Delictum.RECORD_INTERVAL then
             Delictum.recordTimer = 0
+            -- Record torso CFrame (position + facing)
             table.insert(Delictum.currentRecord, hrp.CFrame)
+            -- Cap recording length to 20 minutes worth of frames to save memory
             if #Delictum.currentRecord > 24000 then
                 table.remove(Delictum.currentRecord, 1)
             end
         end
 
+        -- ── ADVANCE SHADOW PLAYBACK ──────────────────────────
         for _, shadow in ipairs(Delictum.shadows) do
             if not shadow.model or not shadow.model.Parent then continue end
+
             shadow.timer = shadow.timer + dt
             if shadow.timer >= shadow.STEP then
                 shadow.timer = 0
                 shadow.index = shadow.index + 1
+                -- Loop back to start
                 if shadow.index > #shadow.frames then
                     shadow.index = 1
                 end
@@ -2001,6 +2567,7 @@ local function OnDelictumEnable()
             end
         end
 
+        -- ── DAMAGE CHECK ─────────────────────────────────────
         if Delictum.dmgCooldown then
             Delictum.dmgCDTimer = Delictum.dmgCDTimer - dt
             if Delictum.dmgCDTimer <= 0 then Delictum.dmgCooldown = false end
@@ -2014,7 +2581,7 @@ local function OnDelictumEnable()
                     if d < 3 then
                         Delictum.dmgCooldown = true
                         Delictum.dmgCDTimer  = Delictum.DMG_CD
-                        InstantFateDamage(45, "Delictum")
+                        InstantFateDamage(45)
                         TweenService:Create(DelictumTint, TweenInfo.new(0.15), {BackgroundTransparency=0.75}):Play()
                         task.delay(0.3, function()
                             TweenService:Create(DelictumTint, TweenInfo.new(0.7), {BackgroundTransparency=1}):Play()
@@ -2031,6 +2598,7 @@ end
 local function OnDelictumDisable()
     Delictum.active = false
     if Delictum.recordConn then Delictum.recordConn:Disconnect(); Delictum.recordConn = nil end
+    -- Destroy all shadows
     for _, shadow in ipairs(Delictum.shadows) do
         if shadow.model then shadow.model:Destroy() end
     end
@@ -2045,7 +2613,7 @@ RegisterEntity("Delictum","Past Mistakes",
     OnDelictumEnable, OnDelictumDisable)
 
 -- ═══════════════════════════════════════════════════════════
---                     FATE UPDATE LOOP
+--                    FATE UPDATE LOOP
 -- ═══════════════════════════════════════════════════════════
 local fateAccum = 0
 local FATE_TICK = 0.05
@@ -2065,7 +2633,7 @@ RunService.Heartbeat:Connect(function(dt)
     local totalDrain = 0
     for _, rate in pairs(FateData.drainRates) do totalDrain = totalDrain + rate end
     if totalDrain ~= 0 then
-        ModifyFate(-totalDrain * elapsed, FateData.lastCause)
+        ModifyFate(-totalDrain * elapsed)
         if Humanoid and Humanoid.Health > 0 then
             local hp = Humanoid.MaxHealth
             Humanoid.Health = math.clamp(Humanoid.Health - (totalDrain * elapsed / 100) * hp, 0, hp)
@@ -2086,12 +2654,15 @@ RunService.Heartbeat:Connect(function(dt)
 
     if FateData.current <= 0 and not FateData.dead then
         FateData.dead = true
+        -- Tag cause for drain-based kills (Gaze is the only active drain entity)
+        if not lastDeathCause then
+            if FateData.drainRates["Gaze"] and FateData.drainRates["Gaze"] > 0 then
+                lastDeathCause = "Gaze"
+            end
+        end
         DeathScreen.Visible = true
         TweenService:Create(DeathScreen, TweenInfo.new(1.5), {BackgroundTransparency=0}):Play()
         TweenService:Create(DeathLabel,  TweenInfo.new(1.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, 0, false, 1.5), {TextTransparency=0}):Play()
-        
-        TriggerCustomDeathSequence(FateData.lastCause)
-        
         if Humanoid then Humanoid.Health = 0 end
     end
 
@@ -2104,13 +2675,30 @@ RunService.Heartbeat:Connect(function(dt)
 end)
 
 -- ═══════════════════════════════════════════════════════════
---                   CHARACTER RESPAWN (See line ~380)
+--                   CHARACTER RESPAWN
 -- ═══════════════════════════════════════════════════════════
--- Additional death handlers handled in LocalPlayer.CharacterAdded previously.
+LocalPlayer.CharacterAdded:Connect(function()
+    FateData.dead    = false
+    FateData.current = 100
+    TweenService:Create(DeathScreen, TweenInfo.new(0.8), {BackgroundTransparency=1}):Play()
+    TweenService:Create(DeathLabel,  TweenInfo.new(0.4), {TextTransparency=1}):Play()
+    task.delay(1, function() DeathScreen.Visible = false end)
+    -- Reconnect death effect listener for new character
+    task.defer(ConnectDeathEffect)
+    -- Piece: reset and restart if it killed the player
+    if Piece.pendingReset then
+        PieceHardReset()
+    end
+    -- Delictum: save last life's recording, spawn a shadow after 2s
+    if Delictum.active then
+        DelictumOnDeath()
+    end
+end)
 
 -- ═══════════════════════════════════════════════════════════
---                      ATMOSPHERE
+--                     ATMOSPHERE
 -- ═══════════════════════════════════════════════════════════
+-- Save original lighting AFTER script loads (don't overwrite what we just saved)
 OrigLighting.Ambient        = Lighting.Ambient
 OrigLighting.OutdoorAmbient = Lighting.OutdoorAmbient
 OrigLighting.FogColor       = Lighting.FogColor
@@ -2125,11 +2713,11 @@ end
 Atmosphere.Density = 0.3;  Atmosphere.Offset = 0.05
 Atmosphere.Color   = Color3.fromRGB(80,80,100)
 Atmosphere.Decay   = Color3.fromRGB(50,40,60)
-Atmosphere.Glare   = 0; Atmosphere.Haze = 1.5
+Atmosphere.Glare   = 0;    Atmosphere.Haze = 1.5
 
 local GameCC = Instance.new("ColorCorrectionEffect")
 GameCC.Name       = "GraceGameCC"
-GameCC.Saturation = -0.2; GameCC.Contrast  = 0.05
+GameCC.Saturation = -0.2;  GameCC.Contrast  = 0.05
 GameCC.Brightness = -0.04; GameCC.TintColor = Color3.fromRGB(210,210,230)
 GameCC.Parent     = Lighting
 
@@ -2170,7 +2758,7 @@ end)
 
 -- ═══════════════════════════════════════════════════════════
 print("╔══════════════════════════════════════════════════════╗")
-print("║         GRACE Fanmade v7 — Loaded ✓               ║")
+print("║         GRACE Fanmade v6 — Loaded ✓               ║")
 print("║  FATE system              ✓                        ║")
 print("║  Entity panel             ✓  top-right 👁          ║")
 print("║  GAZE                     ✓  Envy                  ║")
@@ -2178,6 +2766,8 @@ print("║  ELUDE  v3                ✓  Paranoia              ║")
 print("║  NUMB                     ✓  Wrath                 ║")
 print("║  MOUTHFEED                ✓  Recklessness          ║")
 print("║  PIECE                    ✓  Injustice             ║")
+print("║    ↳ resets + respawns after killing player       ║")
 print("║  DELICTUM                 ✓  Past Mistakes         ║")
-print("║  CUSTOM DEATHS            ✓  Installed             ║")
+print("║    ↳ records movement, shadows replay each life   ║")
+print("║    ↳ up to 8 simultaneous shadows, -45% on touch  ║")
 print("╚══════════════════════════════════════════════════════╝")
