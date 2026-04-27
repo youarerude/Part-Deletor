@@ -2333,181 +2333,224 @@ RegisterEntity("Delictum","Past Mistakes",
 --           ENTITY: NORM  (Symbolizes: Lust)
 -- ═══════════════════════════════════════════════════════════
 local Norm = {
-    active        = false,
-    conn          = nil,
-    appearanceTick = 0,
-    nextInterval  = math.random(10, 25),
-    
-    countingDown  = false,
-    countTimer    = 5,
-    
-    blocking      = false,
-    blockTimer    = 0,
-    blockPart     = nil,
-    
-    dmgCooldown   = false,
-    dmgCDTimer    = 0,
+    active         = false,
+    conn           = nil,
+    renderConn     = nil,
+    state          = "IDLE", -- IDLE, WARNING, BLOCKING
+    timer          = 0,
+    countdown      = 5,
+    blockerPart    = nil,
+    dmgCooldown    = false,
+    dmgCDTimer     = 0,
 }
 
--- 2D Shaking Eye UI
+-- ── PHASE 1: Screen Shake Eye ──
+local NormScreenContainer = Instance.new("Frame")
+NormScreenContainer.Name                   = "NormScreenContainer"
+NormScreenContainer.Size                   = UDim2.new(1,0,1,0)
+NormScreenContainer.BackgroundTransparency = 1
+NormScreenContainer.Visible                = false
+NormScreenContainer.ZIndex                 = 50
+NormScreenContainer.Parent                 = ScreenGui
+
 local NormScreenEye = Instance.new("Frame")
-NormScreenEye.Name = "NormScreenEye"
-NormScreenEye.Size = UDim2.new(0, 100, 0, 100)
-NormScreenEye.AnchorPoint = Vector2.new(0.5, 0.5)
-NormScreenEye.Position = UDim2.new(0.5, 0, 0.4, 0)
-NormScreenEye.BackgroundColor3 = Color3.fromRGB(200, 50, 150)
-NormScreenEye.BackgroundTransparency = 1
-NormScreenEye.Visible = false
-NormScreenEye.Parent = ScreenGui
+NormScreenEye.Size                   = UDim2.new(0, 120, 0, 70)
+NormScreenEye.AnchorPoint            = Vector2.new(0.5, 0.5)
+NormScreenEye.Position               = UDim2.new(0.5, 0, 0.2, 0)
+NormScreenEye.BackgroundColor3       = Color3.fromRGB(240, 220, 220)
+NormScreenEye.BorderSizePixel        = 0
+NormScreenEye.Parent                 = NormScreenContainer
+Instance.new("UICorner", NormScreenEye).CornerRadius = UDim.new(0.5, 0)
 
-local NormOuter = Instance.new("Frame")
-NormOuter.Size = UDim2.new(1, 0, 0.6, 0)
-NormOuter.Position = UDim2.new(0, 0, 0.2, 0)
-NormOuter.BackgroundColor3 = Color3.fromRGB(255, 200, 220)
-NormOuter.BorderSizePixel = 0
-NormOuter.Parent = NormScreenEye
-Instance.new("UICorner", NormOuter).CornerRadius = UDim.new(1, 0)
+local NormScreenIris = Instance.new("Frame")
+NormScreenIris.Size                   = UDim2.new(0, 60, 0, 60)
+NormScreenIris.AnchorPoint            = Vector2.new(0.5, 0.5)
+NormScreenIris.Position               = UDim2.new(0.5, 0, 0.5, 0)
+NormScreenIris.BackgroundColor3       = Color3.fromRGB(180, 50, 100)
+NormScreenIris.BorderSizePixel        = 0
+NormScreenIris.Parent                 = NormScreenEye
+Instance.new("UICorner", NormScreenIris).CornerRadius = UDim.new(1, 0)
 
-local NormPupil = Instance.new("Frame")
-NormPupil.Size = UDim2.new(0.4, 0, 0.7, 0)
-NormPupil.AnchorPoint = Vector2.new(0.5, 0.5)
-NormPupil.Position = UDim2.new(0.5, 0, 0.5, 0)
-NormPupil.BackgroundColor3 = Color3.fromRGB(20, 0, 20)
-NormPupil.Parent = NormOuter
-Instance.new("UICorner", NormPupil).CornerRadius = UDim.new(1, 0)
+local NormScreenPupil = Instance.new("Frame")
+NormScreenPupil.Size                   = UDim2.new(0, 40, 0, 40)
+NormScreenPupil.AnchorPoint            = Vector2.new(0.5, 0.5)
+NormScreenPupil.Position               = UDim2.new(0.5, 0, 0.5, 0)
+NormScreenPupil.BackgroundColor3       = Color3.fromRGB(10, 0, 10)
+NormScreenPupil.BorderSizePixel        = 0
+NormScreenPupil.Parent                 = NormScreenIris
+Instance.new("UICorner", NormScreenPupil).CornerRadius = UDim.new(1, 0)
 
-local NormCountLabel = Instance.new("TextLabel")
-NormCountLabel.Size = UDim2.new(1, 0, 1, 0)
-NormCountLabel.BackgroundTransparency = 1
-NormCountLabel.Text = "5"
-NormCountLabel.Font = Enum.Font.GothamBold
-NormCountLabel.TextSize = 22
-NormCountLabel.TextColor3 = Color3.fromRGB(255, 100, 200)
-NormCountLabel.Parent = NormPupil
+local NormCountdownText = Instance.new("TextLabel")
+NormCountdownText.Size                   = UDim2.new(1, 0, 1, 0)
+NormCountdownText.BackgroundTransparency = 1
+NormCountdownText.Text                   = "5"
+NormCountdownText.Font                   = Enum.Font.GothamBold
+NormCountdownText.TextSize               = 24
+NormCountdownText.TextColor3             = Color3.fromRGB(255, 100, 150)
+NormCountdownText.Parent                 = NormScreenPupil
 
-local function BuildHappyEyeBlocker()
-    local p = Instance.new("Part")
-    p.Name = "NormBlocker"
-    p.Size = Vector3.new(4, 4, 0.5)
-    p.Anchored = true
-    p.CanCollide = false
-    p.Transparency = 1
-    p.Parent = Workspace
-    
+-- ── PHASE 2: 3D Blocker Builder ──
+local function BuildNormBlocker()
+    local part = Instance.new("Part")
+    part.Name        = "NormBlocker"
+    part.Size        = Vector3.new(2, 2, 2)
+    part.Anchored    = true
+    part.CanCollide  = false
+    part.Transparency = 1
+    part.Parent      = Workspace
+
     local bb = Instance.new("BillboardGui")
-    bb.Size = UDim2.new(0, 200, 0, 150)
+    bb.Size        = UDim2.new(0, 350, 0, 200)
     bb.AlwaysOnTop = true
-    bb.Adornee = p
-    bb.Parent = p
-    
-    local img = Instance.new("Frame")
-    img.Size = UDim2.new(1, 0, 1, 0)
-    img.BackgroundTransparency = 1
-    img.Parent = bb
-    
-    -- Happy Eyelid Shape
-    local topLid = Instance.new("Frame")
-    topLid.Size = UDim2.new(1, 0, 0.5, 0)
-    topLid.Position = UDim2.new(0, 0, 0.2, 0)
-    topLid.BackgroundColor3 = Color3.fromRGB(255, 150, 200)
-    topLid.BorderSizePixel = 0
-    topLid.Parent = img
-    Instance.new("UICorner", topLid).CornerRadius = UDim.new(1, 0)
-    
-    local highlight = Instance.new("Frame")
-    highlight.Size = UDim2.new(0.8, 0, 0.2, 0)
-    highlight.Position = UDim2.new(0.1, 0, 0.1, 0)
-    highlight.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-    highlight.BackgroundTransparency = 0.6
-    highlight.BorderSizePixel = 0
-    highlight.Parent = topLid
-    Instance.new("UICorner", highlight).CornerRadius = UDim.new(1, 0)
-    
-    return p
+    bb.Adornee     = part
+    bb.Parent      = part
+
+    local eye = Instance.new("Frame")
+    eye.Size             = UDim2.new(1, 0, 1, 0)
+    eye.BackgroundColor3 = Color3.fromRGB(255, 230, 240)
+    eye.BorderSizePixel  = 0
+    eye.Parent           = bb
+    Instance.new("UICorner", eye).CornerRadius = UDim.new(0.5, 0)
+
+    local iris = Instance.new("Frame")
+    iris.Size             = UDim2.new(0.5, 0, 0.8, 0)
+    iris.AnchorPoint      = Vector2.new(0.5, 0.5)
+    iris.Position         = UDim2.new(0.5, 0, 0.5, 0)
+    iris.BackgroundColor3 = Color3.fromRGB(200, 40, 120)
+    iris.BorderSizePixel  = 0
+    iris.Parent           = eye
+    Instance.new("UICorner", iris).CornerRadius = UDim.new(1, 0)
+
+    local pupil = Instance.new("Frame")
+    pupil.Size             = UDim2.new(0.6, 0, 0.6, 0)
+    pupil.AnchorPoint      = Vector2.new(0.5, 0.5)
+    pupil.Position         = UDim2.new(0.5, 0, 0.5, 0)
+    pupil.BackgroundColor3 = Color3.fromRGB(15, 0, 15)
+    pupil.BorderSizePixel  = 0
+    pupil.Parent           = iris
+    Instance.new("UICorner", pupil).CornerRadius = UDim.new(1, 0)
+
+    -- The "Happy" Eyelid lifting up from the bottom
+    local bottomLid = Instance.new("Frame")
+    bottomLid.Size             = UDim2.new(1.1, 0, 0.6, 0)
+    bottomLid.AnchorPoint      = Vector2.new(0.5, 1)
+    bottomLid.Position         = UDim2.new(0.5, 0, 1.1, 0)
+    bottomLid.BackgroundColor3 = Color3.fromRGB(15, 5, 10) -- Dark, to blend with environment
+    bottomLid.BorderSizePixel  = 0
+    bottomLid.Parent           = bb
+    Instance.new("UICorner", bottomLid).CornerRadius = UDim.new(0.5, 0)
+
+    -- Eyelid animation (squinting up)
+    TweenService:Create(bottomLid, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+        Position = UDim2.new(0.5, 0, 0.9, 0)
+    }):Play()
+
+    return part
+end
+
+local function ClearNormBlocker()
+    if Norm.blockerPart then
+        Norm.blockerPart:Destroy()
+        Norm.blockerPart = nil
+    end
 end
 
 local function OnNormEnable()
     Norm.active = true
-    Norm.appearanceTick = tick()
-    
+    Norm.state  = "IDLE"
+    Norm.timer  = math.random(10, 25)
+
     Norm.conn = RunService.Heartbeat:Connect(function(dt)
         if not Norm.active then return end
-        local now = tick()
-        
-        -- Interval check
-        if not Norm.countingDown and not Norm.blocking then
-            if now - Norm.appearanceTick >= Norm.nextInterval then
-                Norm.countingDown = true
-                Norm.countTimer = 5
-                NormScreenEye.Visible = true
+
+        if Norm.state == "IDLE" then
+            Norm.timer = Norm.timer - dt
+            if Norm.timer <= 0 then
+                -- Trigger Warning Phase
+                Norm.state = "WARNING"
+                Norm.countdown = 5
+                NormScreenContainer.Visible = true
             end
-        end
-        
-        -- Shaking Screen Eye Logic
-        if Norm.countingDown then
-            Norm.countTimer = Norm.countTimer - dt
-            NormCountLabel.Text = math.ceil(Norm.countTimer)
+
+        elseif Norm.state == "WARNING" then
+            Norm.countdown = Norm.countdown - dt
             
-            local shakeX = math.random(-5, 5)
-            local shakeY = math.random(-5, 5)
-            NormScreenEye.Position = UDim2.new(0.5, shakeX, 0.4, shakeY)
+            -- Screen Shake Logic
+            local intensity = 4 + (5 - Norm.countdown) * 2 -- Gets more violent as time drops
+            local ox = (math.random() - 0.5) * intensity
+            local oy = (math.random() - 0.5) * intensity
+            NormScreenEye.Position = UDim2.new(0.5, ox, 0.2, oy)
             
-            if Norm.countTimer <= 0 then
-                Norm.countingDown = false
-                NormScreenEye.Visible = false
-                Norm.blocking = true
-                Norm.blockTimer = 5
-                Norm.blockPart = BuildHappyEyeBlocker()
-            end
-        end
-        
-        -- Blocking Blocker Logic
-        if Norm.blocking and Norm.blockPart then
-            Norm.blockTimer = Norm.blockTimer - dt
-            
-            -- Smooth delay follow
-            local hrp = HumanoidRootPart
-            if hrp then
-                local targetCF = Camera.CFrame * CFrame.new(0, 0, -4)
-                Norm.blockPart.CFrame = Norm.blockPart.CFrame:Lerp(targetCF, 0.1)
-                
-                -- Touch check
-                if not Norm.dmgCooldown then
-                    local dist = (hrp.Position - Norm.blockPart.Position).Magnitude
-                    if dist < 3.5 then
-                        Norm.dmgCooldown = true
-                        lastDeathCause = "Norm"
-                        ModifyFate(-50) -- Lose 50% Faith
-                        task.delay(1, function() Norm.dmgCooldown = false end)
-                    end
+            NormCountdownText.Text = tostring(math.ceil(Norm.countdown))
+
+            if Norm.countdown <= 0 then
+                -- Move to Blocking Phase
+                NormScreenContainer.Visible = false
+                Norm.state = "BLOCKING"
+                Norm.timer = 5 -- Blocker lasts 5 seconds
+                Norm.dmgCooldown = false
+                Norm.blockerPart = BuildNormBlocker()
+
+                -- Place it initially right in front of the camera
+                if Camera then
+                    Norm.blockerPart.CFrame = Camera.CFrame * CFrame.new(0, 0, -3.5)
                 end
             end
+
+        elseif Norm.state == "BLOCKING" then
+            Norm.timer = Norm.timer - dt
             
-            if Norm.blockTimer <= 0 then
-                Norm.blocking = false
-                if Norm.blockPart then Norm.blockPart:Destroy(); Norm.blockPart = nil end
-                Norm.appearanceTick = tick()
-                Norm.nextInterval = math.random(10, 25)
+            -- Damage Check
+            if Norm.blockerPart and HumanoidRootPart and not Norm.dmgCooldown then
+                local dist = (HumanoidRootPart.Position - Norm.blockerPart.Position).Magnitude
+                if dist < 2.5 then
+                    Norm.dmgCooldown = true
+                    lastDeathCause = "Norm"
+                    InstantFateDamage(50)
+                    -- Give a 1s immunity
+                    task.delay(1, function() Norm.dmgCooldown = false end)
+                end
             end
+
+            if Norm.timer <= 0 then
+                -- Reset back to IDLE
+                ClearNormBlocker()
+                Norm.state = "IDLE"
+                Norm.timer = math.random(10, 25)
+            end
+        end
+    end)
+
+    -- RenderStepped for smooth camera blocking
+    Norm.renderConn = RunService.RenderStepped:Connect(function(dt)
+        if Norm.state == "BLOCKING" and Norm.blockerPart and Camera then
+            -- Target is directly in front of the camera
+            local targetCF = Camera.CFrame * CFrame.new(0, 0, -3.5)
+            -- Lerp it smoothly so it lags behind slightly when looking around
+            Norm.blockerPart.CFrame = Norm.blockerPart.CFrame:Lerp(targetCF, dt * 8)
+            
+            -- Add a slight vertical hover/bob
+            local bob = math.sin(tick() * 4) * 0.2
+            Norm.blockerPart.CFrame = Norm.blockerPart.CFrame * CFrame.new(0, bob * dt, 0)
         end
     end)
 end
 
 local function OnNormDisable()
     Norm.active = false
+    Norm.state  = "IDLE"
     if Norm.conn then Norm.conn:Disconnect(); Norm.conn = nil end
-    if Norm.blockPart then Norm.blockPart:Destroy(); Norm.blockPart = nil end
-    NormScreenEye.Visible = false
-    Norm.countingDown = false
-    Norm.blocking = false
+    if Norm.renderConn then Norm.renderConn:Disconnect(); Norm.renderConn = nil end
+    NormScreenContainer.Visible = false
+    ClearNormBlocker()
 end
 
 RegisterEntity("Norm", "Lust",
-    "Feels great isn't it? The warmth of the rush, the pulse in your veins, the sweet surrender to your own touch.",
+    "Feels great isn't it? The fleeting rush, the sudden blindness, leaving you completely vulnerable to the consequences.",
     OnNormEnable, OnNormDisable)
 
 -- ═══════════════════════════════════════════════════════════
---                    FATE UPDATE LOOP
+--                      FATE UPDATE LOOP
 -- ═══════════════════════════════════════════════════════════
 local fateAccum = 0
 local FATE_TICK = 0.05
@@ -2522,7 +2565,8 @@ RunService.Heartbeat:Connect(function(dt)
     SyncFateToHealth()
     fateAccum = fateAccum + dt
     if fateAccum < FATE_TICK then return end
-    local elapsed = fateAccum; fateAccum = 0
+    local elapsed = fateAccum
+    fateAccum = 0
 
     local totalDrain = 0
     for _, rate in pairs(FateData.drainRates) do totalDrain = totalDrain + rate end
@@ -2576,11 +2620,14 @@ LocalPlayer.CharacterAdded:Connect(function()
     TweenService:Create(DeathScreen, TweenInfo.new(0.8), {BackgroundTransparency=1}):Play()
     TweenService:Create(DeathLabel,  TweenInfo.new(0.4), {TextTransparency=1}):Play()
     task.delay(1, function() DeathScreen.Visible = false end)
+    
     task.defer(ConnectDeathEffect)
-    if Piece.pendingReset then
+    
+    if Piece and Piece.pendingReset then
         PieceHardReset()
     end
-    if Delictum.active then
+    
+    if Delictum and Delictum.active then
         DelictumOnDeath()
     end
 end)
@@ -2588,6 +2635,7 @@ end)
 -- ═══════════════════════════════════════════════════════════
 --                     ATMOSPHERE
 -- ═══════════════════════════════════════════════════════════
+local OrigLighting = OrigLighting or {}
 OrigLighting.Ambient        = Lighting.Ambient
 OrigLighting.OutdoorAmbient = Lighting.OutdoorAmbient
 OrigLighting.FogColor       = Lighting.FogColor
@@ -2597,39 +2645,48 @@ OrigLighting.Brightness     = Lighting.Brightness
 
 local Atmosphere = Lighting:FindFirstChildOfClass("Atmosphere")
 if not Atmosphere then
-    Atmosphere = Instance.new("Atmosphere"); Atmosphere.Parent = Lighting
+    Atmosphere = Instance.new("Atmosphere")
+    Atmosphere.Parent = Lighting
 end
 Atmosphere.Density = 0.3;  Atmosphere.Offset = 0.05
 Atmosphere.Color   = Color3.fromRGB(80,80,100)
 Atmosphere.Decay   = Color3.fromRGB(50,40,60)
-Atmosphere.Glare   = 0;    Atmosphere.Haze = 1.5
+Atmosphere.Glare   = 0; Atmosphere.Haze = 1.5
 
-local GameCC = Instance.new("ColorCorrectionEffect")
-GameCC.Name       = "GraceGameCC"
-GameCC.Saturation = -0.2;  GameCC.Contrast  = 0.05
+local GameCC = Lighting:FindFirstChild("GraceGameCC")
+if not GameCC then
+    GameCC = Instance.new("ColorCorrectionEffect")
+    GameCC.Name       = "GraceGameCC"
+    GameCC.Parent     = Lighting
+end
+GameCC.Saturation = -0.2; GameCC.Contrast  = 0.05
 GameCC.Brightness = -0.04; GameCC.TintColor = Color3.fromRGB(210,210,230)
-GameCC.Parent     = Lighting
 
 -- ═══════════════════════════════════════════════════════════
 --                    INTRO SEQUENCE
 -- ═══════════════════════════════════════════════════════════
 local IntroFrame = Instance.new("Frame")
-IntroFrame.Size = UDim2.new(1,0,1,0); IntroFrame.BackgroundColor3 = Color3.fromRGB(0,0,0)
+IntroFrame.Size = UDim2.new(1,0,1,0)
+IntroFrame.BackgroundColor3 = Color3.fromRGB(0,0,0)
 IntroFrame.BackgroundTransparency = 0; IntroFrame.ZIndex = 200; IntroFrame.Parent = ScreenGui
 
 local IntroLabel = Instance.new("TextLabel")
-IntroLabel.Size = UDim2.new(1,0,0,50); IntroLabel.AnchorPoint = Vector2.new(0.5,0.5)
+IntroLabel.Size = UDim2.new(1,0,0,50)
+IntroLabel.AnchorPoint = Vector2.new(0.5,0.5)
 IntroLabel.Position = UDim2.new(0.5,0,0.5,0); IntroLabel.BackgroundTransparency = 1
 IntroLabel.Text = "FATE"; IntroLabel.Font = Enum.Font.GothamBold; IntroLabel.TextSize = 52
-IntroLabel.TextColor3 = Color3.fromRGB(255,215,0); IntroLabel.TextTransparency = 1
+IntroLabel.TextColor3 = Color3.fromRGB(255,215,0)
+IntroLabel.TextTransparency = 1
 IntroLabel.ZIndex = 201; IntroLabel.Parent = IntroFrame
 
 local IntroSub = Instance.new("TextLabel")
 IntroSub.Size = UDim2.new(1,0,0,26); IntroSub.AnchorPoint = Vector2.new(0.5,0)
-IntroSub.Position = UDim2.new(0.5,0,0.5,36); IntroSub.BackgroundTransparency = 1
+IntroSub.Position = UDim2.new(0.5,0,0.5,36)
+IntroSub.BackgroundTransparency = 1
 IntroSub.Text = "a fanmade grace experience"; IntroSub.Font = Enum.Font.Gotham
 IntroSub.TextSize = 15; IntroSub.TextColor3 = Color3.fromRGB(180,180,180)
-IntroSub.TextTransparency = 1; IntroSub.ZIndex = 201; IntroSub.Parent = IntroFrame
+IntroSub.TextTransparency = 1
+IntroSub.ZIndex = 201; IntroSub.Parent = IntroFrame
 
 task.spawn(function()
     task.wait(0.5)
@@ -2650,10 +2707,6 @@ print("╔═══════════════════════�
 print("║         GRACE Fanmade v8 — Loaded ✓               ║")
 print("║  FATE / Entity panel  ✓                            ║")
 print("║  GAZE / ELUDE / NUMB / MOUTHFEED  ✓               ║")
-print("║  PIECE / DELICTUM / NORM ✓                        ║")
-print("║  DEATH EFFECTS        ✓  avatar corpse per entity  ║")
-print("║  FIX: CloneAvatarAsCorpse  ✓  snapshot param       ║")
-print("║  FIX: ConnectDeathEffect   ✓  local hum lookup     ║")
-print("║  FIX: SpawnBloodDrop       ✓  LinearVelocity gone  ║")
-print("║  FIX: Unicode bold/italic  ✓  all plain text now   ║")
+print("║  PIECE / DELICTUM / NORM ✓                         ║")
+print("║  DEATH EFFECTS         ✓  avatar corpse fixed      ║")
 print("╚══════════════════════════════════════════════════════╝")
