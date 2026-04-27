@@ -83,31 +83,41 @@ local lastDeathCause = nil  -- "Gaze"|"Elude"|"Numb"|"Mouthfeed"|"Piece"|"Delict
 -- ── Helpers ────────────────────────────────────────────────
 
 -- Deep-clone the player's current avatar (shirts, pants, accessories, face)
--- into Workspace as a static corpse model.  All BaseParts come out
--- anchored=false so callers can apply physics or re-anchor as needed.
-local function CloneAvatarAsCorpse()
-    local char = Character; if not char then return nil end
-    local clone = char:Clone()
-    clone.Name  = "GraceCorpse_"..tostring(tick())
-    -- Strip live scripts / animator so it won't move on its own
+-- into Workspace as a static corpse model.
+-- charSnapshot must be passed in (captured BEFORE Roblox cleans up the char).
+local function CloneAvatarAsCorpse(charSnapshot)
+    if not charSnapshot then return nil end
+    local ok, clone = pcall(function() return charSnapshot:Clone() end)
+    if not ok or not clone then return nil end
+    clone.Name = "GraceCorpse_"..tostring(tick())
+    -- Strip live scripts / animator
     for _, obj in ipairs(clone:GetDescendants()) do
-        if obj:IsA("Script") or obj:IsA("LocalScript")
-        or obj:IsA("Animator") or obj:IsA("Animation") then
-            obj:Destroy()
+        if obj and obj.Parent then
+            local isOk, isScript = pcall(function()
+                return obj:IsA("Script") or obj:IsA("LocalScript")
+                    or obj:IsA("Animator") or obj:IsA("Animation")
+            end)
+            if isOk and isScript then
+                pcall(function() obj:Destroy() end)
+            end
         end
     end
-    -- Disable humanoid so it doesn't stand up
+    -- Disable humanoid
     local hum = clone:FindFirstChildOfClass("Humanoid")
     if hum then
-        hum:ChangeState(Enum.HumanoidStateType.Physics)
+        pcall(function() hum:ChangeState(Enum.HumanoidStateType.Physics) end)
         hum.PlatformStand = true
     end
-    -- Unanchor every BasePart so callers control physics
+    -- Unanchor every BasePart
     for _, p in ipairs(clone:GetDescendants()) do
-        if p:IsA("BasePart") then
-            p.Anchored   = false
-            p.CanCollide = true
-            p.CastShadow = false
+        if p and p.Parent then
+            pcall(function()
+                if p:IsA("BasePart") then
+                    p.Anchored   = false
+                    p.CanCollide = true
+                    p.CastShadow = false
+                end
+            end)
         end
     end
     clone.Parent = Workspace
@@ -142,7 +152,7 @@ local function SprayBlood(pos, count, speed)
     for _ = 1, count do
         local d = Instance.new("Part")
         d.Size        = Vector3.new(0.12,0.12,0.12)
-        d.Color       = Color3.fromRGB(100+math.random(40),0,0)
+        d.Color       = Color3.fromRGB(100 + math.random(0, 40), 0, 0)
         d.Material    = Enum.Material.SmoothPlastic
         d.Transparency = 0.1
         d.CanCollide  = false
@@ -152,8 +162,8 @@ local function SprayBlood(pos, count, speed)
         local bv = Instance.new("BodyVelocity")
         local dir = Vector3.new(math.random()-0.5, math.random()*1.2-0.2, math.random()-0.5).Unit
         bv.Velocity = dir * (speed * (0.5 + math.random()*0.8))
-        bv.MaxForce = Vector3.new(1,1,1) * 1e5
-        bv.P        = 3000
+        bv.MaxForce = Vector3.new(1,1,1) * 9e8
+        bv.P        = 9e8
         bv.Parent   = d
         game:GetService("Debris"):AddItem(bv, 0.35)
         game:GetService("Debris"):AddItem(d,  3)
@@ -181,12 +191,11 @@ end
 -- ── GAZE DEATH ──────────────────────────────────────────────
 -- Headless body at death position + censored black bar on neck stump
 -- + decapitated head tossed nearby with looping blood drip
-local function GazeDeathEffect()
-    local char = Character; if not char then return end
+local function GazeDeathEffect(charSnapshot)
+    local char = charSnapshot; if not char then return end
     local hrp  = char:FindFirstChild("HumanoidRootPart"); if not hrp then return end
     local deathPos = hrp.Position
-
-    local corpse = CloneAvatarAsCorpse(); if not corpse then return end
+    local corpse = CloneAvatarAsCorpse(char); if not corpse then return end
 
     -- Detach head from corpse
     local corpseHead = corpse:FindFirstChild("Head")
@@ -279,12 +288,11 @@ end
 
 -- ── ELUDE / MOUTHFEED DEATH ─────────────────────────────────
 -- Limbs explode outward with BodyVelocity + blood spray + puddle
-local function ExplodingLimbsDeathEffect()
-    local char = Character; if not char then return end
+local function ExplodingLimbsDeathEffect(charSnapshot)
+    local char = charSnapshot; if not char then return end
     local hrp  = char:FindFirstChild("HumanoidRootPart"); if not hrp then return end
     local deathPos = hrp.Position
-
-    local corpse = CloneAvatarAsCorpse(); if not corpse then return end
+    local corpse = CloneAvatarAsCorpse(char); if not corpse then return end
 
     -- Unanchor, give each BasePart an outward blast
     for _, p in ipairs(corpse:GetDescendants()) do
@@ -315,12 +323,11 @@ end
 
 -- ── NUMB DEATH ──────────────────────────────────────────────
 -- Body squishes flat and turns red, then dissolves into blood puddle
-local function NumbDeathEffect()
-    local char = Character; if not char then return end
+local function NumbDeathEffect(charSnapshot)
+    local char = charSnapshot; if not char then return end
     local hrp  = char:FindFirstChild("HumanoidRootPart"); if not hrp then return end
     local deathPos = hrp.Position
-
-    local corpse = CloneAvatarAsCorpse(); if not corpse then return end
+    local corpse = CloneAvatarAsCorpse(char); if not corpse then return end
 
     -- Anchor everything static
     for _, p in ipairs(corpse:GetDescendants()) do
@@ -376,12 +383,11 @@ end
 
 -- ── PIECE DEATH ─────────────────────────────────────────────
 -- Ragdoll briefly, then both wrists yanked upward by infinite white chains
-local function PieceDeathEffect()
-    local char = Character; if not char then return end
+local function PieceDeathEffect(charSnapshot)
+    local char = charSnapshot; if not char then return end
     local hrp  = char:FindFirstChild("HumanoidRootPart"); if not hrp then return end
     local deathPos = hrp.Position
-
-    local corpse = CloneAvatarAsCorpse(); if not corpse then return end
+    local corpse = CloneAvatarAsCorpse(char); if not corpse then return end
 
     -- Brief ragdoll settle (unanchored)
     for _, p in ipairs(corpse:GetDescendants()) do
@@ -462,13 +468,12 @@ end
 
 -- ── DELICTUM DEATH ──────────────────────────────────────────
 -- Only the head remains on the ground; rest of body gone; blood floods out
-local function DelictumDeathEffect()
-    local char = Character; if not char then return end
+local function DelictumDeathEffect(charSnapshot)
+    local char = charSnapshot; if not char then return end
     local hrp  = char:FindFirstChild("HumanoidRootPart"); if not hrp then return end
     local deathPos = hrp.Position
-
     -- Clone the full avatar for accessories/appearance on head
-    local corpse = CloneAvatarAsCorpse(); if not corpse then return end
+    local corpse = CloneAvatarAsCorpse(char); if not corpse then return end
 
     -- Immediately destroy everything except Head and accessories
     for _, p in ipairs(corpse:GetChildren()) do
@@ -526,18 +531,22 @@ end
 -- ── DISPATCH ────────────────────────────────────────────────
 -- Connect to Humanoid.Died and fire the correct effect.
 local function ConnectDeathEffect()
-    if not Humanoid then return end
-    Humanoid.Died:Connect(function()
-        local cause = lastDeathCause
+    -- Use local lookup so we don't depend on the global Humanoid being up-to-date
+    local char = Character; if not char then return end
+    local hum  = char:FindFirstChildOfClass("Humanoid"); if not hum then return end
+
+    hum.Died:Connect(function()
+        local cause        = lastDeathCause
+        local charSnapshot = Character   -- capture NOW before Roblox removes it
         lastDeathCause = nil
-        -- Small delay so the character model is still present in Workspace
+        -- 0.05s delay so the model is still in Workspace when we clone it
         task.delay(0.05, function()
-            if cause == "Gaze"     then GazeDeathEffect()
-            elseif cause == "Elude"     then ExplodingLimbsDeathEffect()
-            elseif cause == "Numb"      then NumbDeathEffect()
-            elseif cause == "Mouthfeed" then ExplodingLimbsDeathEffect()
-            elseif cause == "Piece"     then PieceDeathEffect()
-            elseif cause == "Delictum"  then DelictumDeathEffect()
+            if cause == "Gaze"      then GazeDeathEffect(charSnapshot)
+            elseif cause == "Elude"     then ExplodingLimbsDeathEffect(charSnapshot)
+            elseif cause == "Numb"      then NumbDeathEffect(charSnapshot)
+            elseif cause == "Mouthfeed" then ExplodingLimbsDeathEffect(charSnapshot)
+            elseif cause == "Piece"     then PieceDeathEffect(charSnapshot)
+            elseif cause == "Delictum"  then DelictumDeathEffect(charSnapshot)
             end
         end)
     end)
@@ -561,7 +570,7 @@ FateLabel.Size                   = UDim2.new(0, 220, 0, 60)
 FateLabel.AnchorPoint            = Vector2.new(0.5, 0)
 FateLabel.Position               = UDim2.new(0.5, 0, 0, 18)
 FateLabel.BackgroundTransparency = 1
-FateLabel.Text                   = "𝐅𝐀𝐓𝐄"
+FateLabel.Text                   = "FATE"
 FateLabel.Font                   = Enum.Font.GothamBold
 FateLabel.TextSize               = 46
 FateLabel.TextColor3             = FATE_FULL
@@ -575,7 +584,7 @@ FateGlow.Size                   = FateLabel.Size
 FateGlow.AnchorPoint            = FateLabel.AnchorPoint
 FateGlow.Position               = FateLabel.Position
 FateGlow.BackgroundTransparency = 1
-FateGlow.Text                   = "𝐅𝐀𝐓𝐄"
+FateGlow.Text                   = "FATE"
 FateGlow.Font                   = Enum.Font.GothamBold
 FateGlow.TextSize               = 46
 FateGlow.TextColor3             = FATE_FULL
@@ -1004,7 +1013,7 @@ RegisterEntity("Gaze","Envy",
         → -25% fate instantly + Elude teleports immediately
         → 2s immunity before next damage
     ▸ Teal screen flicker + paranoia hint text on every teleport
-    ▸ "𝘼𝙘𝙘𝙚𝙥𝙩 𝙞𝙩." text flashes when caught
+    ▸ "Accept it." text flashes when caught
 --]]
 
 local Elude = {
@@ -1273,7 +1282,7 @@ local function OnEludeEnable()
                 task.delay(0.12, function()
                     EludeFlicker.BackgroundColor3 = Color3.fromRGB(0,80,80)
                 end)
-                EludeHint.Text = "𝘼𝙘𝙘𝙚𝙥𝙩 𝙞𝙩."
+                EludeHint.Text = "Accept it."
                 TweenService:Create(EludeHint, TweenInfo.new(0.15), {TextTransparency=0}):Play()
                 task.delay(2.2, function()
                     TweenService:Create(EludeHint, TweenInfo.new(1), {TextTransparency=1}):Play()
@@ -1312,7 +1321,7 @@ RegisterEntity("Elude","Paranoia",
         - Fog goes very thick (FogEnd=30)
         - Blood rain gets heavier and faster
         - If player has NO cover (no solid part within 40 studs above) → -100% fate (instant death)
-        - "𝙉𝙤𝙢𝙚𝙧𝙘𝙮." flashes on screen
+        - "Nomercy." flashes on screen
     ▸ Phase 3 — CLEAR:
         - Everything resets to normal
         - "it's gone." text fades in, then out
@@ -1390,20 +1399,15 @@ local function SpawnBloodDrop(heavy)
     drop.CFrame      = CFrame.new(spawnX, spawnY, spawnZ)
     drop.Parent      = Workspace
 
-    local vel = Instance.new("LinearVelocity")
-    vel.MaxForce     = Vector3.new(0, math.huge, 0)
-    vel.VelocityConstraintMode = Enum.VelocityConstraintMode.Vector
-    vel.FreeLength   = 0
-    vel.Attachment0  = Instance.new("Attachment", drop)
-    vel.Parent       = drop
-
-    -- Use BodyVelocity as fallback (more compatible with executors)
-    vel:Destroy()
     local bv = Instance.new("BodyVelocity")
-    bv.Velocity       = Vector3.new(math.random()*2-1, heavy and -(55+math.random()*15) or -(35+math.random()*10), math.random()*2-1)
-    bv.MaxForce       = Vector3.new(0, math.huge, 0)
-    bv.P              = math.huge
-    bv.Parent         = drop
+    bv.Velocity = Vector3.new(
+        math.random()*2 - 1,
+        heavy and -(55 + math.random()*15) or -(35 + math.random()*10),
+        math.random()*2 - 1
+    )
+    bv.MaxForce = Vector3.new(0, 9e8, 0)
+    bv.P        = 9e8
+    bv.Parent   = drop
 
     table.insert(Numb.bloodParts, drop)
 
@@ -1508,7 +1512,7 @@ local function TriggerNumbEvent()
         StartScreenShake(0.22)
 
         -- Flash warning
-        NumbText.Text = "𝙉𝙤 𝙢𝙚𝙧𝙘𝙮."
+        NumbText.Text = "No mercy."
         TweenService:Create(NumbText, TweenInfo.new(0.1), {TextTransparency=0}):Play()
 
         -- Repeated shake flicker
@@ -2177,7 +2181,7 @@ local function StealLimb(limbEntry)
             Piece.chasing      = true
             Piece.chaseSpeed   = 0
             Piece.chaseAccTimer = 0
-            PieceShowWarn("𝙄𝙩𝙨 𝙘𝙤𝙢𝙥𝙡𝙚𝙩𝙚.")
+            PieceShowWarn("Its complete.")
             -- Make follower more opaque/ominous
             for _, fp in pairs(Piece.followerParts) do
                 TweenService:Create(fp, TweenInfo.new(0.6), {Transparency=0.1, Color=Color3.fromRGB(30,30,30)}):Play()
@@ -2219,7 +2223,7 @@ local function PieceHardReset()
         Piece.followerParts = fParts
         Piece.limbs         = BuildFloatingLimbs()
         PieceHUDFrame.Visible = true
-        PieceShowWarn("𝙎𝙩𝙚𝙖𝙡 𝙞𝙩.")
+        PieceShowWarn("Steal it.")
         -- Restart heartbeat
         OnPieceEnable()
     end)
@@ -2250,7 +2254,7 @@ local function OnPieceEnable()
         if hf then hf.BackgroundTransparency = 1 end
     end
 
-    PieceShowWarn("𝙎𝙩𝙚𝙖𝙡 𝙞𝙩.")
+    PieceShowWarn("Steal it.")
 
     Piece.conn = RunService.Heartbeat:Connect(function(dt)
         if not Piece.active then return end
@@ -2322,8 +2326,9 @@ local function OnPieceEnable()
                 if not Piece.dmgCooldown and (torso.Position - hrp.Position).Magnitude < 3 then
                     Piece.dmgCooldown = true
                     Piece.dmgCDTimer  = Piece.DMG_CD
+                    lastDeathCause = "Piece"
                     InstantFateDamage(100)
-                    PieceShowWarn("𝙄𝙩𝙨 𝙟𝙪𝙨𝙩 𝙖 𝙥𝙞𝙚𝙘𝙚 𝙤𝙛 𝙪𝙨𝙚𝙡𝙚𝙨𝙨 𝙤𝙗𝙟𝙚𝙘𝙩.")
+                    PieceShowWarn("Its just a piece of useless object.")
                     -- Flag that Piece killed the player — reset will trigger on respawn
                     Piece.pendingReset = true
                 end
@@ -2524,7 +2529,7 @@ local function DelictumOnDeath()
     task.delay(2, function()
         if not Delictum.active then return end
         SpawnShadowFromRecording(frames)
-        DelictumShowWarn("𝙢𝙞𝙨𝙩𝙖𝙠𝙚𝙨 𝙙𝙤𝙣'𝙩 𝙙𝙞𝙨𝙖𝙥𝙥𝙚𝙖𝙧.")
+        DelictumShowWarn("mistakes don't disappear.")
     end)
 end
 
@@ -2581,12 +2586,13 @@ local function OnDelictumEnable()
                     if d < 3 then
                         Delictum.dmgCooldown = true
                         Delictum.dmgCDTimer  = Delictum.DMG_CD
+                        lastDeathCause = "Delictum"
                         InstantFateDamage(45)
                         TweenService:Create(DelictumTint, TweenInfo.new(0.15), {BackgroundTransparency=0.75}):Play()
                         task.delay(0.3, function()
                             TweenService:Create(DelictumTint, TweenInfo.new(0.7), {BackgroundTransparency=1}):Play()
                         end)
-                        DelictumShowWarn("𝙩𝙝𝙖𝙩 𝙬𝙖𝙨 𝙮𝙤𝙪.")
+                        DelictumShowWarn("that was you.")
                         break
                     end
                 end
@@ -2731,7 +2737,7 @@ IntroFrame.BackgroundTransparency = 0; IntroFrame.ZIndex = 200; IntroFrame.Paren
 local IntroLabel = Instance.new("TextLabel")
 IntroLabel.Size = UDim2.new(1,0,0,50); IntroLabel.AnchorPoint = Vector2.new(0.5,0.5)
 IntroLabel.Position = UDim2.new(0.5,0,0.5,0); IntroLabel.BackgroundTransparency = 1
-IntroLabel.Text = "𝐅𝐀𝐓𝐄"; IntroLabel.Font = Enum.Font.GothamBold; IntroLabel.TextSize = 52
+IntroLabel.Text = "FATE"; IntroLabel.Font = Enum.Font.GothamBold; IntroLabel.TextSize = 52
 IntroLabel.TextColor3 = Color3.fromRGB(255,215,0); IntroLabel.TextTransparency = 1
 IntroLabel.ZIndex = 201; IntroLabel.Parent = IntroFrame
 
@@ -2758,16 +2764,13 @@ end)
 
 -- ═══════════════════════════════════════════════════════════
 print("╔══════════════════════════════════════════════════════╗")
-print("║         GRACE Fanmade v6 — Loaded ✓               ║")
-print("║  FATE system              ✓                        ║")
-print("║  Entity panel             ✓  top-right 👁          ║")
-print("║  GAZE                     ✓  Envy                  ║")
-print("║  ELUDE  v3                ✓  Paranoia              ║")
-print("║  NUMB                     ✓  Wrath                 ║")
-print("║  MOUTHFEED                ✓  Recklessness          ║")
-print("║  PIECE                    ✓  Injustice             ║")
-print("║    ↳ resets + respawns after killing player       ║")
-print("║  DELICTUM                 ✓  Past Mistakes         ║")
-print("║    ↳ records movement, shadows replay each life   ║")
-print("║    ↳ up to 8 simultaneous shadows, -45% on touch  ║")
+print("║         GRACE Fanmade v8 — Loaded ✓               ║")
+print("║  FATE / Entity panel  ✓                            ║")
+print("║  GAZE / ELUDE / NUMB / MOUTHFEED  ✓               ║")
+print("║  PIECE / DELICTUM     ✓                            ║")
+print("║  DEATH EFFECTS        ✓  avatar corpse per entity  ║")
+print("║  FIX: CloneAvatarAsCorpse  ✓  snapshot param       ║")
+print("║  FIX: ConnectDeathEffect   ✓  local hum lookup     ║")
+print("║  FIX: SpawnBloodDrop       ✓  LinearVelocity gone  ║")
+print("║  FIX: Unicode bold/italic  ✓  all plain text now   ║")
 print("╚══════════════════════════════════════════════════════╝")
