@@ -78,7 +78,52 @@ end
 -- ═══════════════════════════════════════════════════════════
 -- Tracks which entity caused the most recent kill so the right
 -- death effect fires on Humanoid.Died.
-local lastDeathCause = nil  -- "Gaze"|"Elude"|"Numb"|"Mouthfeed"|"Piece"|"Delictum"|nil
+local lastDeathCause   = nil   -- "Gaze"|"Elude"|"Numb"|"Mouthfeed"|"Piece"|"Delictum"|nil
+local pendingCorpse    = nil   -- pre-cloned corpse captured the moment damage is dealt
+
+-- Tag a death cause AND immediately snapshot the character.
+-- Must be called BEFORE setting Humanoid.Health = 0.
+local function TagDeathCause(cause)
+    lastDeathCause = cause
+    -- Clone right now while the character is 100% intact
+    local char = Character
+    if char then
+        local ok, clone = pcall(function()
+            local c = char:Clone()
+            -- Strip scripts so it stays static
+            for _, obj in ipairs(c:GetDescendants()) do
+                pcall(function()
+                    if obj:IsA("Script") or obj:IsA("LocalScript")
+                    or obj:IsA("Animator") or obj:IsA("Animation") then
+                        obj:Destroy()
+                    end
+                end)
+            end
+            local hum = c:FindFirstChildOfClass("Humanoid")
+            if hum then
+                pcall(function() hum:ChangeState(Enum.HumanoidStateType.Physics) end)
+                hum.PlatformStand = true
+            end
+            -- Anchor everything initially; effects will unanchor what they need
+            for _, p in ipairs(c:GetDescendants()) do
+                pcall(function()
+                    if p:IsA("BasePart") then
+                        p.Anchored   = true
+                        p.CanCollide = false
+                        p.CastShadow = false
+                    end
+                end)
+            end
+            c.Parent = Workspace
+            return c
+        end)
+        if ok and clone then
+            -- Destroy any previous unclaimed corpse
+            if pendingCorpse then pcall(function() pendingCorpse:Destroy() end) end
+            pendingCorpse = clone
+        end
+    end
+end
 
 -- ── Helpers ────────────────────────────────────────────────
 
@@ -535,43 +580,32 @@ local function ConnectDeathEffect(targetChar)
     if not targetChar then return end
     local hum = targetChar:FindFirstChildOfClass("Humanoid")
     if not hum then
-        -- Humanoid may still be loading — wait for it
         hum = targetChar:WaitForChild("Humanoid", 5)
         if not hum then return end
     end
 
     hum.Died:Connect(function()
-        local cause = lastDeathCause
+        local cause  = lastDeathCause
+        local corpse = pendingCorpse   -- grabbed BEFORE health hit 0, fully intact
         lastDeathCause = nil
+        pendingCorpse  = nil
 
-        -- Clone immediately before Roblox cleans up the model
-        local corpseClone = CloneAvatarAsCorpse(targetChar)
-        if not corpseClone then return end
+        if not corpse then return end  -- no snapshot = no effect (non-entity death)
 
-        -- Anchor everything so the clone sits at death position
-        for _, p in ipairs(corpseClone:GetDescendants()) do
-            if p and p.Parent then
-                pcall(function()
-                    if p:IsA("BasePart") then
-                        p.Anchored   = true
-                        p.CanCollide = false
-                    end
-                end)
+        task.delay(0.08, function()
+            if not corpse.Parent then return end
+            if      cause == "Gaze"      then GazeDeathEffect(corpse)
+            elseif  cause == "Elude"     then ExplodingLimbsDeathEffect(corpse)
+            elseif  cause == "Numb"      then NumbDeathEffect(corpse)
+            elseif  cause == "Mouthfeed" then ExplodingLimbsDeathEffect(corpse)
+            elseif  cause == "Piece"     then PieceDeathEffect(corpse)
+            elseif  cause == "Delictum"  then DelictumDeathEffect(corpse)
+            elseif  cause == "Norm"      then ExplodingLimbsDeathEffect(corpse)
+            else    pcall(function() corpse:Destroy() end)
             end
-        end
-
-        if      cause == "Gaze"      then GazeDeathEffect(corpseClone)
-        elseif  cause == "Elude"     then ExplodingLimbsDeathEffect(corpseClone)
-        elseif  cause == "Numb"      then NumbDeathEffect(corpseClone)
-        elseif  cause == "Mouthfeed" then ExplodingLimbsDeathEffect(corpseClone)
-        elseif  cause == "Piece"     then PieceDeathEffect(corpseClone)
-        elseif  cause == "Delictum"  then DelictumDeathEffect(corpseClone)
-        elseif  cause == "Norm"      then ExplodingLimbsDeathEffect(corpseClone)
-        else corpseClone:Destroy()
-        end
+        end)
     end)
 end
--- Connect for the initial character
 task.defer(function()
     ConnectDeathEffect(Character)
 end)
@@ -1299,7 +1333,7 @@ local function OnEludeEnable()
             local checkPos = Elude.currentPos + Vector3.new(0,1.5,0)
             if EludeVisibleFromCam(checkPos) then
                 Elude.dmgCooldown = true; Elude.dmgCDTimer = Elude.dmgCooldownTime
-                lastDeathCause = "Elude"
+                TagDeathCause("Elude")
                 InstantFateDamage(25)
                 EludeFlash(nil, Color3.fromRGB(180,190,255))
                 task.delay(0.12, function()
@@ -1559,8 +1593,7 @@ local function TriggerNumbEvent()
 
             -- Cover check: did the player have a roof above them?
             if not PlayerHasCover() then
-                -- No cover → INSTANT DEATH
-                lastDeathCause = "Numb"
+                TagDeathCause("Numb")
                 ModifyFate(-100)
                 if Humanoid then Humanoid.Health = 0 end
                 NumbText.Text = "you didn't hide."
@@ -1922,7 +1955,7 @@ local function OnMouthfeedEnable()
         if not Mouthfeed.dmgCooldown and distToPlayer < 5 then
             Mouthfeed.dmgCooldown = true
             Mouthfeed.dmgCDTimer  = Mouthfeed.DMG_CD
-            lastDeathCause = "Mouthfeed"
+            TagDeathCause("Mouthfeed")
             InstantFateDamage(30)
 
             -- Flash screen
@@ -2349,7 +2382,7 @@ local function OnPieceEnable()
                 if not Piece.dmgCooldown and (torso.Position - hrp.Position).Magnitude < 3 then
                     Piece.dmgCooldown = true
                     Piece.dmgCDTimer  = Piece.DMG_CD
-                    lastDeathCause = "Piece"
+                    TagDeathCause("Piece")
                     InstantFateDamage(100)
                     PieceShowWarn("Its just a piece of useless object.")
                     -- Flag that Piece killed the player — reset will trigger on respawn
@@ -2609,7 +2642,7 @@ local function OnDelictumEnable()
                     if d < 3 then
                         Delictum.dmgCooldown = true
                         Delictum.dmgCDTimer  = Delictum.DMG_CD
-                        lastDeathCause = "Delictum"
+                        TagDeathCause("Delictum")
                         InstantFateDamage(45)
                         TweenService:Create(DelictumTint, TweenInfo.new(0.15), {BackgroundTransparency=0.75}):Play()
                         task.delay(0.3, function()
@@ -3008,7 +3041,7 @@ local function OnNormEnable()
                     if dist < 3.5 then
                         Norm.dmgCooldown = true
                         Norm.dmgCDTimer  = Norm.DMG_CD
-                        lastDeathCause   = "Norm"
+                        TagDeathCause("Norm")
                         InstantFateDamage(50)
                         NormSayDialog(NORM_TOUCH_DIALOGUES)
 
@@ -3090,10 +3123,9 @@ RunService.Heartbeat:Connect(function(dt)
 
     if FateData.current <= 0 and not FateData.dead then
         FateData.dead = true
-        -- Tag cause for drain-based kills (Gaze is the only active drain entity)
         if not lastDeathCause then
             if FateData.drainRates["Gaze"] and FateData.drainRates["Gaze"] > 0 then
-                lastDeathCause = "Gaze"
+                TagDeathCause("Gaze")
             end
         end
         DeathScreen.Visible = true
@@ -3119,18 +3151,20 @@ LocalPlayer.CharacterAdded:Connect(function(newChar)
     TweenService:Create(DeathScreen, TweenInfo.new(0.8), {BackgroundTransparency=1}):Play()
     TweenService:Create(DeathLabel,  TweenInfo.new(0.4), {TextTransparency=1}):Play()
     task.delay(1, function() DeathScreen.Visible = false end)
-    -- Pass newChar directly so we never depend on the global Character order
+    -- Clear stale snapshot from previous life
+    if pendingCorpse then
+        pcall(function() pendingCorpse:Destroy() end)
+        pendingCorpse = nil
+    end
+    lastDeathCause = nil
+    -- Pass newChar directly so we never depend on global Character order
     task.delay(0.3, function()
         ConnectDeathEffect(newChar)
     end)
     -- Piece: reset and restart if it killed the player
-    if Piece.pendingReset then
-        PieceHardReset()
-    end
+    if Piece.pendingReset then PieceHardReset() end
     -- Delictum: save last life's recording, spawn a shadow after 2s
-    if Delictum.active then
-        DelictumOnDeath()
-    end
+    if Delictum.active then DelictumOnDeath() end
 end)
 
 -- ═══════════════════════════════════════════════════════════
@@ -3196,12 +3230,10 @@ end)
 
 -- ═══════════════════════════════════════════════════════════
 print("╔══════════════════════════════════════════════════════╗")
-print("║         GRACE Fanmade v9 — Loaded ✓               ║")
-print("║  FATE / Entity panel  ✓                            ║")
-print("║  GAZE / ELUDE / NUMB / MOUTHFEED  ✓               ║")
-print("║  PIECE / DELICTUM / NORM  ✓                        ║")
-print("║  DEATH EFFECTS  ✓  avatar corpse per entity        ║")
-print("║  FIX: ConnectDeathEffect — passes newChar direct   ║")
-print("║    Death effects will now correctly fire           ║")
-print("║  NORM dialogues  ✓  appear + touch lines           ║")
+print("║         GRACE Fanmade v10 — Loaded                  ║")
+print("║  GAZE / ELUDE / NUMB / MOUTHFEED  active            ║")
+print("║  PIECE / DELICTUM / NORM          active            ║")
+print("║  DEATH EFFECTS  — avatar corpse per entity          ║")
+print("║  FIX: TagDeathCause snapshots avatar BEFORE kill    ║")
+print("║  FIX: pendingCorpse cleared on CharacterAdded       ║")
 print("╚══════════════════════════════════════════════════════╝")
