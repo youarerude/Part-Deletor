@@ -331,26 +331,23 @@ local function GazeDeathEffect(corpse)
 end
 
 -- ── ELUDE / MOUTHFEED DEATH ─────────────────────────────────
--- Limbs explode outward with BodyVelocity + blood spray + puddle
 local function ExplodingLimbsDeathEffect(corpse)
     if not corpse then return end
-    local hrp = corpse:FindFirstChild("HumanoidRootPart")
+    local hrp      = corpse:FindFirstChild("HumanoidRootPart")
     local deathPos = hrp and hrp.Position or Vector3.new(0,0,0)
 
-    -- Unanchor all parts for the explosion
     for _, p in ipairs(corpse:GetDescendants()) do
         if p and p.Parent then
             pcall(function()
                 if p:IsA("BasePart") then
                     p.Anchored   = false
                     p.CanCollide = true
-                end
-            end)
-        end
-    end
-        if p:IsA("BasePart") then
-                    local dir = Vector3.new(math.random()-0.5, 0.4+math.random()*0.8, math.random()-0.5).Unit
-                    local bv  = Instance.new("BodyVelocity")
+                    local dir = Vector3.new(
+                        math.random()-0.5,
+                        0.4 + math.random()*0.8,
+                        math.random()-0.5
+                    ).Unit
+                    local bv = Instance.new("BodyVelocity")
                     bv.Velocity = dir * (18 + math.random()*28)
                     bv.MaxForce = Vector3.new(1,1,1) * 9e8
                     bv.P        = 9e8
@@ -361,10 +358,8 @@ local function ExplodingLimbsDeathEffect(corpse)
         end
     end
 
-    -- Blood burst at center
     SprayBlood(deathPos + Vector3.new(0,1,0), 35, 22)
 
-    -- Puddle after parts land
     task.delay(0.6, function()
         local puddle = SpawnBloodPuddle(deathPos, 0.4, 5, 3.5)
         AutoCleanup(puddle)
