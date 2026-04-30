@@ -569,6 +569,9 @@ local function DelictumDeathEffect(corpse)
     AutoCleanup(corpse)
 end
 
+-- Forward declaration — BlueSkyDeathEffect is defined after entity section
+local BlueSkyDeathEffect
+
 -- ── DISPATCH ────────────────────────────────────────────────
 local function ConnectDeathEffect(targetChar)
     targetChar = targetChar or Character
@@ -3129,9 +3132,8 @@ local BlueSky = {
     active      = false,
     conn        = nil,
     cycleTimer  = 0,
-    CYCLE_INT   = 180,  -- 3 minutes
+    CYCLE_INT   = 30,   -- 30s for testing; change to 180 for 3 minutes
     inEvent     = false,
-    -- Runtime refs
     circleRef   = nil,
     nukeModel   = nil,
     flashConn   = nil,
@@ -3407,13 +3409,12 @@ end
 
 local function TriggerBlueSkyEvent()
     if BlueSky.inEvent then return end
-    BlueSky.inEvent = true
+    -- Always grab the LIVE HRP at trigger time
+    local hrp = HumanoidRootPart
+    if not hrp then return end
+    BlueSky.inEvent  = true
     BlueSky.dmgDealt = false
 
-    local hrp = HumanoidRootPart
-    if not hrp then BlueSky.inEvent = false; return end
-
-    -- Snap the target position now (where the circle will be)
     local nukeTarget = Vector3.new(hrp.Position.X, hrp.Position.Y, hrp.Position.Z)
 
     -- Spawn ground circle
@@ -3521,7 +3522,7 @@ end
 
 local function OnBlueSkyEnable()
     BlueSky.active     = true
-    BlueSky.cycleTimer = BlueSky.CYCLE_INT  -- first nuke after full interval
+    BlueSky.cycleTimer = 5  -- first nuke after 5s so you can see it working
 
     BlueSky.conn = RunService.Heartbeat:Connect(function(dt)
         if not BlueSky.active or BlueSky.inEvent then return end
@@ -3548,7 +3549,7 @@ RegisterEntity("Blue Sky","Treason",
     OnBlueSkyEnable, OnBlueSkyDisable)
 
 -- Blue Sky death effect: avatar stretched flat, skin black, black smoke
-local function BlueSkyDeathEffect(corpse)
+BlueSkyDeathEffect = function(corpse)
     if not corpse then return end
     local hrp      = corpse:FindFirstChild("HumanoidRootPart")
     local deathPos = hrp and hrp.Position or Vector3.new(0,0,0)
