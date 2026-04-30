@@ -600,6 +600,7 @@ local function ConnectDeathEffect(targetChar)
             elseif  cause == "Delictum"  then DelictumDeathEffect(corpse)
             elseif  cause == "Norm"      then ExplodingLimbsDeathEffect(corpse)
             elseif  cause == "BlueSky"   then BlueSkyDeathEffect(corpse)
+            elseif  cause == "Wither"    then WitherDeathEffect(corpse)
             else    pcall(function() corpse:Destroy() end)
             end
         end)
@@ -3428,7 +3429,7 @@ local function TriggerBlueSkyEvent()
     local flashRunning = true
     local flashInterval = 3
     local totalFlashTime = 0
-    local MAX_FLASH_TIME = 15
+    local MAX_FLASH_TIME = 10
 
     local function RunFlash()
         if not flashRunning then return end
@@ -3445,8 +3446,8 @@ local function TriggerBlueSkyEvent()
     end
     task.delay(flashInterval, RunFlash)
 
-    -- After 15s: spawn nuke high in the sky
-    task.delay(15, function()
+    -- After 10s: spawn nuke high in the sky
+    task.delay(10, function()
         if not BlueSky.active then flashRunning = false; return end
         flashRunning = false
         TweenService:Create(BSText, TweenInfo.new(0.2), {TextTransparency=1}):Play()
@@ -3648,8 +3649,254 @@ end
 
 -- Register Blue Sky death effect in the dispatch
 -- (done by adding it to ConnectDeathEffect's cause table above)
+
 -- ═══════════════════════════════════════════════════════════
-local fateAccum = 0
+--         ENTITY: WITHER  (Symbolizes: Sloth)
+-- ═══════════════════════════════════════════════════════════
+--[[
+    Stand-still timer escalates through stages:
+    Stage 0  (0–2s)   : nothing
+    Stage 1  (2–4s)   : very faint black fog begins (FogEnd=1000)
+    Stage 2  (4–5s)   : screen shakes slightly, fog slightly denser
+    Stage 3  (5–7s)   : -50% fate, intense shake, medium fog,
+                        shaking text every 0.2s (disappears in 0.3s)
+    Stage 4  (7–9s)   : very dense fog, text every 0.1s, shake++
+    Stage 5  (9s+)    : 70% chance -100% fate, 30% chance -50% fate.
+                        Resets timer.
+    Walking resets everything.
+--]]
+
+local Wither = {
+    active       = false,
+    conn         = nil,
+    stillTimer   = 0,
+    lastPos      = nil,
+    stage        = 0,
+    textTimer    = 0,
+    shakeConn    = nil,
+    shakeIntensity = 0,
+    dmgCooldown  = false,
+    dmgCDTimer   = 0,
+    DMG_CD       = 1,
+}
+
+local WITHER_TEXTS = {
+    "Use your time.",
+    "Why are you still?",
+    "Get up.",
+    "Time is wasting.",
+    "Move.",
+    "Don't stop here.",
+    "You're falling behind.",
+    "Every second counts.",
+    "Why are you not moving?",
+    "You're wasting it.",
+    "Sloth.",
+    "Go.",
+}
+
+-- Fog color correction for Wither
+local WitherCC = Instance.new("ColorCorrectionEffect")
+WitherCC.Name       = "WitherCC"
+WitherCC.Saturation = -1
+WitherCC.Brightness = -0.06
+WitherCC.Enabled    = false
+WitherCC.Parent     = Lighting
+
+-- Wither text label (shaking, center-bottom)
+local WitherTextLabel = Instance.new("TextLabel")
+WitherTextLabel.Name                   = "WitherText"
+WitherTextLabel.Size                   = UDim2.new(0, 360, 0, 34)
+WitherTextLabel.AnchorPoint            = Vector2.new(0.5, 0.5)
+WitherTextLabel.Position               = UDim2.new(0.5, 0, 0.5, 60)
+WitherTextLabel.BackgroundTransparency = 1
+WitherTextLabel.Text                   = ""
+WitherTextLabel.Font                   = Enum.Font.GothamBold
+WitherTextLabel.TextSize               = 22
+WitherTextLabel.TextColor3             = Color3.fromRGB(200, 200, 200)
+WitherTextLabel.TextTransparency       = 1
+WitherTextLabel.ZIndex                 = 13
+WitherTextLabel.Parent                 = ScreenGui
+
+-- Dark fog overlay frame (simulates dense fog without Lighting.FogEnd fighting other entities)
+local WitherFogOverlay = Instance.new("Frame")
+WitherFogOverlay.Name                   = "WitherFog"
+WitherFogOverlay.Size                   = UDim2.new(1, 0, 1, 0)
+WitherFogOverlay.BackgroundColor3       = Color3.fromRGB(0, 0, 0)
+WitherFogOverlay.BackgroundTransparency = 1
+WitherFogOverlay.ZIndex                 = 6
+WitherFogOverlay.Parent                 = ScreenGui
+
+local function WitherShowText()
+    local txt = WITHER_TEXTS[math.random(1, #WITHER_TEXTS)]
+    -- Random shake offset for the label
+    local ox = (math.random()-0.5)*30
+    local oy = (math.random()-0.5)*20
+    WitherTextLabel.Position = UDim2.new(0.5, ox, 0.5, 60+oy)
+    WitherTextLabel.Text     = txt
+    WitherTextLabel.TextTransparency = 0
+    TweenService:Create(WitherTextLabel,
+        TweenInfo.new(0.3),
+        {TextTransparency = 1}
+    ):Play()
+end
+
+local function WitherStartShake(intensity)
+    Wither.shakeIntensity = intensity
+    if Wither.shakeConn then return end  -- already running
+    Wither.shakeConn = RunService.RenderStepped:Connect(function(dt)
+        if Wither.shakeIntensity <= 0 then return end
+        Camera.CFrame = Camera.CFrame * CFrame.new(
+            (math.random()-0.5)*Wither.shakeIntensity,
+            (math.random()-0.5)*Wither.shakeIntensity*0.5,
+            0
+        )
+    end)
+end
+
+local function WitherStopShake()
+    Wither.shakeIntensity = 0
+    if Wither.shakeConn then
+        Wither.shakeConn:Disconnect()
+        Wither.shakeConn = nil
+    end
+end
+
+local function WitherReset()
+    Wither.stillTimer = 0
+    Wither.stage      = 0
+    Wither.textTimer  = 0
+    WitherStopShake()
+    WitherCC.Enabled  = false
+    TweenService:Create(WitherFogOverlay, TweenInfo.new(1.5),
+        {BackgroundTransparency = 1}):Play()
+    -- Restore lighting fog
+    TweenService:Create(Lighting, TweenInfo.new(1.5), {
+        FogEnd   = OrigLighting.FogEnd,
+        FogStart = OrigLighting.FogStart,
+    }):Play()
+end
+
+local function SetWitherFog(density)
+    -- density 0–1: 0=none, 1=very dense
+    local trans = 1 - density * 0.88
+    TweenService:Create(WitherFogOverlay, TweenInfo.new(0.8),
+        {BackgroundTransparency = math.clamp(trans, 0.12, 1)}):Play()
+    -- Also tweak lighting fog
+    local fogEnd = math.clamp(1000 - density * 970, 30, 1000)
+    TweenService:Create(Lighting, TweenInfo.new(0.8),
+        {FogEnd = fogEnd, FogStart = math.max(fogEnd*0.1, 5)}):Play()
+    if density > 0 then
+        WitherCC.Enabled    = true
+        WitherCC.Brightness = -0.04 - density * 0.14
+    end
+end
+
+local function OnWitherEnable()
+    Wither.active    = true
+    Wither.stillTimer = 0
+    Wither.stage     = 0
+    Wither.lastPos   = HumanoidRootPart and HumanoidRootPart.Position or Vector3.new()
+    Wither.textTimer = 0
+
+    Wither.conn = RunService.Heartbeat:Connect(function(dt)
+        if not Wither.active then return end
+        local hrp = HumanoidRootPart; if not hrp then return end
+
+        -- Damage cooldown
+        if Wither.dmgCooldown then
+            Wither.dmgCDTimer = Wither.dmgCDTimer - dt
+            if Wither.dmgCDTimer <= 0 then Wither.dmgCooldown = false end
+        end
+
+        local moved = (hrp.Position - (Wither.lastPos or hrp.Position)).Magnitude
+        Wither.lastPos = hrp.Position
+
+        if moved > 0.4 then
+            -- Player moved — reset everything
+            if Wither.stage > 0 then WitherReset() end
+            return
+        end
+
+        -- Player is still
+        Wither.stillTimer = Wither.stillTimer + dt
+
+        local t = Wither.stillTimer
+
+        -- Stage transitions
+        if t >= 2 and Wither.stage < 1 then
+            Wither.stage = 1
+            SetWitherFog(0.08)
+        end
+        if t >= 4 and Wither.stage < 2 then
+            Wither.stage = 2
+            SetWitherFog(0.22)
+            WitherStartShake(0.04)
+        end
+        if t >= 5 and Wither.stage < 3 then
+            Wither.stage = 3
+            SetWitherFog(0.45)
+            WitherStartShake(0.1)
+            if not Wither.dmgCooldown then
+                Wither.dmgCooldown = true
+                Wither.dmgCDTimer  = Wither.DMG_CD
+                TagDeathCause("Wither")
+                InstantFateDamage(50)
+            end
+        end
+        if t >= 7 and Wither.stage < 4 then
+            Wither.stage = 4
+            SetWitherFog(0.74)
+            WitherStartShake(0.22)
+        end
+        if t >= 9 and Wither.stage < 5 then
+            Wither.stage = 5
+            SetWitherFog(0.94)
+            WitherStartShake(0.38)
+            if not Wither.dmgCooldown then
+                Wither.dmgCooldown = true
+                Wither.dmgCDTimer  = Wither.DMG_CD
+                TagDeathCause("Wither")
+                -- 70% chance 100% fate, 30% chance 50% fate
+                if math.random() < 0.70 then
+                    InstantFateDamage(100)
+                else
+                    InstantFateDamage(50)
+                end
+            end
+            -- Reset timer so stage 5 can repeat if they survive
+            Wither.stillTimer = 0
+            Wither.stage      = 0
+        end
+
+        -- Text flash (stage 3+)
+        if Wither.stage >= 3 then
+            local textInterval = Wither.stage >= 4 and 0.1 or 0.2
+            Wither.textTimer = Wither.textTimer + dt
+            if Wither.textTimer >= textInterval then
+                Wither.textTimer = 0
+                WitherShowText()
+            end
+        end
+    end)
+end
+
+local function OnWitherDisable()
+    Wither.active = false
+    if Wither.conn then Wither.conn:Disconnect(); Wither.conn = nil end
+    WitherReset()
+    TweenService:Create(WitherTextLabel, TweenInfo.new(0.3), {TextTransparency=1}):Play()
+end
+
+RegisterEntity("Wither","Sloth",
+    "heya! Have you been using your time wisely? Good! Have a great day! Use your time.",
+    OnWitherEnable, OnWitherDisable)
+
+-- Wither death effect forward declaration (defined below with dispatch)
+local WitherDeathEffect
+
+-- ═══════════════════════════════════════════════════════════
+--                    FATE UPDATE LOOP
 local FATE_TICK = 0.05
 
 local function SyncFateToHealth()
@@ -3731,6 +3978,60 @@ LocalPlayer.CharacterAdded:Connect(function(newChar)
     -- Delictum: save last life's recording, spawn a shadow after 2s
     if Delictum.active then DelictumOnDeath() end
 end)
+
+-- ═══════════════════════════════════════════════════════════
+--         WITHER DEATH EFFECT
+-- ═══════════════════════════════════════════════════════════
+-- All-black flickering semi-transparent copy of the avatar
+WitherDeathEffect = function(corpse)
+    if not corpse then return end
+    local hrp      = corpse:FindFirstChild("HumanoidRootPart")
+    local deathPos = hrp and hrp.Position or Vector3.new(0,0,0)
+
+    -- Color all parts black, remove shirts/pants textures visibility
+    for _, p in ipairs(corpse:GetDescendants()) do
+        pcall(function()
+            if p:IsA("BasePart") then
+                p.Anchored    = true
+                p.CanCollide  = false
+                p.Color       = Color3.fromRGB(0,0,0)
+                p.Transparency = 0.45
+                p.Material    = Enum.Material.SmoothPlastic
+            end
+            -- Remove shirt/pants/surface appearances (keep shape, lose texture)
+            if p:IsA("Shirt") or p:IsA("Pants") or p:IsA("ShirtGraphic")
+            or p:IsA("SpecialMesh") and p.Name == "ClassicShirt" then
+                pcall(function() p:Destroy() end)
+            end
+            if p:IsA("SurfaceAppearance") then
+                pcall(function() p:Destroy() end)
+            end
+        end)
+    end
+
+    -- Flickering loop — alternates transparency between 0.3 and 0.85
+    local flickRunning = true
+    task.spawn(function()
+        local flickState = false
+        while flickRunning do
+            task.wait(0.07 + math.random()*0.1)
+            if not corpse or not corpse.Parent then break end
+            flickState = not flickState
+            local targetTrans = flickState and 0.28 or 0.78
+            for _, p in ipairs(corpse:GetDescendants()) do
+                pcall(function()
+                    if p:IsA("BasePart") then
+                        p.Transparency = targetTrans
+                    end
+                end)
+            end
+        end
+    end)
+    -- Stop flickering after 5 minutes (matches body despawn)
+    task.delay(295, function() flickRunning = false end)
+
+    AutoCleanup(corpse)
+end
 
 -- ═══════════════════════════════════════════════════════════
 --                     ATMOSPHERE
