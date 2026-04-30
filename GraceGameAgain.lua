@@ -2242,6 +2242,9 @@ local function StealLimb(limbEntry)
     end
 end
 
+-- Forward declare so PieceHardReset can call it before the full definition
+local OnPieceEnable
+
 -- Clears all 3D objects and GUI, then restarts the entity from scratch.
 -- Called on respawn when Piece was the cause of death.
 local function PieceHardReset()
@@ -2281,7 +2284,7 @@ local function PieceHardReset()
     end)
 end
 
-local function OnPieceEnable()
+OnPieceEnable = function()
     Piece.active      = true
     Piece.chasing     = false
     Piece.chaseSpeed  = 0
