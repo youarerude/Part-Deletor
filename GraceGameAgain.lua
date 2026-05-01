@@ -601,6 +601,7 @@ local function ConnectDeathEffect(targetChar)
             elseif  cause == "Norm"      then ExplodingLimbsDeathEffect(corpse)
             elseif  cause == "BlueSky"   then BlueSkyDeathEffect(corpse)
             elseif  cause == "Wither"    then WitherDeathEffect(corpse)
+            elseif  cause == "Coil"      then DelictumDeathEffect(corpse)
             else    pcall(function() corpse:Destroy() end)
             end
         end)
@@ -3062,7 +3063,13 @@ local function OnNormEnable()
                         curPos.Z + Norm.blockVelZ * dt
                     )
                 end
-                Norm.blockPart.CFrame = CFrame.new(newPos)
+                -- Face the eye toward the player's camera/head
+                local faceCF = CFrame.new(newPos, Vector3.new(
+                    Camera.CFrame.Position.X,
+                    newPos.Y,  -- keep Y level so it doesn't tilt
+                    Camera.CFrame.Position.Z
+                ))
+                Norm.blockPart.CFrame = faceCF
 
                 -- Touch check
                 if not Norm.dmgCooldown then
@@ -3809,11 +3816,16 @@ local function OnWitherEnable()
             if Wither.dmgCDTimer <= 0 then Wither.dmgCooldown = false end
         end
 
-        local moved = (hrp.Position - (Wither.lastPos or hrp.Position)).Magnitude
-        Wither.lastPos = hrp.Position
+        -- Detect jump: check if humanoid is in the air (not grounded)
+        local isJumping = false
+        if Humanoid then
+            local state = Humanoid:GetState()
+            isJumping = (state == Enum.HumanoidStateType.Jumping
+                or state == Enum.HumanoidStateType.Freefall)
+        end
 
-        if moved > 0.4 then
-            -- Player moved — reset everything
+        if isJumping then
+            -- Jump cancels the fog
             if Wither.stage > 0 then WitherReset() end
             return
         end
@@ -3980,8 +3992,438 @@ LocalPlayer.CharacterAdded:Connect(function(newChar)
 end)
 
 -- ═══════════════════════════════════════════════════════════
---         WITHER DEATH EFFECT
+--           ENTITY: COIL  (Symbolizes: Obsession)
 -- ═══════════════════════════════════════════════════════════
+--[[
+    FULL DESCRIPTION:
+    There is a snake that has found you.  It does not hunt — it
+    fixates.  Every 5 seconds a new segment grows from its tail,
+    and the longer it gets the faster it moves.  Its body does
+    not slide like a normal snake; it uses concertina locomotion —
+    each segment anchors itself in sequence while the others push
+    forward, so the tail bends and curves independently of the
+    head, but straightens when there is nothing to grip.  The
+    closer a segment is to the head, the more faithfully it
+    mirrors every turn. Touch the head and something snaps; touch
+    any part of the body and it coils tighter.  Either way, three
+    segments are ripped free — but it always grows back.
+
+    SHORTENED (used in panel):
+    "It found you. Every 5s it grows a new segment. The longer
+     it gets, the faster it moves."
+
+    MECHANICS:
+    ▸ Base speed 13.  Each segment adds +0.5 speed.
+    ▸ Concertina movement: each segment follows the one ahead
+      with a positional delay proportional to its index
+      (segments near the head respond fast, tail lags behind).
+    ▸ Pathfinding: uses PathfindingService when the snake cannot
+      see the player directly (different platform / obstacle).
+      On same flat ground → direct follow.  If no valid path
+      and player is far → teleport to nearest ground within 20s.
+    ▸ If snake model is destroyed for any reason → respawns after
+      2s at 20 studs from player with same segment count.
+    ▸ Head touch: -25% fate + remove 3 tail segments.
+    ▸ Tail touch: -5% fate + remove 3 tail segments.
+    ▸ Damage cooldown: 1.2s.
+    ▸ Custom death: same as Delictum (head on ground, blood).
+--]]
+
+local PathfindingService = game:GetService("PathfindingService")
+
+local Coil = {
+    active        = false,
+    conn          = nil,
+    growConn      = nil,
+    watchConn     = nil,
+    -- Snake state
+    segments      = {},   -- array of {part, pos} head first
+    segCount      = 1,    -- total segments (starts with just head)
+    baseSpeed     = 13,
+    -- Pathfinding
+    path          = nil,
+    waypoints     = {},
+    waypointIdx   = 1,
+    usingPath     = false,
+    pathRetryTimer = 0,
+    PATH_RETRY    = 2,    -- recalculate path every 2s
+    -- Damage
+    dmgCooldown   = false,
+    dmgCDTimer    = 0,
+    DMG_CD        = 1.2,
+    -- Respawn
+    pendingRespawn = false,
+}
+
+-- Head and segment colors
+local COIL_HEAD_COLOR = Color3.fromRGB(40, 140, 40)
+local COIL_SEG_COLOR  = Color3.fromRGB(30, 110, 30)
+local COIL_EYE_COLOR  = Color3.fromRGB(255, 220, 0)
+
+-- Coil warning
+local CoilWarn = Instance.new("TextLabel")
+CoilWarn.Name                   = "CoilWarn"
+CoilWarn.Size                   = UDim2.new(0,300,0,24)
+CoilWarn.AnchorPoint            = Vector2.new(0.5,1)
+CoilWarn.Position               = UDim2.new(0.5,0,1,-175)
+CoilWarn.BackgroundTransparency = 1
+CoilWarn.Text                   = ""
+CoilWarn.Font                   = Enum.Font.GothamBold
+CoilWarn.TextSize               = 14
+CoilWarn.TextColor3             = Color3.fromRGB(60,200,60)
+CoilWarn.TextTransparency       = 1
+CoilWarn.ZIndex                 = 12
+CoilWarn.Parent                 = ScreenGui
+
+local function CoilShowWarn(txt)
+    CoilWarn.Text = txt
+    TweenService:Create(CoilWarn, TweenInfo.new(0.2), {TextTransparency=0}):Play()
+    task.delay(2.5, function()
+        TweenService:Create(CoilWarn, TweenInfo.new(0.8), {TextTransparency=1}):Play()
+    end)
+end
+
+-- Build a single snake segment part
+local function BuildSegment(pos, isHead)
+    local p = Instance.new("Part")
+    p.Name        = isHead and "CoilHead" or "CoilSeg"
+    p.Size        = isHead and Vector3.new(1.8,1.8,1.8) or Vector3.new(1.4,1.4,1.4)
+    p.Shape       = Enum.PartType.Ball
+    p.Anchored    = true
+    p.CanCollide  = false
+    p.CastShadow  = false
+    p.Material    = Enum.Material.SmoothPlastic
+    p.Color       = isHead and COIL_HEAD_COLOR or COIL_SEG_COLOR
+    p.Transparency = 0
+    p.CFrame      = CFrame.new(pos)
+    p.Parent      = Workspace
+
+    if isHead then
+        -- Eyes
+        for _, side in ipairs({-0.5, 0.5}) do
+            local eye = Instance.new("Part")
+            eye.Name        = "CoilEye"
+            eye.Size        = Vector3.new(0.35,0.35,0.35)
+            eye.Shape       = Enum.PartType.Ball
+            eye.Anchored    = true
+            eye.CanCollide  = false
+            eye.CastShadow  = false
+            eye.Material    = Enum.Material.Neon
+            eye.Color       = COIL_EYE_COLOR
+            eye.Transparency = 0
+            eye.CFrame      = CFrame.new(pos + Vector3.new(side*0.55, 0.45, -0.7))
+            eye.Parent      = Workspace
+        end
+    end
+
+    return p
+end
+
+-- Get all eye parts (parented to Workspace, named CoilEye)
+local function GetCoilEyes()
+    local eyes = {}
+    for _, obj in ipairs(Workspace:GetChildren()) do
+        if obj.Name == "CoilEye" then table.insert(eyes, obj) end
+    end
+    return eyes
+end
+
+-- Destroy all coil parts
+local function DestroyCoil()
+    for _, seg in ipairs(Coil.segments) do
+        if seg.part and seg.part.Parent then seg.part:Destroy() end
+    end
+    -- Destroy eyes
+    for _, eye in ipairs(GetCoilEyes()) do eye:Destroy() end
+    Coil.segments = {}
+end
+
+-- Remove N tail segments (from the end)
+local function RemoveTailSegments(n)
+    for _ = 1, n do
+        if #Coil.segments <= 1 then break end  -- never remove head
+        local last = table.remove(Coil.segments)
+        if last.part and last.part.Parent then last.part:Destroy() end
+    end
+    Coil.segCount = #Coil.segments
+end
+
+-- Grow one new tail segment
+local function GrowSegment()
+    if not Coil.active then return end
+    local last = Coil.segments[#Coil.segments]
+    if not last then return end
+    local newPos = last.pos + Vector3.new(math.random()-0.5, 0, math.random()-0.5).Unit * 1.6
+    local part   = BuildSegment(newPos, false)
+    table.insert(Coil.segments, {part=part, pos=newPos})
+    Coil.segCount = #Coil.segments
+end
+
+-- Get current speed (base + 0.5 per extra segment)
+local function CoilSpeed()
+    return Coil.baseSpeed + (math.max(Coil.segCount - 1, 0) * 0.5)
+end
+
+-- Check if player and snake head are on same flat ground
+-- (simple check: same Y within 4 studs, raycast down from both finds ground)
+local function IsSamePlatform(headPos, playerPos)
+    if math.abs(headPos.Y - playerPos.Y) > 4 then return false end
+    local rp = RaycastParams.new()
+    rp.FilterType = Enum.RaycastFilterType.Exclude
+    rp.FilterDescendantsInstances = {Character}
+    local hr = Workspace:Raycast(headPos + Vector3.new(0,1,0), Vector3.new(0,-6,0), rp)
+    local pr = Workspace:Raycast(playerPos + Vector3.new(0,1,0), Vector3.new(0,-6,0), rp)
+    return hr ~= nil and pr ~= nil
+end
+
+-- Find a valid ground position within radius around a point
+local function FindGroundNear(center, radius)
+    local rp = RaycastParams.new()
+    rp.FilterType = Enum.RaycastFilterType.Exclude
+    rp.FilterDescendantsInstances = {Character}
+    for _ = 1, 20 do
+        local angle = math.random() * math.pi * 2
+        local dist  = 5 + math.random() * (radius - 5)
+        local try   = center + Vector3.new(math.cos(angle)*dist, 10, math.sin(angle)*dist)
+        local hit   = Workspace:Raycast(try, Vector3.new(0,-25,0), rp)
+        if hit then return hit.Position + Vector3.new(0,1.2,0) end
+    end
+    -- Fallback: directly below center
+    local hit = Workspace:Raycast(center + Vector3.new(0,10,0), Vector3.new(0,-30,0), rp)
+    return hit and (hit.Position + Vector3.new(0,1.2,0)) or center
+end
+
+local function SpawnCoilAt(pos, segCount)
+    DestroyCoil()
+    Coil.segments = {}
+    -- Head
+    local head = BuildSegment(pos, true)
+    table.insert(Coil.segments, {part=head, pos=pos})
+    -- Tail segments spread behind
+    for i = 1, math.max(segCount - 1, 0) do
+        local sp = pos + Vector3.new(i*1.6, 0, 0)
+        local p  = BuildSegment(sp, false)
+        table.insert(Coil.segments, {part=p, pos=sp})
+    end
+    Coil.segCount = #Coil.segments
+end
+
+local function CoilTeleportNearPlayer()
+    local hrp = HumanoidRootPart; if not hrp then return end
+    local spawnPos = FindGroundNear(hrp.Position, 20)
+    SpawnCoilAt(spawnPos, Coil.segCount)
+    CoilShowWarn("it found a way.")
+end
+
+local function StartCoilRespawnWatch()
+    if Coil.watchConn then Coil.watchConn:Disconnect() end
+    Coil.watchConn = RunService.Heartbeat:Connect(function()
+        if not Coil.active then return end
+        -- Check if head is gone
+        local head = Coil.segments[1]
+        if not head or not head.part or not head.part.Parent then
+            if not Coil.pendingRespawn then
+                Coil.pendingRespawn = true
+                task.delay(2, function()
+                    if not Coil.active then return end
+                    Coil.pendingRespawn = false
+                    CoilTeleportNearPlayer()
+                end)
+            end
+        end
+    end)
+end
+
+local function OnCoilEnable()
+    Coil.active       = true
+    Coil.segCount     = 1
+    Coil.dmgCooldown  = false
+    Coil.dmgCDTimer   = 0
+    Coil.pendingRespawn = false
+    Coil.pathRetryTimer = 0
+    Coil.waypoints    = {}
+    Coil.waypointIdx  = 1
+    Coil.usingPath    = false
+
+    -- Spawn snake 20 studs behind player
+    local hrp = HumanoidRootPart
+    local spawnPos = hrp and (hrp.Position + hrp.CFrame.LookVector * -20) or Vector3.new(0,5,0)
+    local groundPos = FindGroundNear(spawnPos, 22)
+    SpawnCoilAt(groundPos, 1)
+    StartCoilRespawnWatch()
+
+    -- Grow a new segment every 5s
+    Coil.growConn = task.spawn(function()
+        while Coil.active do
+            task.wait(5)
+            if Coil.active then GrowSegment() end
+        end
+    end)
+
+    -- Main movement loop
+    Coil.conn = RunService.Heartbeat:Connect(function(dt)
+        if not Coil.active then return end
+        local hrp = HumanoidRootPart; if not hrp then return end
+        if #Coil.segments == 0 then return end
+
+        -- Damage cooldown
+        if Coil.dmgCooldown then
+            Coil.dmgCDTimer = Coil.dmgCDTimer - dt
+            if Coil.dmgCDTimer <= 0 then Coil.dmgCooldown = false end
+        end
+
+        local headSeg  = Coil.segments[1]
+        if not headSeg or not headSeg.part or not headSeg.part.Parent then return end
+        local headPos  = headSeg.pos
+        local playerPos = hrp.Position
+        local speed    = CoilSpeed()
+
+        -- ── PATHFINDING DECISION ──────────────────────────────
+        local samePlatform = IsSamePlatform(headPos, playerPos)
+        local lineOfSight  = samePlatform
+
+        if lineOfSight then
+            -- Direct follow
+            Coil.usingPath  = false
+            Coil.waypoints  = {}
+            Coil.waypointIdx = 1
+        else
+            -- Use pathfinding
+            Coil.usingPath = true
+            Coil.pathRetryTimer = Coil.pathRetryTimer + dt
+            if Coil.pathRetryTimer >= Coil.PATH_RETRY then
+                Coil.pathRetryTimer = 0
+                local ok, path = pcall(function()
+                    local p = PathfindingService:CreatePath({
+                        AgentRadius   = 1,
+                        AgentHeight   = 2,
+                        AgentCanJump  = false,
+                        AgentCanClimb = false,
+                    })
+                    p:ComputeAsync(headPos, playerPos)
+                    return p
+                end)
+                if ok and path and path.Status == Enum.PathStatus.Success then
+                    Coil.waypoints   = path:GetWaypoints()
+                    Coil.waypointIdx = 1
+                else
+                    -- No path found — teleport near player
+                    CoilTeleportNearPlayer()
+                    return
+                end
+            end
+        end
+
+        -- ── MOVE HEAD ─────────────────────────────────────────
+        local moveTarget
+        if Coil.usingPath and #Coil.waypoints > 0 then
+            local wp = Coil.waypoints[Coil.waypointIdx]
+            if wp then
+                moveTarget = wp.Position
+                -- Advance waypoint when close enough
+                if (headPos - wp.Position).Magnitude < 2 then
+                    Coil.waypointIdx = math.min(Coil.waypointIdx + 1, #Coil.waypoints)
+                end
+            else
+                moveTarget = playerPos
+            end
+        else
+            moveTarget = playerPos
+        end
+
+        local toTarget = moveTarget - headPos
+        local dist     = toTarget.Magnitude
+        if dist > 0.1 then
+            local step    = math.min(speed * dt, dist)
+            local newHead = headPos + toTarget.Unit * step
+            -- Keep snake on ground
+            local rp = RaycastParams.new()
+            rp.FilterType = Enum.RaycastFilterType.Exclude
+            rp.FilterDescendantsInstances = {Character}
+            local gr = Workspace:Raycast(newHead + Vector3.new(0,3,0), Vector3.new(0,-8,0), rp)
+            if gr then
+                newHead = Vector3.new(newHead.X, gr.Position.Y + 1, newHead.Z)
+            end
+            headSeg.pos      = newHead
+            headSeg.part.CFrame = CFrame.new(newHead, newHead + toTarget.Unit)
+            -- Move eyes with head
+            local eyes = GetCoilEyes()
+            for _, eye in ipairs(eyes) do
+                if eye and eye.Parent then
+                    local side = (eye.Position - headPos)
+                    eye.CFrame = CFrame.new(newHead + side)
+                end
+            end
+        end
+
+        -- ── CONCERTINA TAIL ───────────────────────────────────
+        for i = 2, #Coil.segments do
+            local seg   = Coil.segments[i]
+            local ahead = Coil.segments[i-1]
+            if not seg.part or not seg.part.Parent then break end
+            if not ahead.part or not ahead.part.Parent then break end
+
+            -- How much this segment follows: segments near head follow tightly,
+            -- tail follows loosely — creates the concertina wave effect
+            local followFactor = 1 - ((i-2) / math.max(#Coil.segments - 1, 1)) * 0.6
+            local gap      = 1.5  -- target distance between segments
+            local diff     = ahead.pos - seg.pos
+            local segDist  = diff.Magnitude
+
+            if segDist > gap then
+                -- Pull this segment toward the one ahead
+                local pull = (segDist - gap) * followFactor * (speed * 0.9) * dt
+                local newPos = seg.pos + diff.Unit * math.min(pull, segDist - gap)
+                seg.pos = newPos
+                seg.part.CFrame = CFrame.new(newPos, ahead.pos)
+            end
+        end
+
+        -- ── TOUCH CHECK ───────────────────────────────────────
+        if not Coil.dmgCooldown then
+            local headDist = (headSeg.pos - playerPos).Magnitude
+            if headDist < 2.2 then
+                -- Head touch: -25% fate
+                Coil.dmgCooldown = true
+                Coil.dmgCDTimer  = Coil.DMG_CD
+                TagDeathCause("Coil")
+                InstantFateDamage(25)
+                RemoveTailSegments(3)
+                CoilShowWarn("it bit you.")
+            else
+                -- Check tail segments
+                for i = 2, #Coil.segments do
+                    local seg = Coil.segments[i]
+                    if seg.part and seg.part.Parent then
+                        if (seg.pos - playerPos).Magnitude < 1.8 then
+                            Coil.dmgCooldown = true
+                            Coil.dmgCDTimer  = Coil.DMG_CD
+                            TagDeathCause("Coil")
+                            InstantFateDamage(5)
+                            RemoveTailSegments(3)
+                            CoilShowWarn("it grazed you.")
+                            break
+                        end
+                    end
+                end
+            end
+        end
+    end)
+end
+
+local function OnCoilDisable()
+    Coil.active = false
+    if Coil.conn     then Coil.conn:Disconnect();      Coil.conn      = nil end
+    if Coil.watchConn then Coil.watchConn:Disconnect(); Coil.watchConn = nil end
+    DestroyCoil()
+    TweenService:Create(CoilWarn, TweenInfo.new(0.3), {TextTransparency=1}):Play()
+end
+
+RegisterEntity("Coil","Obsession",
+    "It found you. Every 5s it grows. The longer it gets, the faster it moves.",
+    OnCoilEnable, OnCoilDisable)
+
+-- Coil uses Delictum death effect (forward ref handled in dispatch)
 -- All-black flickering semi-transparent copy of the avatar
 WitherDeathEffect = function(corpse)
     if not corpse then return end
