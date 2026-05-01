@@ -4155,8 +4155,24 @@ local function GrowSegment()
     if not Coil.active then return end
     local last = Coil.segments[#Coil.segments]
     if not last then return end
-    local newPos = last.pos + Vector3.new(math.random()-0.5, 0, math.random()-0.5).Unit * 1.6
-    local part   = BuildSegment(newPos, false)
+
+    -- Safe random horizontal direction — avoid zero-vector .Unit NaN
+    local dx = math.random()-0.5
+    local dz = math.random()-0.5
+    local mag = math.sqrt(dx*dx + dz*dz)
+    if mag < 0.001 then dx = 1; dz = 0; mag = 1 end
+    local newPos = last.pos + Vector3.new(dx/mag, 0, dz/mag) * 1.6
+
+    -- Snap to ground so segments never float or sink
+    local rp = RaycastParams.new()
+    rp.FilterType = Enum.RaycastFilterType.Exclude
+    rp.FilterDescendantsInstances = {Character}
+    local hit = Workspace:Raycast(newPos + Vector3.new(0,6,0), Vector3.new(0,-14,0), rp)
+    if hit then
+        newPos = hit.Position + Vector3.new(0, 1.0, 0)
+    end
+
+    local part = BuildSegment(newPos, false)
     table.insert(Coil.segments, {part=part, pos=newPos})
     Coil.segCount = #Coil.segments
 end
@@ -4198,13 +4214,26 @@ end
 local function SpawnCoilAt(pos, segCount)
     DestroyCoil()
     Coil.segments = {}
+
+    local rp = RaycastParams.new()
+    rp.FilterType = Enum.RaycastFilterType.Exclude
+    rp.FilterDescendantsInstances = {Character}
+
+    local function snapToGround(p)
+        local hit = Workspace:Raycast(p + Vector3.new(0,6,0), Vector3.new(0,-14,0), rp)
+        return hit and (hit.Position + Vector3.new(0,1.0,0)) or p
+    end
+
     -- Head
-    local head = BuildSegment(pos, true)
-    table.insert(Coil.segments, {part=head, pos=pos})
-    -- Tail segments spread behind
+    local headPos = snapToGround(pos)
+    local head    = BuildSegment(headPos, true)
+    table.insert(Coil.segments, {part=head, pos=headPos})
+
+    -- Tail segments — ground-snap each one
     for i = 1, math.max(segCount - 1, 0) do
-        local sp = pos + Vector3.new(i*1.6, 0, 0)
-        local p  = BuildSegment(sp, false)
+        local rawPos = headPos + Vector3.new(i*1.6, 0, 0)
+        local sp     = snapToGround(rawPos)
+        local p      = BuildSegment(sp, false)
         table.insert(Coil.segments, {part=p, pos=sp})
     end
     Coil.segCount = #Coil.segments
@@ -4337,17 +4366,20 @@ local function OnCoilEnable()
         local dist     = toTarget.Magnitude
         if dist > 0.1 then
             local step    = math.min(speed * dt, dist)
-            local newHead = headPos + toTarget.Unit * step
-            -- Keep snake on ground
-            local rp = RaycastParams.new()
-            rp.FilterType = Enum.RaycastFilterType.Exclude
-            rp.FilterDescendantsInstances = {Character}
-            local gr = Workspace:Raycast(newHead + Vector3.new(0,3,0), Vector3.new(0,-8,0), rp)
+            -- Guard NaN: if toTarget is somehow zero-magnitude, skip
+            local dirUnit = toTarget.Unit
+            if dirUnit ~= dirUnit then return end  -- NaN check
+            local newHead = headPos + dirUnit * step
+            -- Snap head to ground
+            local rp2 = RaycastParams.new()
+            rp2.FilterType = Enum.RaycastFilterType.Exclude
+            rp2.FilterDescendantsInstances = {Character}
+            local gr = Workspace:Raycast(newHead + Vector3.new(0,4,0), Vector3.new(0,-10,0), rp2)
             if gr then
-                newHead = Vector3.new(newHead.X, gr.Position.Y + 1, newHead.Z)
+                newHead = Vector3.new(newHead.X, gr.Position.Y + 1.0, newHead.Z)
             end
-            headSeg.pos      = newHead
-            headSeg.part.CFrame = CFrame.new(newHead, newHead + toTarget.Unit)
+            headSeg.pos         = newHead
+            headSeg.part.CFrame = CFrame.new(newHead, newHead + dirUnit)
             -- Move eyes with head
             local eyes = GetCoilEyes()
             for _, eye in ipairs(eyes) do
@@ -4365,17 +4397,27 @@ local function OnCoilEnable()
             if not seg.part or not seg.part.Parent then break end
             if not ahead.part or not ahead.part.Parent then break end
 
-            -- How much this segment follows: segments near head follow tightly,
-            -- tail follows loosely — creates the concertina wave effect
             local followFactor = 1 - ((i-2) / math.max(#Coil.segments - 1, 1)) * 0.6
-            local gap      = 1.5  -- target distance between segments
+            local gap      = 1.5
             local diff     = ahead.pos - seg.pos
             local segDist  = diff.Magnitude
 
-            if segDist > gap then
-                -- Pull this segment toward the one ahead
-                local pull = (segDist - gap) * followFactor * (speed * 0.9) * dt
+            if segDist > gap and segDist > 0 then
+                local pull   = (segDist - gap) * followFactor * (speed * 0.9) * dt
                 local newPos = seg.pos + diff.Unit * math.min(pull, segDist - gap)
+
+                -- Guard NaN
+                if newPos ~= newPos then continue end
+
+                -- Snap tail segment to ground
+                local rp3 = RaycastParams.new()
+                rp3.FilterType = Enum.RaycastFilterType.Exclude
+                rp3.FilterDescendantsInstances = {Character}
+                local gr3 = Workspace:Raycast(newPos + Vector3.new(0,4,0), Vector3.new(0,-10,0), rp3)
+                if gr3 then
+                    newPos = Vector3.new(newPos.X, gr3.Position.Y + 1.0, newPos.Z)
+                end
+
                 seg.pos = newPos
                 seg.part.CFrame = CFrame.new(newPos, ahead.pos)
             end
