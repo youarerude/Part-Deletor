@@ -3909,6 +3909,8 @@ local WitherDeathEffect
 
 -- ═══════════════════════════════════════════════════════════
 --                    FATE UPDATE LOOP
+-- ═══════════════════════════════════════════════════════════
+local fateAccum = 0
 local FATE_TICK = 0.05
 
 local function SyncFateToHealth()
