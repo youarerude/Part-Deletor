@@ -5,7 +5,7 @@
     ██║  ██║██╔══╝  ╚██╗ ██╔╝██║   ██║██║██║  ██║
     ██████╔╝███████╗ ╚████╔╝ ╚██████╔╝██║██████╔╝
     ╚═════╝ ╚══════╝  ╚═══╝   ╚═════╝ ╚═╝╚═════╝
-    DEVOID v4 — Codex Executor
+    DEVOID v5 — Codex Executor
 --]]
 
 local Players      = game:GetService("Players")
@@ -41,14 +41,14 @@ end
 
 -- Sound IDs
 local SFX = {
-    HelloworldCharge  = "76488643226841",
-    HelloworldTeleport= "95957174060681",
-    NukeExplosion     = "102353491611087",
-    PlayerDie         = "136836070379847",
-    SeedInfect        = "125378217647252",
-    CameraFlash       = "133385770201451",
-    PurpleLight       = "133385770201451",
-    DistortionSpawn   = "135273647100905",
+    HelloworldCharge   = "76488643226841",
+    HelloworldTeleport = "95957174060681",
+    NukeExplosion      = "102353491611087",
+    PlayerDie          = "136836070379847",
+    SeedInfect         = "125378217647252",
+    CameraFlash        = "133385770201451",
+    PurpleLight        = "133385770201451",
+    DistortionSpawn    = "135273647100905",
 }
 
 -- ============================================================
@@ -121,9 +121,10 @@ local EntityRegistry = {
     },
     {
         Name="Distortion",
-        Tips="Mimics your movement. Don't touch it.",
+        Tips="Mimics your movement with a delay. Don't touch it.",
         AppearRound=6, AI="Distortion",
-        Delay=2, ShatterDelay=1, Damage=100,
+        Delay=2, ShatterDelay=1,
+        BaseCount=1, ShatterExtraCount=1,
     },
 }
 
@@ -135,7 +136,16 @@ local GS = {
     RerollsLeft=MAX_REROLLS, TotalShards=0, CollectedReality=0, CollectedCosmic=0,
     RealityShards={}, CosmicShards={}, MapPlatforms={},
     Entities={}, EntityConns={}, PickedEntities={}, BeaconChoices={},
-    PickedAtLeastOne=false, Distortions={}, CurrentDistortionCount=0,
+    PickedAtLeastOne=false,
+    -- entity pick-count cap (max 3 times per entity per lobby)
+    PickCounts={},
+    -- persistent cosmic shard bank (carries across rounds)
+    CosmicBank=0,
+    -- active upgrades  {MoreIncome=bool, Speedy=bool, Infusion=bool, ArtificialPlatform=bool}
+    Upgrades={},
+    -- upgrade beacon state
+    ShowingUpgrades=false,
+    UpgradeChoices={},
 }
 
 -- ============================================================
@@ -274,7 +284,7 @@ local function clearMap()
     for _,e in ipairs(GS.Entities)      do if e and e.Parent then e:Destroy() end end
     for _,c in ipairs(GS.EntityConns)   do c:Disconnect() end
     GS.MapPlatforms={};GS.RealityShards={};GS.CosmicShards={}
-    GS.Entities={};GS.EntityConns={};GS.Distortions={};GS.CurrentDistortionCount=0
+    GS.Entities={};GS.EntityConns={}
     for _,o in ipairs(MAP_FOLDER:GetChildren())    do o:Destroy() end
     for _,o in ipairs(SHARD_FOLDER:GetChildren())  do o:Destroy() end
     for _,o in ipairs(ENTITY_FOLDER:GetChildren()) do o:Destroy() end
@@ -320,6 +330,7 @@ local function generateMap(round)
         local dir=DIRS[math.random(1,4)]
         local def=PLAT_DEFS[math.random(1,#PLAT_DEFS)]
         local nhw=def[1]/2; local nhd=def[2]/2
+        -- 65% touching/nearly-touching, 35% jump gap
         local gap=math.random()<0.65 and math.random(0,1) or math.random(9,14)
         local cx,cz
         if dir[1]~=0 then
@@ -361,14 +372,18 @@ local function spawnRealityShards(count,platforms)
     for i=#pool,2,-1 do local j=math.random(1,i);pool[i],pool[j]=pool[j],pool[i] end
     for i=1,math.min(count,#pool) do
         local plat=pool[i]
+        local isRealimic = GS.Upgrades.Infusion and math.random()<0.30
         local s=Instance.new("Part",SHARD_FOLDER)
-        s.Name="RealityShard";s.Shape=Enum.PartType.Ball;s.Size=Vector3.new(1.8,1.8,1.8)
+        s.Name= isRealimic and "RealimicShard" or "RealityShard"
+        s.Shape=Enum.PartType.Ball;s.Size=Vector3.new(1.8,1.8,1.8)
         s.Position=plat.Position+Vector3.new(0,3.5,0);s.Anchored=true;s.CanCollide=false
-        s.Material=Enum.Material.Neon;s.Color=Color3.fromRGB(130,90,255)
-        addParticles(s,Color3.fromRGB(160,110,255));spinPart(s)
-        local bb=Instance.new("BillboardGui",s);bb.Size=UDim2.new(0,40,0,24);bb.StudsOffset=Vector3.new(0,2,0)
+        s.Material=Enum.Material.Neon
+        s.Color= isRealimic and Color3.fromRGB(200,130,255) or Color3.fromRGB(130,90,255)
+        addParticles(s, isRealimic and Color3.fromRGB(255,200,80) or Color3.fromRGB(160,110,255));spinPart(s)
+        local bb=Instance.new("BillboardGui",s);bb.Size=UDim2.new(0,44,0,26);bb.StudsOffset=Vector3.new(0,2,0)
         local l=Instance.new("TextLabel",bb);l.Size=UDim2.new(1,0,1,0);l.BackgroundTransparency=1
-        l.TextColor3=Color3.fromRGB(200,160,255);l.TextScaled=true;l.Font=Enum.Font.GothamBold;l.Text="◆"
+        l.TextColor3= isRealimic and Color3.fromRGB(255,210,100) or Color3.fromRGB(200,160,255)
+        l.TextScaled=true;l.Font=Enum.Font.GothamBold;l.Text= isRealimic and "◈" or "◆"
         table.insert(GS.RealityShards,s)
     end
     lblReality.Text="Reality Shards: 0 / "..count
@@ -582,6 +597,11 @@ local function spawnFollower(def,platforms)
             local newCF=CFrame.new(body.Position+diff.Unit*speed*dt,hrp.Position)
             body.CFrame=newCF
             pot.CFrame=newCF*CFrame.new(0,-3.3,0)
+            for _,part in ipairs(model:GetChildren()) do
+                if part:IsA("Part") and part~=body and part~=pot then
+                    -- eyes follow body
+                end
+            end
         end
         if dist<5 then
             local hum=getHum()
@@ -589,6 +609,7 @@ local function spawnFollower(def,platforms)
         end
     end)
     table.insert(GS.EntityConns,conn)
+    print("[Devoid] Follower spawned on",sp.Name,"at",tostring(sp.Position))
 end
 
 -- SEED
@@ -849,7 +870,7 @@ local function spawnHelloworld(def,platforms)
 
     model.PrimaryPart=body;table.insert(GS.Entities,model)
 
-    local tpTimer=0;local dmgCd=0;local charging=false
+    local tpTimer=0;local dmgCd=0;local chargePlayed=false
 
     local conn=RunService.Heartbeat:Connect(function(dt)
         if not model.Parent then return end
@@ -865,15 +886,17 @@ local function spawnHelloworld(def,platforms)
 
         tpTimer+=dt
         local tpInterval=GS.IsShatter and def.ShatterTeleportInterval or def.TeleportInterval
-        local chargeStart=tpInterval-1.2  -- charge sound fires 1.2s before teleport
+        local chargeStart=tpInterval-1.2
 
-        if tpTimer>=chargeStart and not charging then
-            charging=true
+        -- Play charge sound once, only in the 1.2s window before teleport
+        if tpTimer>=chargeStart and not chargePlayed then
+            chargePlayed=true
             playSound(SFX.HelloworldCharge, 1.2)
         end
 
         if tpTimer>=tpInterval then
-            tpTimer=0;charging=false
+            tpTimer=0;chargePlayed=false
+            -- Teleport sound plays at the moment of teleport
             playSound(SFX.HelloworldTeleport, 1.5)
             local lookVec=hrp.CFrame.LookVector
             local targetPos=hrp.Position+lookVec*15
@@ -898,6 +921,7 @@ local function spawnHelloworld(def,platforms)
         end
     end)
     table.insert(GS.EntityConns,conn)
+    print("[Devoid] helloworld spawned on",sp.Name)
 end
 
 -- KEEPER
@@ -1013,6 +1037,7 @@ local function spawnKeeper(def,platforms)
         end
     end)
     table.insert(GS.EntityConns,cleanConn)
+    print("[Devoid] Keeper spawned")
 end
 
 -- CAMERA ENTITY
@@ -1046,11 +1071,11 @@ local function spawnCameraEntity(def,platforms)
                     local hrp=getHRP(); if not hrp then break end
                     local snapPos=hrp.Position
 
-                    -- White flash overlay + Sound
-                    playSound(SFX.CameraFlash, 1.5)
+                    -- White flash overlay
                     local flash=Instance.new("Frame",GUI)
                     flash.Size=UDim2.new(1,0,1,0);flash.BackgroundColor3=Color3.fromRGB(255,255,255)
                     flash.BackgroundTransparency=0;flash.ZIndex=20
+                    playSound(SFX.CameraFlash, 1.5)
                     shakeCamera(1.2,0.5)
 
                     task.wait(0.08)
@@ -1094,91 +1119,99 @@ local function spawnCameraEntity(def,platforms)
         end
     end)
     table.insert(GS.EntityConns,conn)
+    print("[Devoid] Camera entity spawned")
 end
 
--- DISTORTION ENTITY
-local function spawnDistortion(def, platforms, isShatterExtra, rank)
+-- DISTORTION
+local function spawnDistortion(def,platforms)
+    if #platforms==0 then return end
+    local delay = GS.IsShatter and def.ShatterDelay or def.Delay
+    local count = def.BaseCount + (GS.IsShatter and def.ShatterExtraCount or 0)
+
+    local histBuffers={}
+    for i=1,count do histBuffers[i]={} end
+    local models={}
+
+    for i=1,count do
+        local model=Instance.new("Model",ENTITY_FOLDER); model.Name="Distortion_"..i
+        local body=Instance.new("Part",model)
+        body.Name="Root"; body.Shape=Enum.PartType.Ball; body.Size=Vector3.new(3.5,3.5,3.5)
+        local sp=anyMapPlat() or platforms[math.random(1,#platforms)]
+        body.Position=sp.Position+Vector3.new(0,6,0)
+        body.Anchored=true; body.CanCollide=false; body.Material=Enum.Material.Neon
+        body.Color=Color3.fromHSV((0.75+(i-1)*0.04)%1, 0.85, 1); body.Transparency=0.2
+        local att=Instance.new("Attachment",body)
+        local pe=Instance.new("ParticleEmitter",att)
+        pe.Color=ColorSequence.new({ColorSequenceKeypoint.new(0,Color3.fromRGB(180,0,255)),ColorSequenceKeypoint.new(1,Color3.fromRGB(80,0,140))})
+        pe.LightEmission=1; pe.Rate=30; pe.Speed=NumberRange.new(1,4)
+        pe.Lifetime=NumberRange.new(0.3,0.9)
+        pe.Size=NumberSequence.new({NumberSequenceKeypoint.new(0,0.6),NumberSequenceKeypoint.new(1,0)})
+        local bb=Instance.new("BillboardGui",body)
+        bb.Size=UDim2.new(0,110,0,28); bb.StudsOffset=Vector3.new(0,4,0); bb.AlwaysOnTop=true
+        local bl=Instance.new("TextLabel",bb); bl.Size=UDim2.new(1,0,1,0)
+        bl.BackgroundTransparency=1; bl.TextColor3=Color3.fromRGB(200,80,255)
+        bl.TextScaled=true; bl.Font=Enum.Font.GothamBold; bl.Text="Distortion"
+        model.PrimaryPart=body; table.insert(GS.Entities,model); table.insert(models,{model=model,body=body})
+    end
+
+    -- Staggered purple light → spawn sequence
     task.spawn(function()
-        if not isShatterExtra then task.wait(5) end
-        if GS.Phase == "DEAD" or GS.Phase == "LOBBY" then return end
-        
-        local function getTarget()
-            if rank == 1 then return getHRP() end
-            local prevDist = GS.Distortions[rank - 1]
-            return prevDist and prevDist.PrimaryPart or getHRP()
+        task.wait(5)
+        for i=1,count do
+            if GS.Phase=="DEAD" or GS.Phase=="LOBBY" then break end
+            local srcPos
+            if i==1 then
+                local hrp=getHRP(); if not hrp then break end; srcPos=hrp.Position
+            else
+                local pb=models[i-1].body; if not pb or not pb.Parent then break end; srcPos=pb.Position
+            end
+            playSound(SFX.PurpleLight, 1.2, srcPos)
+            local pLight=Instance.new("Part",workspace)
+            pLight.Shape=Enum.PartType.Ball; pLight.Size=Vector3.new(4,4,4)
+            pLight.Position=srcPos; pLight.Anchored=true; pLight.CanCollide=false
+            pLight.Material=Enum.Material.Neon; pLight.Color=Color3.fromRGB(160,0,255); pLight.Transparency=0.2
+            TweenService:Create(pLight,TweenInfo.new(0.5,Enum.EasingStyle.Back,Enum.EasingDirection.Out),{Size=Vector3.new(14,14,14),Transparency=0.6}):Play()
+            task.wait(2)
+            if GS.Phase=="DEAD" or GS.Phase=="LOBBY" then pLight:Destroy(); break end
+            models[i].body.Position=srcPos+Vector3.new(0,1,0)
+            playSound(SFX.DistortionSpawn, 1.3, srcPos)
+            TweenService:Create(pLight,TweenInfo.new(0.4),{Transparency=1}):Play(); Debris:AddItem(pLight,0.5)
         end
+    end)
 
-        local target = getTarget()
-        local spawnPos = target and target.Position or Vector3.new(0, MAP_Y+5, 0)
-
-        -- Purple Light Sequence
-        playSound(SFX.PurpleLight, 1.5, spawnPos)
-        local light = Instance.new("Part", MAP_FOLDER)
-        light.Shape = Enum.PartType.Ball; light.Size = Vector3.new(2, 2, 2)
-        light.Position = spawnPos; light.Anchored = true; light.CanCollide = false
-        light.Material = Enum.Material.Neon; light.Color = Color3.fromRGB(150, 0, 255)
-        TweenService:Create(light, TweenInfo.new(2), {Size = Vector3.new(6, 6, 6), Transparency = 1}):Play()
-        Debris:AddItem(light, 2)
-
-        task.wait(2)
-        if GS.Phase == "DEAD" or GS.Phase == "LOBBY" then return end
-
-        -- Distortion Creature Spawn
-        playSound(SFX.DistortionSpawn, 1.5, spawnPos)
-        local model = Instance.new("Model", ENTITY_FOLDER)
-        model.Name = "Distortion_" .. rank
-        local body = Instance.new("Part", model)
-        body.Name = "HumanoidRootPart"
-        body.Size = Vector3.new(4, 5, 4)
-        body.Position = spawnPos
-        body.Material = Enum.Material.Neon; body.Color = Color3.fromRGB(80, 0, 150)
-        body.Anchored = true; body.CanCollide = false
-        model.PrimaryPart = body
-        table.insert(GS.Entities, model)
-        GS.Distortions[rank] = model
-
-        local history = {}
-        local conn = RunService.Heartbeat:Connect(function(dt)
-            if not model.Parent or GS.Phase == "DEAD" or GS.Phase == "LOBBY" then return end
-
-            local currentTarget = getTarget()
-            if currentTarget then
-                table.insert(history, {t = tick(), p = currentTarget.Position})
-            end
-
-            local delayTime = GS.IsShatter and def.ShatterDelay or def.Delay
-            local targetTime = tick() - delayTime
-
-            while #history > 2 and history[2].t < targetTime do
-                table.remove(history, 1)
-            end
-
-            if #history >= 2 then
-                local p1, p2 = history[1], history[2]
-                local alpha = math.clamp((targetTime - p1.t) / (p2.t - p1.t), 0, 1)
-                body.CFrame = CFrame.new(p1.p:Lerp(p2.p, alpha))
-            elseif #history == 1 then
-                body.CFrame = CFrame.new(history[1].p)
-            end
-
-            local hrp = getHRP()
-            if hrp and (hrp.Position - body.Position).Magnitude < 4.5 then
-                local hum = getHum()
-                if hum and hum.Health > 0 then
-                    hum.Health = math.max(0, hum.Health - def.Damage * dt * 5)
+    local conn=RunService.Heartbeat:Connect(function(dt)
+        if GS.Phase=="DEAD" or GS.Phase=="LOBBY" then return end
+        local now=tick()
+        local hrp=getHRP()
+        if hrp then
+            table.insert(histBuffers[1],{t=now,pos=hrp.Position})
+            while #histBuffers[1]>0 and now-histBuffers[1][1].t>delay+0.5 do table.remove(histBuffers[1],1) end
+        end
+        for i=1,count do
+            local mb=models[i]; if not mb.body.Parent then continue end
+            local buf=histBuffers[i]; local targetPos=nil
+            for bi=1,#buf do if now-buf[bi].t>=delay then targetPos=buf[bi].pos end end
+            if targetPos then
+                mb.body.Position=targetPos
+                if i<count then
+                    table.insert(histBuffers[i+1],{t=now,pos=mb.body.Position})
+                    while #histBuffers[i+1]>0 and now-histBuffers[i+1][1].t>delay+0.5 do table.remove(histBuffers[i+1],1) end
                 end
             end
-        end)
-        table.insert(GS.EntityConns, conn)
+            if hrp and (hrp.Position-mb.body.Position).Magnitude<4 then
+                local hum=getHum(); if hum and hum.Health>0 then hum.Health=0 end
+            end
+        end
     end)
+    table.insert(GS.EntityConns,conn)
+    print("[Devoid] Distortion spawned count="..count.." delay="..delay.."s")
 end
 
 -- Spawn dispatcher
 local function spawnEntities(platforms)
     for _,c in ipairs(GS.EntityConns) do c:Disconnect() end;GS.EntityConns={}
     for _,e in ipairs(GS.Entities)    do if e and e.Parent then e:Destroy() end end;GS.Entities={}
-    
-    local distCount = 0
+    print("[Devoid] Spawning "..#GS.PickedEntities.." entities")
     for _,def in ipairs(GS.PickedEntities) do
         if def.AppearRound<=GS.Round then
             if     def.AI=="Follower"  then spawnFollower(def,platforms)
@@ -1188,13 +1221,10 @@ local function spawnEntities(platforms)
             elseif def.AI=="helloworld"then spawnHelloworld(def,platforms)
             elseif def.AI=="Keeper"    then spawnKeeper(def,platforms)
             elseif def.AI=="Camera"    then spawnCameraEntity(def,platforms)
-            elseif def.AI=="Distortion"then 
-                distCount += 1
-                spawnDistortion(def, platforms, false, distCount)
+            elseif def.AI=="Distortion"then spawnDistortion(def,platforms)
             end
         end
     end
-    GS.CurrentDistortionCount = distCount
 end
 
 -- ============================================================
@@ -1208,19 +1238,6 @@ local function startShatter(platforms)
     task.delay(3,function() lblShatterWarn.Visible=false end)
     createSpawnBeacon()
     spawnCosmicShards(GS.TotalShards,platforms)
-    
-    -- Shatter Extra Distortion Logic
-    if GS.CurrentDistortionCount > 0 then
-        local distDef
-        for _, e in ipairs(GS.PickedEntities) do
-            if e.AI == "Distortion" then distDef = e; break end
-        end
-        if distDef then
-            GS.CurrentDistortionCount += 1
-            spawnDistortion(distDef, platforms, true, GS.CurrentDistortionCount)
-        end
-    end
-
     local toShatter={}
     for _,p in ipairs(GS.MapPlatforms) do
         if p and p.Parent and p.Name~="SpawnPlatform" then table.insert(toShatter,p) end
@@ -1277,7 +1294,7 @@ local function completeRound()
     GS.Round+=1;GS.IsShatter=false
     lblRound.Text="PM "..(GS.Round-1)..":00"
     lblPhase.Visible=false;lblCosmic.Visible=false;HUD.Visible=false
-    GS.PickedEntities={};GS.PickedAtLeastOne=false
+    GS.PickedEntities={};GS.PickedAtLeastOne=false;GS.PickCounts={};GS.ShowingUpgrades=false
     clearMap();refreshBeacons()
     GS.Phase="LOBBY"
     local hrp=getHRP(); if hrp then character:PivotTo(CFrame.new(0,LOBBY_Y+6,-42)) end
@@ -1290,6 +1307,7 @@ end
 startRound=function()
     HUD.Visible=true;DEATH.Visible=false
     lblCosmic.Visible=false;lblPhase.Visible=false
+    lblLobbyBank.Visible=false
     GS.Phase="PLAYING";GS.IsShatter=false
     GS.CollectedReality=0;GS.CollectedCosmic=0
     lblRound.Text="PM "..(GS.Round-1)..":00"
@@ -1298,7 +1316,13 @@ startRound=function()
     local count=getShardCount(GS.Round)
     spawnRealityShards(count,platforms)
     spawnEntities(platforms)
+    -- Apply Speedy stacks
+    local hum2=getHum()
+    if hum2 and GS.Upgrades._SpeedyStacks then
+        hum2.WalkSpeed=16+(GS.Upgrades._SpeedyStacks*5)
+    end
     local hrp=getHRP(); if hrp then character:PivotTo(CFrame.new(0,MAP_Y+5,0)) end
+    print("[Devoid] Round "..GS.Round.." | Platforms: "..#platforms.." | Shards: "..count)
 end
 
 -- ============================================================
@@ -1316,8 +1340,14 @@ local function startCollectionLoop()
             for i=#GS.RealityShards,1,-1 do
                 local s=GS.RealityShards[i]
                 if s and s.Parent and (pos-s.Position).Magnitude<5.5 then
+                    local isRealimic=(s.Name=="RealimicShard")
                     s:Destroy();table.remove(GS.RealityShards,i)
                     GS.CollectedReality+=1
+                    if isRealimic then
+                        -- Realimic: gives 1 reality + 1 cosmic bank
+                        local gain = GS.Upgrades.MoreIncome and 2 or 1
+                        GS.CosmicBank+=gain; updateBankLabels()
+                    end
                     lblReality.Text="Reality Shards: "..GS.CollectedReality.." / "..GS.TotalShards
                     if GS.CollectedReality>=GS.TotalShards then
                         lblReality.Text="Reality Shards: ALL COLLECTED ✓"
@@ -1332,6 +1362,8 @@ local function startCollectionLoop()
                 if s and s.Parent and (pos-s.Position).Magnitude<5.5 then
                     s:Destroy();table.remove(GS.CosmicShards,i)
                     GS.CollectedCosmic+=1
+                    local gain = GS.Upgrades.MoreIncome and 2 or 1
+                    GS.CosmicBank+=gain; updateBankLabels()
                     lblCosmic.Text="Cosmic Shards: "..GS.CollectedCosmic.." / "..GS.TotalShards
                 end
             end
@@ -1341,28 +1373,27 @@ local function startCollectionLoop()
 end
 
 -- ============================================================
--- BEACON / REROLL
+-- BEACON / REROLL  (beacons allow dupes after first pick)
 -- ============================================================
 local function pickBeaconChoices()
-    -- Calculate counts to prevent more than 3 of the same entity
-    local counts = {}
-    for _, pe in ipairs(GS.PickedEntities) do
-        counts[pe.Name] = (counts[pe.Name] or 0) + 1
-    end
-
     local pool={}
-    for _,e in ipairs(EntityRegistry) do 
-        if e.AppearRound<=GS.Round and (counts[e.Name] or 0) < 3 then 
-            table.insert(pool,e) 
-        end 
+    for _,e in ipairs(EntityRegistry) do
+        if e.AppearRound<=GS.Round then
+            -- exclude if picked 3+ times already this lobby
+            local cnt=GS.PickCounts[e.Name] or 0
+            if cnt<3 then table.insert(pool,e) end
+        end
     end
-    
-    if #pool==0 then pool={table.unpack(EntityRegistry)} end
-    
-    local used={}
-    GS.BeaconChoices={}
+    if #pool==0 then
+        -- fallback: allow any available entity ignoring cap
+        for _,e in ipairs(EntityRegistry) do
+            if e.AppearRound<=GS.Round then table.insert(pool,e) end
+        end
+    end
+    local used={}; GS.BeaconChoices={}
     for i=1,BEACON_COUNT do
-        local allowDupe= GS.PickedAtLeastOne or (#pool<=BEACON_COUNT-i+1)
+        if #pool==0 then break end
+        local allowDupe=(#pool<=BEACON_COUNT-i+1)
         local idx;local t=0
         repeat idx=math.random(1,#pool);t+=1 until allowDupe or not used[idx] or t>30
         used[idx]=true; table.insert(GS.BeaconChoices,pool[idx])
@@ -1370,16 +1401,32 @@ local function pickBeaconChoices()
 end
 
 local function updateBeaconBillboards()
+    local choices = GS.ShowingUpgrades and GS.UpgradeChoices or GS.BeaconChoices
+    local isUpgrade = GS.ShowingUpgrades
     local i=0
     for _,obj in ipairs(LOBBY_FOLDER:GetChildren()) do
         if obj.Name:sub(1,9)=="BeaconOrb" then
-            i+=1; local e=GS.BeaconChoices[i]; if not e then continue end
+            i+=1; local e=choices[i]
+            -- Change orb color: blue for upgrades, purple for entities
+            if obj:IsA("BasePart") then
+                obj.Color = isUpgrade and Color3.fromRGB(0,100,255) or Color3.fromRGB(170,70,255)
+            end
+            if not e then
+                -- Hide billboard if no choice at this slot
+                local bb=obj:FindFirstChildOfClass("BillboardGui"); if bb then bb.Enabled=false end
+                continue
+            end
             local bb=obj:FindFirstChildOfClass("BillboardGui"); if not bb then continue end
+            bb.Enabled=true
             local bg=bb:FindFirstChildOfClass("Frame"); if not bg then continue end
             for _,l in ipairs(bg:GetChildren()) do
                 if l:IsA("TextLabel") then
-                    if l.Name=="EntityName" then l.Text=e.Name
-                    elseif l.Name=="EntityTip" then l.Text="💡 "..e.Tips end
+                    if l.Name=="EntityName" then
+                        l.Text = isUpgrade and (e.Name.." ["..e.Cost.."✦]") or e.Name
+                        l.TextColor3 = isUpgrade and Color3.fromRGB(80,200,255) or Color3.fromRGB(220,180,255)
+                    elseif l.Name=="EntityTip" then
+                        l.Text="💡 "..e.Tips
+                    end
                 end
             end
         end
@@ -1389,15 +1436,29 @@ local function updateBeaconBillboards()
         if obj.Name:sub(1,11)=="BeaconBase_" then
             j+=1
             local pp=obj:FindFirstChildOfClass("ProximityPrompt")
-            if pp and GS.BeaconChoices[j] then pp.ObjectText=GS.BeaconChoices[j].Name end
+            if pp then
+                local ch=choices[j]
+                pp.ObjectText = ch and ch.Name or "???"
+                pp.ActionText = isUpgrade and "Buy Upgrade" or "Pick Entity"
+            end
         end
     end
+    -- Update start prompt
     local startBase=LOBBY_FOLDER:FindFirstChild("StartBase")
     if startBase then
         local spp=startBase:FindFirstChildOfClass("ProximityPrompt")
         if spp then spp.Enabled=GS.PickedAtLeastOne end
         startBase.Color=GS.PickedAtLeastOne and Color3.fromRGB(20,80,20) or Color3.fromRGB(12,12,12)
     end
+    -- Update skip-upgrade prompt
+    local skipBase=LOBBY_FOLDER:FindFirstChild("SkipUpgradeBase")
+    if skipBase then
+        skipBase.Transparency = isUpgrade and 0.5 or 0.9
+        local spp=skipBase:FindFirstChildOfClass("ProximityPrompt")
+        if spp then spp.Enabled=isUpgrade end
+    end
+    -- Show/hide lobby bank label
+    if lblLobbyBank then lblLobbyBank.Visible=(GS.Phase=="LOBBY") end
 end
 
 refreshBeacons=function()
@@ -1413,14 +1474,17 @@ refreshBeacons=function()
 end
 
 -- ============================================================
--- SELECT ENTITY 
+-- SELECT ENTITY  — picks entity, refreshes beacons (multi-pick)
 -- ============================================================
 selectEntity=function(idx)
     if GS.Phase~="LOBBY" then return end
+    if GS.ShowingUpgrades then selectUpgrade(idx); return end
     local entity=GS.BeaconChoices[idx]; if not entity then return end
     table.insert(GS.PickedEntities,entity)
     GS.PickedAtLeastOne=true
+    GS.PickCounts[entity.Name]=(GS.PickCounts[entity.Name] or 0)+1
 
+    -- Flash
     local flash=Instance.new("Frame",GUI)
     flash.Size=UDim2.new(1,0,1,0);flash.BackgroundColor3=Color3.fromRGB(70,0,140)
     flash.BackgroundTransparency=0.28;flash.ZIndex=20
@@ -1434,7 +1498,9 @@ selectEntity=function(idx)
     TweenService:Create(popup,TweenInfo.new(1.8,Enum.EasingStyle.Quad,Enum.EasingDirection.Out,0,false,0.5),{TextTransparency=1}):Play()
     Debris:AddItem(popup,2.5)
 
-    pickBeaconChoices()
+    -- After entity pick → switch beacons to upgrade mode
+    GS.ShowingUpgrades=true
+    pickUpgradeChoices()
     updateBeaconBillboards()
 end
 
@@ -1455,6 +1521,164 @@ doReroll=function()
 end
 
 -- ============================================================
+-- UPGRADE SYSTEM
+-- ============================================================
+local UpgradeRegistry = {
+    {
+        Name="More Income",
+        Tips="1 cosmic shard counts as 2 from now on.",
+        Cost=3, Key="MoreIncome", OneTime=false,
+    },
+    {
+        Name="Speedy",
+        Tips="+5 walk speed permanently.",
+        Cost=5, Key="Speedy", OneTime=false,
+    },
+    {
+        Name="Infusion",
+        Tips="30% of reality shards become Realimic shards — collect them for 1 reality + 1 cosmic each.",
+        Cost=8, Key="Infusion", OneTime=true,
+    },
+    {
+        Name="Artificial Platform",
+        Tips="While airborne, a platform spawns under your feet for 1 second.",
+        Cost=10, Key="ArtificialPlatform", OneTime=true,
+    },
+}
+
+-- Upgrade bank label (top-right of HUD)
+local lblCosmicBank=mkLabel(HUD,{
+    Size=UDim2.new(0,220,0,38), Position=UDim2.new(1,-236,0,16),
+    BackgroundColor3=Color3.fromRGB(20,14,4), BackgroundTransparency=0.3,
+    TextColor3=Color3.fromRGB(255,210,40), TextScaled=true,
+    Font=Enum.Font.GothamBold, Text="Bank: 0 ✦", ZIndex=2,
+}); corner(lblCosmicBank)
+
+-- Bank label shown in lobby too
+local lblLobbyBank=mkLabel(GUI,{
+    Size=UDim2.new(0,220,0,38), Position=UDim2.new(0.5,-110,0,16),
+    BackgroundColor3=Color3.fromRGB(20,14,4), BackgroundTransparency=0.3,
+    TextColor3=Color3.fromRGB(255,210,40), TextScaled=true,
+    Font=Enum.Font.GothamBold, Text="Bank: 0 ✦", ZIndex=2, Visible=false,
+}); corner(lblLobbyBank)
+
+local function updateBankLabels()
+    local txt="Bank: "..GS.CosmicBank.." ✦"
+    lblCosmicBank.Text=txt; lblLobbyBank.Text=txt
+end
+
+-- Upgrade effect: Artificial Platform
+local artPlatActive=false
+local function startArtificialPlatformLoop()
+    local platPart=nil
+    local wasAirborne=false
+    local platTimer=0
+    RunService.Heartbeat:Connect(function(dt)
+        if not GS.Upgrades.ArtificialPlatform then return end
+        if GS.Phase~="PLAYING" and GS.Phase~="SHATTER" then return end
+        local hrp=getHRP(); if not hrp then return end
+        local hum=getHum(); if not hum then return end
+        local st=hum:GetState()
+        local airborne=(st==Enum.HumanoidStateType.Freefall or st==Enum.HumanoidStateType.Jumping)
+        if airborne then
+            platTimer+=dt
+            if not platPart or not platPart.Parent then
+                platPart=Instance.new("Part",workspace)
+                platPart.Size=Vector3.new(10,1,10)
+                platPart.Anchored=true; platPart.CanCollide=true
+                platPart.Material=Enum.Material.Neon; platPart.Color=Color3.fromRGB(0,180,255)
+                platPart.Transparency=0.4
+            end
+            -- Follow horizontally only
+            platPart.Position=Vector3.new(hrp.Position.X, hrp.Position.Y-3.5, hrp.Position.Z)
+            if platTimer>=1 then
+                if platPart and platPart.Parent then
+                    TweenService:Create(platPart,TweenInfo.new(0.3),{Transparency=1}):Play()
+                    Debris:AddItem(platPart,0.35); platPart=nil
+                end
+                platTimer=0
+            end
+        else
+            platTimer=0
+            if platPart and platPart.Parent then
+                TweenService:Create(platPart,TweenInfo.new(0.2),{Transparency=1}):Play()
+                Debris:AddItem(platPart,0.25); platPart=nil
+            end
+        end
+    end)
+end
+startArtificialPlatformLoop()
+
+local function applyUpgradeEffect(upg)
+    GS.Upgrades[upg.Key]=true
+    if upg.Key=="Speedy" then
+        local hum=getHum()
+        if hum then hum.WalkSpeed+=(GS.Upgrades._SpeedyStacks or 0)==0 and 5 or 5 end
+        GS.Upgrades._SpeedyStacks=(GS.Upgrades._SpeedyStacks or 0)+1
+    end
+end
+
+local function pickUpgradeChoices()
+    local pool={}
+    for _,u in ipairs(UpgradeRegistry) do
+        if u.OneTime and GS.Upgrades[u.Key] then continue end
+        table.insert(pool,u)
+    end
+    if #pool==0 then GS.UpgradeChoices={}; return end
+    local used={}; GS.UpgradeChoices={}
+    local n=math.min(BEACON_COUNT,#pool)
+    for i=1,n do
+        local idx;local t=0
+        repeat idx=math.random(1,#pool);t+=1 until not used[idx] or t>30
+        used[idx]=true; table.insert(GS.UpgradeChoices,pool[idx])
+    end
+end
+
+local function selectUpgrade(idx)
+    if GS.Phase~="LOBBY" then return end
+    local upg=GS.UpgradeChoices[idx]; if not upg then return end
+    if GS.CosmicBank < upg.Cost then
+        -- Not enough shards: show flash red
+        local poor=Instance.new("TextLabel",GUI)
+        poor.Size=UDim2.new(0.6,0,0,48);poor.Position=UDim2.new(0.2,0,0.44,0)
+        poor.BackgroundTransparency=1;poor.TextColor3=Color3.fromRGB(255,60,60)
+        poor.TextScaled=true;poor.Font=Enum.Font.GothamBold
+        poor.Text="Not enough ✦ (need "..upg.Cost..")";poor.ZIndex=22
+        TweenService:Create(poor,TweenInfo.new(1.5),{TextTransparency=1}):Play()
+        Debris:AddItem(poor,1.8)
+        return
+    end
+    GS.CosmicBank-=upg.Cost
+    updateBankLabels()
+    applyUpgradeEffect(upg)
+
+    local flash=Instance.new("Frame",GUI)
+    flash.Size=UDim2.new(1,0,1,0);flash.BackgroundColor3=Color3.fromRGB(0,60,120)
+    flash.BackgroundTransparency=0.3;flash.ZIndex=20
+    TweenService:Create(flash,TweenInfo.new(0.9),{BackgroundTransparency=1}):Play();Debris:AddItem(flash,1)
+
+    local popup=Instance.new("TextLabel",GUI)
+    popup.Size=UDim2.new(1,0,0,58);popup.Position=UDim2.new(0,0,0.42,0)
+    popup.BackgroundTransparency=1;popup.TextColor3=Color3.fromRGB(100,200,255)
+    popup.TextScaled=true;popup.Font=Enum.Font.GothamBold
+    popup.Text="Upgrade: "..upg.Name;popup.ZIndex=21
+    TweenService:Create(popup,TweenInfo.new(1.8,Enum.EasingStyle.Quad,Enum.EasingDirection.Out,0,false,0.5),{TextTransparency=1}):Play()
+    Debris:AddItem(popup,2.5)
+
+    -- Return to entity beacons
+    GS.ShowingUpgrades=false
+    pickBeaconChoices()
+    updateBeaconBillboards()
+end
+
+local function skipUpgrades()
+    if GS.Phase~="LOBBY" or not GS.ShowingUpgrades then return end
+    GS.ShowingUpgrades=false
+    pickBeaconChoices()
+    updateBeaconBillboards()
+end
+
+-- ============================================================
 -- ROUND 6 GATE MESSAGE
 -- ============================================================
 local function showGateMessage()
@@ -1466,7 +1690,9 @@ local function showGateMessage()
     lbl.Text="1st gate of the void opens, growing more humidity exponentially."
     lbl.ZIndex=18;lbl.TextTransparency=1
     corner(lbl,10)
+    -- Fade in
     TweenService:Create(lbl,TweenInfo.new(1.2),{TextTransparency=0,BackgroundTransparency=0.28}):Play()
+    -- Hold, then fade out
     task.delay(5,function()
         TweenService:Create(lbl,TweenInfo.new(2),{TextTransparency=1,BackgroundTransparency=1}):Play()
         Debris:AddItem(lbl,2.2)
@@ -1477,6 +1703,7 @@ end
 -- LOBBY BUILDER
 -- ============================================================
 buildLobby=function()
+    -- Clear old lobby objects
     for _,o in ipairs(LOBBY_FOLDER:GetChildren()) do o:Destroy() end
 
     local base=Instance.new("Part",LOBBY_FOLDER)
@@ -1495,6 +1722,7 @@ buildLobby=function()
         b.Material=Enum.Material.Neon;b.Color=Color3.fromRGB(80,0,160)
     end
 
+    -- Title sign
     local tsP=Instance.new("Part",LOBBY_FOLDER)
     tsP.Size=Vector3.new(52,12,1);tsP.Position=Vector3.new(0,LOBBY_Y+20,-62)
     tsP.Anchored=true;tsP.Material=Enum.Material.SmoothPlastic;tsP.Color=Color3.fromRGB(10,5,25)
@@ -1508,6 +1736,7 @@ buildLobby=function()
     subL.BackgroundTransparency=1;subL.TextColor3=Color3.fromRGB(160,130,200)
     subL.TextScaled=true;subL.Font=Enum.Font.Gotham;subL.Text="Choose your entities below"
 
+    -- Beacons
     pickBeaconChoices()
     local bxs={-40,0,40}
     for i=1,BEACON_COUNT do
@@ -1544,6 +1773,7 @@ buildLobby=function()
         pp.Triggered:Connect(function(p) if p==player then selectEntity(ci) end end)
     end
 
+    -- Reroll station
     local rrBase=Instance.new("Part",LOBBY_FOLDER)
     rrBase.Name="RerollBase";rrBase.Size=Vector3.new(12,1,12)
     rrBase.Position=Vector3.new(0,LOBBY_Y+1.5,-28);rrBase.Anchored=true
@@ -1566,6 +1796,7 @@ buildLobby=function()
     rrPP.MaxActivationDistance=35;rrPP.RequiresLineOfSight=false
     rrPP.Triggered:Connect(function(p) if p==player then doReroll() end end)
 
+    -- START ROUND platform (glows green when at least 1 entity picked)
     local startBase=Instance.new("Part",LOBBY_FOLDER)
     startBase.Name="StartBase";startBase.Size=Vector3.new(14,1,14)
     startBase.Position=Vector3.new(0,LOBBY_Y+1.5,50);startBase.Anchored=true
@@ -1591,6 +1822,31 @@ buildLobby=function()
         if p==player then activateStartPP() end
     end)
 
+    -- Skip upgrade pad (lit when upgrade beacons are showing)
+    local skipBase=Instance.new("Part",LOBBY_FOLDER)
+    skipBase.Name="SkipUpgradeBase";skipBase.Size=Vector3.new(12,1,12)
+    skipBase.Position=Vector3.new(42,LOBBY_Y+1.5,50);skipBase.Anchored=true
+    skipBase.Material=Enum.Material.Neon
+    skipBase.Color=Color3.fromRGB(80,40,0); skipBase.Transparency=0.9
+    local skipSP=Instance.new("Part",LOBBY_FOLDER)
+    skipSP.Size=Vector3.new(12,4,1);skipSP.Position=Vector3.new(42,LOBBY_Y+7,53)
+    skipSP.Anchored=true;skipSP.Material=Enum.Material.SmoothPlastic;skipSP.Color=Color3.fromRGB(30,14,4)
+    local skipG=Instance.new("SurfaceGui",skipSP)
+    skipG.Face=Enum.NormalId.Front;skipG.SizingMode=Enum.SurfaceGuiSizingMode.PixelsPerStud;skipG.PixelsPerStud=40
+    local skL=Instance.new("TextLabel",skipG)
+    skL.Size=UDim2.new(1,0,1,0);skL.BackgroundTransparency=1
+    skL.TextColor3=Color3.fromRGB(255,160,60);skL.TextScaled=true;skL.Font=Enum.Font.GothamBold;skL.Text="SKIP UPGRADE"
+    local skipPP=Instance.new("ProximityPrompt",skipBase)
+    skipPP.ActionText="Skip";skipPP.ObjectText="Skip Upgrade"
+    skipPP.MaxActivationDistance=35;skipPP.RequiresLineOfSight=false
+    skipPP.Enabled=GS.ShowingUpgrades
+    skipPP.Triggered:Connect(function(p) if p==player then skipUpgrades() end end)
+
+    -- Lobby bank label
+    lblLobbyBank.Visible=true
+    updateBankLabels()
+
+    -- Round 6 gate message
     if GS.Round==6 then
         task.delay(1,showGateMessage)
     end
@@ -1604,7 +1860,9 @@ end
 -- ============================================================
 btnRetry.MouseButton1Click:Connect(function()
     DEATH.Visible=false;GS.Phase="LOBBY";GS.Round=1;GS.RoundsBeaten=0
-    GS.PickedEntities={};GS.PickedAtLeastOne=false;GS.RerollsLeft=MAX_REROLLS;GS.IsShatter=false
+    GS.PickedEntities={};GS.PickedAtLeastOne=false;GS.PickCounts={};GS.ShowingUpgrades=false
+    GS.RerollsLeft=MAX_REROLLS;GS.IsShatter=false
+    GS.Upgrades={};GS.CosmicBank=0;updateBankLabels()
     HUD.Visible=false;lblCosmic.Visible=false;lblPhase.Visible=false
     lblRound.Text="PM 0:00";lblReality.Text="Reality Shards: 0 / 0"
     clearMap();buildLobby()
@@ -1618,12 +1876,13 @@ local function skipRound()
     for _,c in ipairs(GS.EntityConns) do c:Disconnect() end;GS.EntityConns={}
     clearMap()
     GS.Round+=1;GS.RoundsBeaten+=1;GS.IsShatter=false;GS.Phase="LOBBY"
-    GS.PickedEntities={};GS.PickedAtLeastOne=false;GS.RerollsLeft=MAX_REROLLS
+    GS.PickedEntities={};GS.PickedAtLeastOne=false;GS.PickCounts={};GS.ShowingUpgrades=false;GS.RerollsLeft=MAX_REROLLS
     HUD.Visible=false;lblCosmic.Visible=false;lblPhase.Visible=false
     lblRound.Text="PM "..(GS.Round-1)..":00";lblReality.Text="Reality Shards: 0 / 0"
     buildLobby()
     task.wait(0.1); character:PivotTo(CFrame.new(0,LOBBY_Y+6,-42))
     local hum=getHum(); if hum then hum.Health=hum.MaxHealth end
+    print("[Devoid] /skip → Round "..GS.Round)
 end
 
 player.Chatted:Connect(function(msg)
@@ -1658,9 +1917,10 @@ buildLobby()
 startCollectionLoop()
 
 print("╔════════════════════════════════════╗")
-print("║  DEVOID v4.1 — loaded              ║")
-print("║  Entities : "..#EntityRegistry.."                   ║")
-print("║  Map Y   = "..MAP_Y.."               ║")
+print("║  DEVOID v5 — loaded                 ║")
+print("║  Entities : "..#EntityRegistry.."                    ║")
+print("║  Upgrades : "..#UpgradeRegistry.."                    ║")
+print("║  Map  Y   = "..MAP_Y.."               ║")
 print("║  Lobby Y  = "..LOBBY_Y.."              ║")
-print("║  /skip — skip to next round        ║")
+print("║  /skip — skip to next round         ║")
 print("╚════════════════════════════════════╝")
