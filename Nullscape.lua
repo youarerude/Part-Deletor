@@ -126,6 +126,14 @@ local EntityRegistry = {
         Delay=2, ShatterDelay=1,
         BaseCount=1, ShatterExtraCount=1,
     },
+    {
+        Name="Malware",
+        Tips="Close the pop-ups before they block your entire screen.",
+        AppearRound=6, AI="Malware",
+        MinInterval=30, MaxInterval=50,
+        ShatterMinInterval=25, ShatterMaxInterval=30,
+        PopupCount=5, ShatterPopupCount=8,
+    },
 }
 
 -- ============================================================
@@ -139,6 +147,8 @@ local GS = {
     PickedAtLeastOne=false,
     -- entity pick-count cap (max 3 times per entity per lobby)
     PickCounts={},
+    -- entities that persist across all future rounds (accumulated)
+    PersistentEntities={},
     -- persistent cosmic shard bank (carries across rounds)
     CosmicBank=0,
     -- active upgrades  {MoreIncome=bool, Speedy=bool, Infusion=bool, ArtificialPlatform=bool}
@@ -1209,12 +1219,187 @@ local function spawnDistortion(def,platforms)
     print("[Devoid] Distortion spawned count="..count.." delay="..delay.."s")
 end
 
+-- MALWARE
+local function spawnMalware(def, platforms)
+    local timer = 0
+    local nextInterval = math.random(def.MinInterval, def.MaxInterval)
+    local activePopups = {}
+
+    -- Popup titles and body text for flavour
+    local adTexts = {
+        {"YOU WON A FREE IPHONE!!!", "Click OK to claim your prize!\nLimited time offer!"},
+        {"⚠ VIRUS DETECTED ⚠", "Your device has 47 viruses.\nDownload our free cleaner NOW!"},
+        {"HOT SINGLES IN YOUR AREA", "They are waiting for you.\nDon't keep them waiting..."},
+        {"CONGRATULATIONS!", "You are the 1,000,000th visitor!\nClaim your reward immediately!"},
+        {"SYSTEM WARNING", "Your RAM is critically low.\nCall 1-800-FIX-PC now."},
+        {"SPECIAL OFFER!!!", "Buy 1 get 99 FREE!\nToday only. Act fast!!!"},
+        {"UPDATE REQUIRED", "Please update your Adobe Flash\nPlayer to continue browsing."},
+        {"YOUR ACCOUNT IS SUSPENDED", "Verify your identity immediately\nor lose access forever."},
+        {"DOWNLOAD SPEED BOOST", "Increase your speed by 3000%!\nClick here to install."},
+        {"SECURITY ALERT", "Unauthorised access detected.\nChange your password NOW!"},
+    }
+
+    local function makePopup(index)
+        local adData = adTexts[math.random(1, #adTexts)]
+
+        -- Random screen position (keep inside screen roughly)
+        local rx = math.random(2, 68) / 100
+        local ry = math.random(10, 65) / 100
+
+        local popup = mkFrame(GUI, {
+            Size = UDim2.new(0, 320, 0, 200),
+            Position = UDim2.new(rx, 0, ry, 0),
+            BackgroundColor3 = Color3.fromRGB(195, 195, 195),
+            BorderSizePixel = 2,
+            ZIndex = 30,
+            Active = true,
+            Draggable = true,
+        })
+        corner(popup, 0)
+
+        -- Title bar
+        local titleBar = mkFrame(popup, {
+            Size = UDim2.new(1, 0, 0, 28),
+            BackgroundColor3 = Color3.fromRGB(0, 0, 128),
+            ZIndex = 31,
+        })
+        local titleLbl = mkLabel(titleBar, {
+            Size = UDim2.new(1, -32, 1, 0),
+            Position = UDim2.new(0, 4, 0, 0),
+            BackgroundTransparency = 1,
+            TextColor3 = Color3.fromRGB(255, 255, 255),
+            TextScaled = true,
+            Font = Enum.Font.GothamBold,
+            Text = adData[1],
+            TextXAlignment = Enum.TextXAlignment.Left,
+            ZIndex = 32,
+        })
+
+        -- Close button (X)
+        local closeBtn = mkBtn(titleBar, {
+            Size = UDim2.new(0, 26, 0, 24),
+            Position = UDim2.new(1, -28, 0, 2),
+            BackgroundColor3 = Color3.fromRGB(220, 50, 50),
+            TextColor3 = Color3.fromRGB(255, 255, 255),
+            TextScaled = true,
+            Font = Enum.Font.GothamBold,
+            Text = "✕",
+            ZIndex = 33,
+        })
+        corner(closeBtn, 2)
+
+        -- Body text
+        local bodyLbl = mkLabel(popup, {
+            Size = UDim2.new(1, -8, 0, 90),
+            Position = UDim2.new(0, 4, 0, 34),
+            BackgroundTransparency = 1,
+            TextColor3 = Color3.fromRGB(0, 0, 0),
+            TextScaled = true,
+            Font = Enum.Font.Gotham,
+            Text = adData[2],
+            TextWrapped = true,
+            ZIndex = 31,
+        })
+
+        -- OK button at bottom
+        local okBtn = mkBtn(popup, {
+            Size = UDim2.new(0, 80, 0, 28),
+            Position = UDim2.new(0.5, -40, 1, -36),
+            BackgroundColor3 = Color3.fromRGB(195, 195, 195),
+            TextColor3 = Color3.fromRGB(0, 0, 0),
+            TextScaled = true,
+            Font = Enum.Font.Gotham,
+            Text = "OK",
+            ZIndex = 32,
+            BorderSizePixel = 2,
+        })
+
+        -- A "scan bar" that runs across the popup for extra annoyance
+        local scanBar = mkFrame(popup, {
+            Size = UDim2.new(0, 6, 0.6, 0),
+            Position = UDim2.new(0, 0, 0.22, 0),
+            BackgroundColor3 = Color3.fromRGB(0, 255, 0),
+            BackgroundTransparency = 0.5,
+            ZIndex = 34,
+        })
+        -- Animate scan bar
+        task.spawn(function()
+            while popup.Parent do
+                TweenService:Create(scanBar, TweenInfo.new(1.2, Enum.EasingStyle.Linear), {
+                    Position = UDim2.new(1, -6, 0.22, 0)
+                }):Play()
+                task.wait(1.2)
+                if not popup.Parent then break end
+                scanBar.Position = UDim2.new(0, 0, 0.22, 0)
+            end
+        end)
+
+        -- Close on X or OK
+        local function closePopup()
+            if popup and popup.Parent then
+                TweenService:Create(popup, TweenInfo.new(0.15), {Size=UDim2.new(0,0,0,0)}):Play()
+                Debris:AddItem(popup, 0.2)
+                -- Remove from active list
+                for i, p in ipairs(activePopups) do
+                    if p == popup then table.remove(activePopups, i); break end
+                end
+            end
+        end
+        closeBtn.MouseButton1Click:Connect(closePopup)
+        okBtn.MouseButton1Click:Connect(closePopup)
+
+        table.insert(activePopups, popup)
+    end
+
+    local conn = RunService.Heartbeat:Connect(function(dt)
+        if GS.Phase == "DEAD" or GS.Phase == "LOBBY" then return end
+        timer += dt
+        if timer >= nextInterval then
+            timer = 0
+            local minI = GS.IsShatter and def.ShatterMinInterval or def.MinInterval
+            local maxI = GS.IsShatter and def.ShatterMaxInterval or def.MaxInterval
+            nextInterval = math.random(minI, maxI)
+
+            local count = GS.IsShatter and def.ShatterPopupCount or def.PopupCount
+            for i = 1, count do
+                task.wait(0.08 * (i-1))  -- stagger slightly so they don't all stack
+                if GS.Phase ~= "DEAD" and GS.Phase ~= "LOBBY" then
+                    makePopup(i)
+                end
+            end
+        end
+    end)
+    table.insert(GS.EntityConns, conn)
+
+    -- Cleanup all popups on phase change
+    local cleanConn = RunService.Heartbeat:Connect(function()
+        if GS.Phase == "DEAD" or GS.Phase == "LOBBY" then
+            for _, p in ipairs(activePopups) do if p and p.Parent then p:Destroy() end end
+            activePopups = {}
+            cleanConn:Disconnect()
+        end
+    end)
+    table.insert(GS.EntityConns, cleanConn)
+    print("[Devoid] Malware spawned")
+end
+
 -- Spawn dispatcher
 local function spawnEntities(platforms)
     for _,c in ipairs(GS.EntityConns) do c:Disconnect() end;GS.EntityConns={}
     for _,e in ipairs(GS.Entities)    do if e and e.Parent then e:Destroy() end end;GS.Entities={}
-    print("[Devoid] Spawning "..#GS.PickedEntities.." entities")
+
+    -- Merge persistent (previous rounds) + current picks, deduplicated by object identity
+    local toSpawn={}
+    local seen={}
+    for _,def in ipairs(GS.PersistentEntities) do
+        if not seen[def] then seen[def]=true; table.insert(toSpawn,def) end
+    end
     for _,def in ipairs(GS.PickedEntities) do
+        if not seen[def] then seen[def]=true; table.insert(toSpawn,def) end
+    end
+
+    print("[Devoid] Spawning "..#toSpawn.." entities (persistent+"..#GS.PickedEntities.." new)")
+    for _,def in ipairs(toSpawn) do
         if def.AppearRound<=GS.Round then
             if     def.AI=="Follower"  then spawnFollower(def,platforms)
             elseif def.AI=="Seed"      then spawnSeed(def,platforms)
@@ -1224,6 +1409,7 @@ local function spawnEntities(platforms)
             elseif def.AI=="Keeper"    then spawnKeeper(def,platforms)
             elseif def.AI=="Camera"    then spawnCameraEntity(def,platforms)
             elseif def.AI=="Distortion"then spawnDistortion(def,platforms)
+            elseif def.AI=="Malware"   then spawnMalware(def,platforms)
             end
         end
     end
@@ -1296,6 +1482,10 @@ local function completeRound()
     GS.Round+=1;GS.IsShatter=false
     lblRound.Text="PM "..(GS.Round-1)..":00"
     lblPhase.Visible=false;lblCosmic.Visible=false;HUD.Visible=false
+    -- Carry all this round's picks into the persistent pool
+    for _,def in ipairs(GS.PickedEntities) do
+        table.insert(GS.PersistentEntities,def)
+    end
     GS.PickedEntities={};GS.PickedAtLeastOne=false;GS.PickCounts={};GS.ShowingUpgrades=false
     clearMap();refreshBeacons()
     GS.Phase="LOBBY"
@@ -1866,6 +2056,7 @@ end
 btnRetry.MouseButton1Click:Connect(function()
     DEATH.Visible=false;GS.Phase="LOBBY";GS.Round=1;GS.RoundsBeaten=0
     GS.PickedEntities={};GS.PickedAtLeastOne=false;GS.PickCounts={};GS.ShowingUpgrades=false
+    GS.PersistentEntities={}
     GS.RerollsLeft=MAX_REROLLS;GS.IsShatter=false
     GS.Upgrades={};GS.CosmicBank=0;updateBankLabels()
     HUD.Visible=false;lblCosmic.Visible=false;lblPhase.Visible=false
@@ -1882,6 +2073,7 @@ local function skipRound()
     clearMap()
     GS.Round+=1;GS.RoundsBeaten+=1;GS.IsShatter=false;GS.Phase="LOBBY"
     GS.PickedEntities={};GS.PickedAtLeastOne=false;GS.PickCounts={};GS.ShowingUpgrades=false;GS.RerollsLeft=MAX_REROLLS
+    GS.PersistentEntities={}
     HUD.Visible=false;lblCosmic.Visible=false;lblPhase.Visible=false
     lblRound.Text="PM "..(GS.Round-1)..":00";lblReality.Text="Reality Shards: 0 / 0"
     buildLobby()
@@ -1890,8 +2082,21 @@ local function skipRound()
     print("[Devoid] /skip → Round "..GS.Round)
 end
 
+local function shatterNow()
+    if GS.Phase~="PLAYING" then return end
+    -- Collect all remaining reality shards instantly
+    for _,s in ipairs(GS.RealityShards) do if s and s.Parent then s:Destroy() end end
+    GS.RealityShards={}
+    GS.CollectedReality=GS.TotalShards
+    lblReality.Text="Reality Shards: ALL COLLECTED ✓"
+    startShatter(GS.MapPlatforms)
+    print("[Devoid] /shatter activated")
+end
+
 player.Chatted:Connect(function(msg)
-    if msg:lower():sub(1,5)=="/skip" then skipRound() end
+    local cmd=msg:lower()
+    if cmd:sub(1,5)=="/skip"    then skipRound()   end
+    if cmd:sub(1,8)=="/shatter" then shatterNow()  end
 end)
 pcall(function()
     local TCS=game:GetService("TextChatService")
@@ -1899,7 +2104,10 @@ pcall(function()
         local ch=TCS.TextChannels:FindFirstChild("RBXGeneral")
         if ch then
             ch.SaidMessageChanged:Connect(function(m)
-                if m and m.Text and m.Text:lower():sub(1,5)=="/skip" then skipRound() end
+                if not m or not m.Text then return end
+                local cmd=m.Text:lower()
+                if cmd:sub(1,5)=="/skip"    then skipRound()  end
+                if cmd:sub(1,8)=="/shatter" then shatterNow() end
             end)
         end
     end
@@ -1922,10 +2130,11 @@ buildLobby()
 startCollectionLoop()
 
 print("╔════════════════════════════════════╗")
-print("║  DEVOID v5 — loaded                 ║")
+print("║  DEVOID v6 — loaded                 ║")
 print("║  Entities : "..#EntityRegistry.."                    ║")
 print("║  Upgrades : "..#UpgradeRegistry.."                    ║")
 print("║  Map  Y   = "..MAP_Y.."               ║")
 print("║  Lobby Y  = "..LOBBY_Y.."              ║")
-print("║  /skip — skip to next round         ║")
+print("║  /skip    — skip to next round      ║")
+print("║  /shatter — instant shatter         ║")
 print("╚════════════════════════════════════╝")
