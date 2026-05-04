@@ -1476,6 +1476,8 @@ end
 -- ============================================================
 -- SELECT ENTITY  — picks entity, refreshes beacons (multi-pick)
 -- ============================================================
+-- Forward-declare upgrade functions (defined further below)
+local pickUpgradeChoices, selectUpgrade, skipUpgrades, updateBankLabels
 selectEntity=function(idx)
     if GS.Phase~="LOBBY" then return end
     if GS.ShowingUpgrades then selectUpgrade(idx); return end
@@ -1562,7 +1564,7 @@ local lblLobbyBank=mkLabel(GUI,{
     Font=Enum.Font.GothamBold, Text="Bank: 0 ✦", ZIndex=2, Visible=false,
 }); corner(lblLobbyBank)
 
-local function updateBankLabels()
+updateBankLabels = function()
     local txt="Bank: "..GS.CosmicBank.." ✦"
     lblCosmicBank.Text=txt; lblLobbyBank.Text=txt
 end
@@ -1618,7 +1620,7 @@ local function applyUpgradeEffect(upg)
     end
 end
 
-local function pickUpgradeChoices()
+pickUpgradeChoices = function()
     local pool={}
     for _,u in ipairs(UpgradeRegistry) do
         if u.OneTime and GS.Upgrades[u.Key] then continue end
@@ -1634,7 +1636,7 @@ local function pickUpgradeChoices()
     end
 end
 
-local function selectUpgrade(idx)
+selectUpgrade = function(idx)
     if GS.Phase~="LOBBY" then return end
     local upg=GS.UpgradeChoices[idx]; if not upg then return end
     if GS.CosmicBank < upg.Cost then
@@ -1671,7 +1673,7 @@ local function selectUpgrade(idx)
     updateBeaconBillboards()
 end
 
-local function skipUpgrades()
+skipUpgrades = function()
     if GS.Phase~="LOBBY" or not GS.ShowingUpgrades then return end
     GS.ShowingUpgrades=false
     pickBeaconChoices()
