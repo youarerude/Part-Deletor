@@ -49,6 +49,10 @@ local SFX = {
     CameraFlash        = "133385770201451",
     PurpleLight        = "133385770201451",
     DistortionSpawn    = "135273647100905",
+    HookedDollAmbient  = "1296600882",
+    HookedDollTeleport = "77995265370404",
+    HookedDollInfect   = "125531588934587",
+    MalwarePopup       = "130988530651697",
 }
 
 -- ============================================================
@@ -133,6 +137,15 @@ local EntityRegistry = {
         MinInterval=30, MaxInterval=50,
         ShatterMinInterval=25, ShatterMaxInterval=30,
         PopupCount=5, ShatterPopupCount=8,
+    },
+    {
+        Name="Hooked Doll",
+        Tips="Avoid black platforms and don't collect leaking shards unless you can handle the fling.",
+        AppearRound=13, AI="HookedDoll",
+        Speed=5,
+        InfectDuration=5,
+        ShardLeakDuration=5,
+        ShardDamage=30,
     },
 }
 
@@ -1349,6 +1362,7 @@ local function spawnMalware(def, platforms)
         okBtn.MouseButton1Click:Connect(closePopup)
 
         table.insert(activePopups, popup)
+        playSound(SFX.MalwarePopup, 0.8)
     end
 
     local conn = RunService.Heartbeat:Connect(function(dt)
@@ -1383,33 +1397,279 @@ local function spawnMalware(def, platforms)
     print("[Devoid] Malware spawned")
 end
 
+-- HOOKED DOLL
+local function spawnHookedDoll(def, platforms)
+    if #platforms==0 then return end
+    local sp = anyMapPlat() or platforms[math.random(1,#platforms)]
+
+    local model = Instance.new("Model", ENTITY_FOLDER); model.Name="HookedDoll"
+
+    -- Body: pale doll shape
+    local body = Instance.new("Part", model)
+    body.Name="HumanoidRootPart"; body.Size=Vector3.new(3,4,2)
+    body.Position=sp.Position+Vector3.new(0,200,0)  -- starts in sky
+    body.Anchored=true; body.CanCollide=false
+    body.Material=Enum.Material.SmoothPlastic; body.Color=Color3.fromRGB(230,200,180)
+
+    -- Head
+    local head=Instance.new("Part",model)
+    head.Shape=Enum.PartType.Ball; head.Size=Vector3.new(2.2,2.2,2.2)
+    head.Anchored=true; head.CanCollide=false
+    head.Material=Enum.Material.SmoothPlastic; head.Color=Color3.fromRGB(230,200,180)
+    head.Position=body.Position+Vector3.new(0,3,0)
+
+    -- String visuals (thin vertical parts)
+    local strings={}
+    for i=1,3 do
+        local str=Instance.new("Part",model)
+        str.Size=Vector3.new(0.1,6,0.1); str.Anchored=true; str.CanCollide=false
+        str.Material=Enum.Material.SmoothPlastic; str.Color=Color3.fromRGB(200,200,200)
+        str.Position=body.Position+Vector3.new((i-2)*0.8,5,0)
+        table.insert(strings,str)
+    end
+
+    -- Eyes (black X)
+    for _,sx in ipairs({-0.5,0.5}) do
+        local eye=Instance.new("Part",model)
+        eye.Shape=Enum.PartType.Ball; eye.Size=Vector3.new(0.4,0.4,0.4)
+        eye.Material=Enum.Material.Neon; eye.Color=Color3.fromRGB(0,0,0)
+        eye.Anchored=true; eye.CanCollide=false
+        eye.Position=head.Position+Vector3.new(sx,0,-1.05)
+    end
+
+    -- Ambient glow
+    local att=Instance.new("Attachment",body)
+    local pe=Instance.new("ParticleEmitter",att)
+    pe.Color=ColorSequence.new(Color3.fromRGB(180,180,255)); pe.LightEmission=0.5; pe.Rate=10
+    pe.Speed=NumberRange.new(0.5,2); pe.Lifetime=NumberRange.new(0.5,1.5)
+    pe.Size=NumberSequence.new({NumberSequenceKeypoint.new(0,0.3),NumberSequenceKeypoint.new(1,0)})
+
+    local bb=Instance.new("BillboardGui",body)
+    bb.Size=UDim2.new(0,115,0,28); bb.StudsOffset=Vector3.new(0,6,0); bb.AlwaysOnTop=true
+    local bl=Instance.new("TextLabel",bb); bl.Size=UDim2.new(1,0,1,0)
+    bl.BackgroundTransparency=1; bl.TextColor3=Color3.fromRGB(200,180,255)
+    bl.TextScaled=true; bl.Font=Enum.Font.GothamBold; bl.Text="Hooked Doll"
+
+    model.PrimaryPart=body; table.insert(GS.Entities,model)
+
+    local infectedPlats={}  -- {part, timer, origColor, origMat}
+    local leakingShards={}  -- {shard, timer}
+    local hasDropped=false
+    local dropTimer=0
+    local speedDebuff={}    -- tracks if player is on infected plat
+
+    -- Drop animation: fall from sky to nearest platform
+    local function dropToPlatform()
+        local target=anyMapPlat() or platforms[math.random(1,#platforms)]
+        local destY=target.Position.Y+6
+        playSound(SFX.HookedDollAmbient, 1.2, body.Position)
+        -- Drop tween
+        TweenService:Create(body,TweenInfo.new(1.8,Enum.EasingStyle.Quad,Enum.EasingDirection.In),{
+            Position=Vector3.new(target.Position.X,destY,target.Position.Z)
+        }):Play()
+        for _,str in ipairs(strings) do
+            TweenService:Create(str,TweenInfo.new(1.8,Enum.EasingStyle.Quad,Enum.EasingDirection.In),{
+                Position=Vector3.new(target.Position.X+(str.Position-body.Position).X,destY+5,target.Position.Z)
+            }):Play()
+        end
+        head.Position=body.Position+Vector3.new(0,3,0)
+        task.wait(1.9)
+        if body.Parent then
+            body.Position=Vector3.new(target.Position.X,destY,target.Position.Z)
+            head.Position=body.Position+Vector3.new(0,3,0)
+        end
+        hasDropped=true
+    end
+
+    task.spawn(dropToPlatform)
+
+    local function infectPlatform(p)
+        if p:GetAttribute("HookInfected") then return end
+        p:SetAttribute("HookInfected",true)
+        p:SetAttribute("HookOrigColor",tostring(p.Color.R)..","..tostring(p.Color.G)..","..tostring(p.Color.B))
+        p:SetAttribute("HookOrigMat",p.Material.Name)
+        p.Color=Color3.fromRGB(15,15,15); p.Material=Enum.Material.SmoothPlastic
+        playSound(SFX.HookedDollInfect, 0.9, p.Position)
+        table.insert(infectedPlats,{part=p, timer=def.InfectDuration})
+    end
+
+    local function leakShard(s)
+        if s:GetAttribute("LeakActive") then return end
+        s:SetAttribute("LeakActive",true)
+        local wasName=s.Name
+        s.Color=Color3.fromRGB(255,255,255); s.Material=Enum.Material.Neon
+        -- White pulsing
+        local pulse=true
+        task.spawn(function()
+            while s.Parent and s:GetAttribute("LeakActive") do
+                TweenService:Create(s,TweenInfo.new(0.3),{Transparency=0.6}):Play(); task.wait(0.3)
+                TweenService:Create(s,TweenInfo.new(0.3),{Transparency=0}):Play(); task.wait(0.3)
+            end
+        end)
+        table.insert(leakingShards,{shard=s, timer=def.ShardLeakDuration, wasName=wasName})
+    end
+
+    local playerSpeedReduced=false
+    local conn=RunService.Heartbeat:Connect(function(dt)
+        if not model.Parent then return end
+        if GS.Phase=="DEAD" or GS.Phase=="LOBBY" then return end
+        if not hasDropped then return end
+
+        local hrp=getHRP(); if not hrp then return end
+        local hum=getHum(); if not hum then return end
+
+        -- Chase player
+        local diff=hrp.Position-body.Position; local dist=diff.Magnitude
+        if dist>1 then
+            local move=diff.Unit*def.Speed*dt
+            body.Position=body.Position+move
+            head.Position=body.Position+Vector3.new(0,3,0)
+            for _,str in ipairs(strings) do
+                str.Position=body.Position+Vector3.new((str.Position-body.Position).X,5,0)
+            end
+        end
+
+        -- Infect nearby platforms
+        for _,p in ipairs(GS.MapPlatforms) do
+            if p and p.Parent and not p:GetAttribute("HookInfected") then
+                if (p.Position-body.Position).Magnitude < p.Size.X/2+4 then
+                    infectPlatform(p)
+                end
+            end
+        end
+
+        -- Leak nearby shards
+        local allShards={}
+        for _,s in ipairs(GS.RealityShards) do table.insert(allShards,s) end
+        for _,s in ipairs(GS.CosmicShards)  do table.insert(allShards,s) end
+        for _,s in ipairs(allShards) do
+            if s and s.Parent and not s:GetAttribute("LeakActive") then
+                if (s.Position-body.Position).Magnitude < 12 then leakShard(s) end
+            end
+        end
+
+        -- Check if player stands on infected platform
+        local onInfected=false
+        local hrpPos=hrp.Position
+        for _,entry in ipairs(infectedPlats) do
+            local p=entry.part
+            if p and p.Parent then
+                local dx=math.abs(hrpPos.X-p.Position.X); local dz=math.abs(hrpPos.Z-p.Position.Z)
+                local dy=hrpPos.Y-p.Position.Y
+                if dx<p.Size.X/2+1 and dz<p.Size.Z/2+1 and dy>0 and dy<4 then
+                    onInfected=true; break
+                end
+            end
+        end
+        if onInfected then
+            hum.Health=math.max(0,hum.Health-1/0.1*dt)  -- 1 dmg per 0.1s
+            if not playerSpeedReduced then
+                playerSpeedReduced=true
+                local base=hum.WalkSpeed
+                hum.WalkSpeed=math.max(2,base*0.5)
+            end
+        else
+            if playerSpeedReduced then
+                playerSpeedReduced=false
+                local stacks=GS.Upgrades._SpeedyStacks or 0
+                hum.WalkSpeed=16+stacks*5
+            end
+        end
+
+        -- Tick down infected platform timers
+        for i=#infectedPlats,1,-1 do
+            local e=infectedPlats[i]; e.timer-=dt
+            if e.timer<=0 then
+                if e.part and e.part.Parent then
+                    e.part:SetAttribute("HookInfected",false)
+                    e.part.Material=Enum.Material.SmoothPlastic
+                    local oc=e.part:GetAttribute("OrigColor"); if oc then e.part.Color=oc end
+                end
+                table.remove(infectedPlats,i)
+            end
+        end
+
+        -- Tick down leaking shard timers & handle collection
+        for i=#leakingShards,1,-1 do
+            local e=leakingShards[i]; e.timer-=dt
+            -- Check if player collected leaking shard
+            if e.shard and e.shard.Parent and (hrpPos-e.shard.Position).Magnitude<5.5 then
+                -- Give value
+                if e.wasName=="CosmicShard" or e.wasName=="RealimicShard" then
+                    local gain=GS.Upgrades.MoreIncome and 2 or 1
+                    GS.CosmicBank=GS.CosmicBank+gain; if updateBankLabels then updateBankLabels() end
+                end
+                if e.wasName=="RealityShard" or e.wasName=="RealimicShard" then
+                    GS.CollectedReality+=1
+                    lblReality.Text="Reality Shards: "..GS.CollectedReality.." / "..GS.TotalShards
+                    if GS.CollectedReality>=GS.TotalShards then
+                        lblReality.Text="Reality Shards: ALL COLLECTED ✓"
+                        startShatter(GS.MapPlatforms)
+                    end
+                end
+                -- Remove from original shard lists
+                for li,s in ipairs(GS.RealityShards) do if s==e.shard then table.remove(GS.RealityShards,li); break end end
+                for li,s in ipairs(GS.CosmicShards)  do if s==e.shard then table.remove(GS.CosmicShards, li); break end end
+                e.shard:Destroy()
+                table.remove(leakingShards,i)
+                -- Damage + fling
+                hum.Health=math.max(0,hum.Health-def.ShardDamage)
+                local dirs={Vector3.new(1,0,0),Vector3.new(-1,0,0),Vector3.new(0,0,1),Vector3.new(0,0,-1),Vector3.new(0.7,0,0.7),Vector3.new(-0.7,0,-0.7)}
+                local fdir=dirs[math.random(1,#dirs)]
+                local bv=Instance.new("BodyVelocity",hrp)
+                bv.Velocity=fdir.Unit*90+Vector3.new(0,55,0); bv.MaxForce=Vector3.new(1e5,1e5,1e5)
+                Debris:AddItem(bv,0.22)
+            elseif e.timer<=0 then
+                -- Revert shard appearance
+                if e.shard and e.shard.Parent then
+                    e.shard:SetAttribute("LeakActive",false)
+                    if e.wasName=="RealityShard" or e.wasName=="RealimicShard" then
+                        e.shard.Color=Color3.fromRGB(130,90,255)
+                    else
+                        e.shard.Color=Color3.fromRGB(255,205,40)
+                    end
+                end
+                table.remove(leakingShards,i)
+            end
+        end
+
+        -- Teleport every 30s
+        dropTimer+=dt
+        if dropTimer>=30 then
+            dropTimer=0; hasDropped=false
+            local tp=anyMapPlat() or platforms[math.random(1,#platforms)]
+            body.Position=tp.Position+Vector3.new(0,200,0)
+            playSound(SFX.HookedDollTeleport,1.2,body.Position)
+            task.spawn(dropToPlatform)
+        end
+    end)
+    table.insert(GS.EntityConns,conn)
+    print("[Devoid] Hooked Doll spawned")
+end
+
 -- Spawn dispatcher
 local function spawnEntities(platforms)
     for _,c in ipairs(GS.EntityConns) do c:Disconnect() end;GS.EntityConns={}
     for _,e in ipairs(GS.Entities)    do if e and e.Parent then e:Destroy() end end;GS.Entities={}
 
-    -- Merge persistent (previous rounds) + current picks, deduplicated by object identity
+    -- Build full spawn list: persistent pool (never cleared) + current lobby picks
     local toSpawn={}
-    local seen={}
-    for _,def in ipairs(GS.PersistentEntities) do
-        if not seen[def] then seen[def]=true; table.insert(toSpawn,def) end
-    end
-    for _,def in ipairs(GS.PickedEntities) do
-        if not seen[def] then seen[def]=true; table.insert(toSpawn,def) end
-    end
+    for _,def in ipairs(GS.PersistentEntities) do table.insert(toSpawn,def) end
+    for _,def in ipairs(GS.PickedEntities)     do table.insert(toSpawn,def) end
 
-    print("[Devoid] Spawning "..#toSpawn.." entities (persistent+"..#GS.PickedEntities.." new)")
+    print("[Devoid] Spawning "..#toSpawn.." entities ("..#GS.PersistentEntities.." persistent + "..#GS.PickedEntities.." new)")
     for _,def in ipairs(toSpawn) do
         if def.AppearRound<=GS.Round then
-            if     def.AI=="Follower"  then spawnFollower(def,platforms)
-            elseif def.AI=="Seed"      then spawnSeed(def,platforms)
-            elseif def.AI=="Target"    then spawnTarget(def,platforms)
-            elseif def.AI=="Wormhole"  then spawnWormhole(def,platforms)
-            elseif def.AI=="helloworld"then spawnHelloworld(def,platforms)
-            elseif def.AI=="Keeper"    then spawnKeeper(def,platforms)
-            elseif def.AI=="Camera"    then spawnCameraEntity(def,platforms)
-            elseif def.AI=="Distortion"then spawnDistortion(def,platforms)
-            elseif def.AI=="Malware"   then spawnMalware(def,platforms)
+            if     def.AI=="Follower"   then spawnFollower(def,platforms)
+            elseif def.AI=="Seed"       then spawnSeed(def,platforms)
+            elseif def.AI=="Target"     then spawnTarget(def,platforms)
+            elseif def.AI=="Wormhole"   then spawnWormhole(def,platforms)
+            elseif def.AI=="helloworld" then spawnHelloworld(def,platforms)
+            elseif def.AI=="Keeper"     then spawnKeeper(def,platforms)
+            elseif def.AI=="Camera"     then spawnCameraEntity(def,platforms)
+            elseif def.AI=="Distortion" then spawnDistortion(def,platforms)
+            elseif def.AI=="Malware"    then spawnMalware(def,platforms)
+            elseif def.AI=="HookedDoll" then spawnHookedDoll(def,platforms)
             end
         end
     end
@@ -1457,24 +1717,36 @@ onDeath=function()
     for _,c in ipairs(GS.EntityConns) do c:Disconnect() end
     task.wait(0.8);HUD.Visible=false
     local names={}
-    for _,e in ipairs(GS.PickedEntities) do table.insert(names,e.Name) end
+    for _,e in ipairs(GS.PersistentEntities) do table.insert(names,e.Name) end
+    for _,e in ipairs(GS.PickedEntities)     do table.insert(names,e.Name) end
+    -- Build buffs string
+    local buffLines={}
+    if GS.Upgrades.MoreIncome then table.insert(buffLines,"More Income (x2 ✦)") end
+    if GS.Upgrades.Speedy     then table.insert(buffLines,"Speedy (+"..(((GS.Upgrades._SpeedyStacks or 1))*5).." speed)") end
+    if GS.Upgrades.Infusion   then table.insert(buffLines,"Infusion (30% Realimic)") end
+    if GS.Upgrades.ArtificialPlatform then table.insert(buffLines,"Artificial Platform") end
+    local buffStr = #buffLines>0 and table.concat(buffLines,"\n") or "None"
     lblDeathStats.Text=
         "Reality Shards:  "..GS.CollectedReality.." / "..GS.TotalShards.."\n"..
         "Cosmic Shards:   "..GS.CollectedCosmic.." / "..GS.TotalShards.."\n"..
+        "Cosmic Bank:     "..GS.CosmicBank.." ✦\n"..
         "Rounds Beaten:   "..GS.RoundsBeaten.."\n"..
-        "Entities Faced:  "..(#names>0 and table.concat(names,", ") or "None").."\n\n"..
-        "Buffs: Coming Soon™"
+        "Entities:        "..(#names>0 and table.concat(names,", ") or "None").."\n"..
+        "Buffs:\n"..buffStr
     DEATH.Visible=true;deathLock=false
 end
 
 -- ============================================================
--- ROUND COMPLETE
+-- ROUND COMPLETE  (called when player touches spawn beacon during shatter)
 -- ============================================================
 local function completeRound()
     if GS.Phase~="SHATTER" then return end
     GS.Phase="COMPLETE";GS.RoundsBeaten+=1
     local sb=MAP_FOLDER:FindFirstChild("SpawnBeacon"); if sb then sb:Destroy() end
     for _,c in ipairs(GS.EntityConns) do c:Disconnect() end
+    -- Destroy any leftover cosmic shards (uncollected ones)
+    for _,s in ipairs(GS.CosmicShards) do if s and s.Parent then s:Destroy() end end
+    GS.CosmicShards={}
     local flash=Instance.new("Frame",GUI)
     flash.Size=UDim2.new(1,0,1,0);flash.BackgroundColor3=Color3.fromRGB(220,220,255);flash.ZIndex=25
     TweenService:Create(flash,TweenInfo.new(1.2),{BackgroundTransparency=1}):Play();Debris:AddItem(flash,1.5)
@@ -1555,11 +1827,14 @@ local function startCollectionLoop()
                     s:Destroy();table.remove(GS.CosmicShards,i)
                     GS.CollectedCosmic+=1
                     local gain = GS.Upgrades.MoreIncome and 2 or 1
-                    GS.CosmicBank+=gain; updateBankLabels()
+                    GS.CosmicBank = GS.CosmicBank + gain
+                    if updateBankLabels then updateBankLabels() end
                     lblCosmic.Text="Cosmic Shards: "..GS.CollectedCosmic.." / "..GS.TotalShards
                 end
             end
-            if (pos-Vector3.new(0,MAP_Y+4,0)).Magnitude<18 then completeRound() end
+            -- Beacon touch = voluntarily end round (player must walk into it)
+            local beaconPos=Vector3.new(0,MAP_Y+4,0)
+            if (pos-beaconPos).Magnitude<10 then completeRound() end
         end
     end)
 end
@@ -1692,9 +1967,13 @@ selectEntity=function(idx)
     TweenService:Create(popup,TweenInfo.new(1.8,Enum.EasingStyle.Quad,Enum.EasingDirection.Out,0,false,0.5),{TextTransparency=1}):Play()
     Debris:AddItem(popup,2.5)
 
-    -- After entity pick → switch beacons to upgrade mode
-    GS.ShowingUpgrades=true
-    pickUpgradeChoices()
+    -- After entity pick → switch beacons to upgrade mode ONLY on rounds divisible by 3
+    if GS.Round % 3 == 0 then
+        GS.ShowingUpgrades=true
+        pickUpgradeChoices()
+    else
+        pickBeaconChoices()
+    end
     updateBeaconBillboards()
 end
 
@@ -2041,9 +2320,24 @@ buildLobby=function()
     if lblCosmicBank then lblCosmicBank.Parent=HUD end -- stays inside HUD, only shows when HUD is visible
     updateBankLabels()
 
-    -- Round 6 gate message
-    if GS.Round==6 then
-        task.delay(1,showGateMessage)
+    -- Round gate messages
+    if GS.Round==6  then task.delay(1,showGateMessage) end
+    if GS.Round==13 then
+        task.delay(1, function()
+            local lbl=Instance.new("TextLabel",GUI)
+            lbl.Size=UDim2.new(0.85,0,0,62);lbl.Position=UDim2.new(0.075,0,0.4,0)
+            lbl.BackgroundColor3=Color3.fromRGB(20,0,8);lbl.BackgroundTransparency=0.3
+            lbl.TextColor3=Color3.fromRGB(255,60,100)
+            lbl.TextScaled=true;lbl.Font=Enum.Font.GothamBold;lbl.TextWrapped=true
+            lbl.Text="2nd gate of the void opens, Freeing the deep entities."
+            lbl.ZIndex=18;lbl.TextTransparency=1
+            corner(lbl,10)
+            TweenService:Create(lbl,TweenInfo.new(1.2),{TextTransparency=0,BackgroundTransparency=0.28}):Play()
+            task.delay(5,function()
+                TweenService:Create(lbl,TweenInfo.new(2),{TextTransparency=1,BackgroundTransparency=1}):Play()
+                Debris:AddItem(lbl,2.2)
+            end)
+        end)
     end
 
     task.wait(0.2)
@@ -2065,13 +2359,16 @@ btnRetry.MouseButton1Click:Connect(function()
 end)
 
 -- ============================================================
--- /SKIP
+-- /SKIP  /SHATTER  /GIVE
 -- ============================================================
-local function skipRound()
+local function skipRound(count)
+    count = math.max(1, math.floor(tonumber(count) or 1))
     if GS.Phase=="DEAD" then return end
     for _,c in ipairs(GS.EntityConns) do c:Disconnect() end;GS.EntityConns={}
     clearMap()
-    GS.Round+=1;GS.RoundsBeaten+=1;GS.IsShatter=false;GS.Phase="LOBBY"
+    GS.Round += count
+    GS.RoundsBeaten += count
+    GS.IsShatter=false;GS.Phase="LOBBY"
     GS.PickedEntities={};GS.PickedAtLeastOne=false;GS.PickCounts={};GS.ShowingUpgrades=false;GS.RerollsLeft=MAX_REROLLS
     GS.PersistentEntities={}
     HUD.Visible=false;lblCosmic.Visible=false;lblPhase.Visible=false
@@ -2079,12 +2376,11 @@ local function skipRound()
     buildLobby()
     task.wait(0.1); character:PivotTo(CFrame.new(0,LOBBY_Y+6,-42))
     local hum=getHum(); if hum then hum.Health=hum.MaxHealth end
-    print("[Devoid] /skip → Round "..GS.Round)
+    print("[Devoid] /skip "..count.." → Round "..GS.Round)
 end
 
 local function shatterNow()
     if GS.Phase~="PLAYING" then return end
-    -- Collect all remaining reality shards instantly
     for _,s in ipairs(GS.RealityShards) do if s and s.Parent then s:Destroy() end end
     GS.RealityShards={}
     GS.CollectedReality=GS.TotalShards
@@ -2093,21 +2389,31 @@ local function shatterNow()
     print("[Devoid] /shatter activated")
 end
 
-player.Chatted:Connect(function(msg)
-    local cmd=msg:lower()
-    if cmd:sub(1,5)=="/skip"    then skipRound()   end
-    if cmd:sub(1,8)=="/shatter" then shatterNow()  end
-end)
+local function giveCosmicCommand(amount)
+    amount = math.max(1, math.floor(tonumber(amount) or 1))
+    GS.CosmicBank = GS.CosmicBank + amount
+    if updateBankLabels then updateBankLabels() end
+    print("[Devoid] /give "..amount.." → Bank: "..GS.CosmicBank)
+end
+
+local function parseCmd(msg)
+    local parts={}
+    for w in msg:gmatch("%S+") do table.insert(parts,w) end
+    local cmd=(parts[1] or ""):lower()
+    if cmd=="/skip" then skipRound(parts[2])
+    elseif cmd=="/shatter" then shatterNow()
+    elseif cmd=="/give" then giveCosmicCommand(parts[2])
+    end
+end
+
+player.Chatted:Connect(function(msg) parseCmd(msg) end)
 pcall(function()
     local TCS=game:GetService("TextChatService")
     if TCS and TCS.TextChannels then
         local ch=TCS.TextChannels:FindFirstChild("RBXGeneral")
         if ch then
             ch.SaidMessageChanged:Connect(function(m)
-                if not m or not m.Text then return end
-                local cmd=m.Text:lower()
-                if cmd:sub(1,5)=="/skip"    then skipRound()  end
-                if cmd:sub(1,8)=="/shatter" then shatterNow() end
+                if m and m.Text then parseCmd(m.Text) end
             end)
         end
     end
@@ -2130,11 +2436,10 @@ buildLobby()
 startCollectionLoop()
 
 print("╔════════════════════════════════════╗")
-print("║  DEVOID v6 — loaded                 ║")
-print("║  Entities : "..#EntityRegistry.."                    ║")
+print("║  DEVOID v7 — loaded                 ║")
+print("║  Entities : "..#EntityRegistry.."                   ║")
 print("║  Upgrades : "..#UpgradeRegistry.."                    ║")
 print("║  Map  Y   = "..MAP_Y.."               ║")
 print("║  Lobby Y  = "..LOBBY_Y.."              ║")
-print("║  /skip    — skip to next round      ║")
-print("║  /shatter — instant shatter         ║")
+print("║  /skip [n]  /shatter  /give [n]     ║")
 print("╚════════════════════════════════════╝")
