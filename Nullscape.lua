@@ -244,6 +244,8 @@ local btnRetry=mkBtn(DEATH,{
 -- FORWARD DECLARATIONS
 -- ============================================================
 local buildLobby,startRound,refreshBeacons,selectEntity,doReroll,onDeath,activateStartPP
+-- upgrade labels — defined later in upgrade system, forward-declared so earlier functions can reference them
+local lblLobbyBank, lblCosmicBank
 
 -- ============================================================
 -- CAMERA SHAKE
@@ -1307,7 +1309,7 @@ end
 startRound=function()
     HUD.Visible=true;DEATH.Visible=false
     lblCosmic.Visible=false;lblPhase.Visible=false
-    lblLobbyBank.Visible=false
+    if lblLobbyBank then lblLobbyBank.Visible=false end
     GS.Phase="PLAYING";GS.IsShatter=false
     GS.CollectedReality=0;GS.CollectedCosmic=0
     lblRound.Text="PM "..(GS.Round-1)..":00"
@@ -1549,7 +1551,7 @@ local UpgradeRegistry = {
 }
 
 -- Upgrade bank label (top-right of HUD)
-local lblCosmicBank=mkLabel(HUD,{
+lblCosmicBank=mkLabel(HUD,{
     Size=UDim2.new(0,220,0,38), Position=UDim2.new(1,-236,0,16),
     BackgroundColor3=Color3.fromRGB(20,14,4), BackgroundTransparency=0.3,
     TextColor3=Color3.fromRGB(255,210,40), TextScaled=true,
@@ -1557,7 +1559,7 @@ local lblCosmicBank=mkLabel(HUD,{
 }); corner(lblCosmicBank)
 
 -- Bank label shown in lobby too
-local lblLobbyBank=mkLabel(GUI,{
+lblLobbyBank=mkLabel(GUI,{
     Size=UDim2.new(0,220,0,38), Position=UDim2.new(0.5,-110,0,16),
     BackgroundColor3=Color3.fromRGB(20,14,4), BackgroundTransparency=0.3,
     TextColor3=Color3.fromRGB(255,210,40), TextScaled=true,
@@ -1846,6 +1848,7 @@ buildLobby=function()
 
     -- Lobby bank label
     lblLobbyBank.Visible=true
+    if lblCosmicBank then lblCosmicBank.Parent=HUD end -- stays inside HUD, only shows when HUD is visible
     updateBankLabels()
 
     -- Round 6 gate message
