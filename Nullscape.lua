@@ -1954,7 +1954,7 @@ local function spawnCrescendo(def, platforms)
                     tip.CFrame   = CFrame.new(startPos + d*13, startPos + d*14)
                 end
 
-                table.insert(swordModels, {model=sModel, blade=blade, dir=d, isVert=isVert, startPos=startPos})
+                table.insert(swordModels, {model=sModel, blade=blade, tip=tip, dir=d, isVert=isVert, startPos=startPos})
             end
 
             -- Animate swords flying through beams
@@ -1968,6 +1968,7 @@ local function spawnCrescendo(def, platforms)
 
                 for _, sw in ipairs(swordModels) do
                     if not sw.blade.Parent then continue end
+                    if not sw.tip or not sw.tip.Parent then continue end
                     local newPos
                     if sw.isVert then
                         newPos = sw.startPos - Vector3.new(0, moved, 0)
