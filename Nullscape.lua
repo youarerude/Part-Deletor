@@ -1978,7 +1978,7 @@ local function spawnCrescendo(def, platforms)
 
             -- Animate swords flying through beams
             local elapsed = 0
-            local speed = 280  -- studs per second
+            local speed = 90  -- studs per second (slowed down)
             local dmgCd = {}
             local flyConn
             flyConn = RunService.Heartbeat:Connect(function(fdt)
@@ -2896,13 +2896,305 @@ local function giveCosmicCommand(amount)
     print("[Devoid] /give "..amount.." → Bank: "..GS.CosmicBank)
 end
 
+-- ============================================================
+-- ENTITY COMMANDS  (one-shot per invocation)
+-- ============================================================
+local function cmdSpawnNear(spawnFn, dist)
+    -- Spawns an entity near the player. spawnFn receives a fake one-platform list.
+    local hrp = getHRP(); if not hrp then return end
+    local angle = math.random() * math.pi * 2
+    local offset = Vector3.new(math.cos(angle), 0, math.sin(angle)) * (dist or 25)
+    local fakePlat = {Position = hrp.Position + offset}
+    -- We need a real Part for some entity functions, create a temp anchor
+    local anchor = Instance.new("Part", MAP_FOLDER)
+    anchor.Size = Vector3.new(10,2,10); anchor.Anchored = true; anchor.CanCollide = false
+    anchor.Transparency = 1; anchor.Position = hrp.Position + offset
+    spawnFn({anchor})
+end
+
+local function cmdSpawnFollower()
+    local def = nil
+    for _,e in ipairs(EntityRegistry) do if e.AI=="Follower" then def=e; break end end
+    if not def then return end
+    cmdSpawnNear(function(plats) spawnFollower(def,plats) end, 25)
+end
+
+local function cmdSpawnSeed()
+    local def = nil
+    for _,e in ipairs(EntityRegistry) do if e.AI=="Seed" then def=e; break end end
+    if not def or #GS.MapPlatforms==0 then return end
+    spawnSeed(def, GS.MapPlatforms)
+end
+
+local function cmdSpawnTarget()
+    local def = nil
+    for _,e in ipairs(EntityRegistry) do if e.AI=="Target" then def=e; break end end
+    if not def then return end
+    -- One-shot: fire immediately then stop
+    local hrp=getHRP(); if not hrp then return end
+    local tPos=hrp.Position
+    local radius=def.Radius
+    local circ=Instance.new("Part",MAP_FOLDER)
+    circ.Name="NukeCircle";circ.Shape=Enum.PartType.Cylinder
+    circ.Size=Vector3.new(1.5,radius*2,radius*2)
+    circ.CFrame=CFrame.new(tPos.X,tPos.Y-2,tPos.Z)*CFrame.Angles(0,0,math.pi/2)
+    circ.Anchored=true;circ.CanCollide=false
+    circ.Material=Enum.Material.Neon;circ.Color=Color3.fromRGB(180,0,255);circ.Transparency=0.35
+    task.spawn(function()
+        for _=1,10 do
+            if not circ.Parent then break end
+            TweenService:Create(circ,TweenInfo.new(0.25),{Transparency=0.7}):Play();task.wait(0.25)
+            if not circ.Parent then break end
+            TweenService:Create(circ,TweenInfo.new(0.25),{Transparency=0.18}):Play();task.wait(0.25)
+        end
+    end)
+    local warn=Instance.new("TextLabel",GUI)
+    warn.Size=UDim2.new(0.6,0,0,54);warn.Position=UDim2.new(0.2,0,0.28,0)
+    warn.BackgroundTransparency=1;warn.TextColor3=Color3.fromRGB(255,40,255)
+    warn.TextScaled=true;warn.Font=Enum.Font.GothamBold
+    warn.Text="⚠  INCOMING STRIKE  ⚠";warn.ZIndex=15
+    TweenService:Create(warn,TweenInfo.new(4.8),{TextTransparency=1}):Play();Debris:AddItem(warn,5)
+    task.wait(5); if circ.Parent then circ:Destroy() end
+    local mis=Instance.new("Part",MAP_FOLDER)
+    mis.Size=Vector3.new(2.5,22,2.5);mis.Position=Vector3.new(tPos.X,tPos.Y+700,tPos.Z)
+    mis.Anchored=true;mis.CanCollide=false;mis.Material=Enum.Material.Neon;mis.Color=Color3.fromRGB(255,80,0)
+    local ma=Instance.new("Attachment",mis)
+    local mpe=Instance.new("ParticleEmitter",ma)
+    mpe.Color=ColorSequence.new({ColorSequenceKeypoint.new(0,Color3.fromRGB(255,80,0)),ColorSequenceKeypoint.new(1,Color3.fromRGB(255,220,0))})
+    mpe.LightEmission=1;mpe.Rate=120;mpe.Speed=NumberRange.new(10,24)
+    mpe.Lifetime=NumberRange.new(0.2,0.8)
+    mpe.Size=NumberSequence.new({NumberSequenceKeypoint.new(0,3),NumberSequenceKeypoint.new(1,0)})
+    TweenService:Create(mis,TweenInfo.new(1.8,Enum.EasingStyle.Quad,Enum.EasingDirection.In),{Position=Vector3.new(tPos.X,tPos.Y,tPos.Z)}):Play()
+    task.wait(1.85); if mis.Parent then mis:Destroy() end
+    createMushroomCloud(tPos, false)
+end
+
+local function cmdSpawnHelloworld()
+    local def = nil
+    for _,e in ipairs(EntityRegistry) do if e.AI=="helloworld" then def=e; break end end
+    if not def then return end
+    cmdSpawnNear(function(plats) spawnHelloworld(def,plats) end, 25)
+end
+
+local function cmdSpawnCamera()
+    local def = nil
+    for _,e in ipairs(EntityRegistry) do if e.AI=="Camera" then def=e; break end end
+    if not def then return end
+    -- One-shot camera flash
+    task.spawn(function()
+        local cheese=Instance.new("TextLabel",GUI)
+        cheese.Size=UDim2.new(0.7,0,0,60);cheese.Position=UDim2.new(0.15,0,0.18,0)
+        cheese.BackgroundTransparency=1;cheese.TextColor3=Color3.fromRGB(255,255,200)
+        cheese.TextScaled=true;cheese.Font=Enum.Font.GothamBold
+        cheese.Text="📷  Say Cheese!";cheese.ZIndex=16
+        TweenService:Create(cheese,TweenInfo.new(2.8),{TextTransparency=1}):Play()
+        Debris:AddItem(cheese,3)
+        task.wait(def.WarnTime)
+        local hrp=getHRP(); if not hrp then return end
+        local snapPos=hrp.Position
+        playSound(SFX.CameraFlash, 1.5)
+        local flash=Instance.new("Frame",GUI)
+        flash.Size=UDim2.new(1,0,1,0);flash.BackgroundColor3=Color3.fromRGB(255,255,255)
+        flash.BackgroundTransparency=0;flash.ZIndex=20
+        shakeCamera(1.2,0.5)
+        task.wait(0.08)
+        local hrp2=getHRP()
+        if hrp2 then
+            local d=(Vector3.new(hrp2.Position.X,0,hrp2.Position.Z)-Vector3.new(snapPos.X,0,snapPos.Z)).Magnitude
+            if d>1.5 then
+                flash.BackgroundColor3=Color3.fromRGB(255,40,40)
+                local hum=getHum()
+                if hum and hum.Health>0 then hum.Health=math.max(0,hum.Health-def.Damage) end
+                local dirs={Vector3.new(1,0,0),Vector3.new(-1,0,0),Vector3.new(0,0,1),Vector3.new(0,0,-1)}
+                local fdir=dirs[math.random(1,#dirs)]
+                local bv=Instance.new("BodyVelocity",hrp2)
+                bv.Velocity=(fdir.Unit*85)+Vector3.new(0,55,0);bv.MaxForce=Vector3.new(1e5,1e5,1e5)
+                Debris:AddItem(bv,0.22); shakeCamera(3.5,1.2)
+            end
+        end
+        TweenService:Create(flash,TweenInfo.new(1.8),{BackgroundTransparency=1}):Play()
+        Debris:AddItem(flash,2)
+    end)
+end
+
+local function cmdSpawnKeeper()
+    local def = nil
+    for _,e in ipairs(EntityRegistry) do if e.AI=="Keeper" then def=e; break end end
+    if not def then return end
+    cmdSpawnNear(function(plats) spawnKeeper(def,plats) end, 55)
+end
+
+local function cmdSpawnDistortion()
+    local def = nil
+    for _,e in ipairs(EntityRegistry) do if e.AI=="Distortion" then def=e; break end end
+    if not def or #GS.MapPlatforms==0 then return end
+    spawnDistortion(def, GS.MapPlatforms)
+end
+
+local function cmdSpawnMalware()
+    local def = nil
+    for _,e in ipairs(EntityRegistry) do if e.AI=="Malware" then def=e; break end end
+    if not def then return end
+    local adTexts = {
+        {"YOU WON A FREE IPHONE!!!", "Click OK to claim your prize!\nLimited time offer!"},
+        {"⚠ VIRUS DETECTED ⚠", "Your device has 47 viruses.\nDownload our free cleaner NOW!"},
+        {"HOT SINGLES IN YOUR AREA", "They are waiting for you.\nDon't keep them waiting..."},
+        {"CONGRATULATIONS!", "You are the 1,000,000th visitor!\nClaim your reward immediately!"},
+        {"SYSTEM WARNING", "Your RAM is critically low.\nCall 1-800-FIX-PC now."},
+    }
+    for i=1,5 do
+        task.wait(0.08*(i-1))
+        local adData=adTexts[math.random(1,#adTexts)]
+        local rx=math.random(2,68)/100; local ry=math.random(10,65)/100
+        local popup=mkFrame(GUI,{Size=UDim2.new(0,320,0,200),Position=UDim2.new(rx,0,ry,0),BackgroundColor3=Color3.fromRGB(195,195,195),BorderSizePixel=2,ZIndex=30,Active=true,Draggable=true})
+        corner(popup,0)
+        local titleBar=mkFrame(popup,{Size=UDim2.new(1,0,0,28),BackgroundColor3=Color3.fromRGB(0,0,128),ZIndex=31})
+        mkLabel(titleBar,{Size=UDim2.new(1,-32,1,0),Position=UDim2.new(0,4,0,0),BackgroundTransparency=1,TextColor3=Color3.fromRGB(255,255,255),TextScaled=true,Font=Enum.Font.GothamBold,Text=adData[1],TextXAlignment=Enum.TextXAlignment.Left,ZIndex=32})
+        local closeBtn=mkBtn(titleBar,{Size=UDim2.new(0,26,0,24),Position=UDim2.new(1,-28,0,2),BackgroundColor3=Color3.fromRGB(220,50,50),TextColor3=Color3.fromRGB(255,255,255),TextScaled=true,Font=Enum.Font.GothamBold,Text="✕",ZIndex=33}); corner(closeBtn,2)
+        mkLabel(popup,{Size=UDim2.new(1,-8,0,90),Position=UDim2.new(0,4,0,34),BackgroundTransparency=1,TextColor3=Color3.fromRGB(0,0,0),TextScaled=true,Font=Enum.Font.Gotham,Text=adData[2],TextWrapped=true,ZIndex=31})
+        local okBtn=mkBtn(popup,{Size=UDim2.new(0,80,0,28),Position=UDim2.new(0.5,-40,1,-36),BackgroundColor3=Color3.fromRGB(195,195,195),TextColor3=Color3.fromRGB(0,0,0),TextScaled=true,Font=Enum.Font.Gotham,Text="OK",ZIndex=32,BorderSizePixel=2})
+        local function close() if popup and popup.Parent then TweenService:Create(popup,TweenInfo.new(0.15),{Size=UDim2.new(0,0,0,0)}):Play(); Debris:AddItem(popup,0.2) end end
+        closeBtn.MouseButton1Click:Connect(close); okBtn.MouseButton1Click:Connect(close)
+        playSound(SFX.MalwarePopup, 0.8)
+    end
+end
+
+local function cmdSpawnHookedDoll()
+    local def = nil
+    for _,e in ipairs(EntityRegistry) do if e.AI=="HookedDoll" then def=e; break end end
+    if not def then return end
+    cmdSpawnNear(function(plats) spawnHookedDoll(def,plats) end, 25)
+end
+
+local function cmdSpawnGreed()
+    local def = nil
+    for _,e in ipairs(EntityRegistry) do if e.AI=="Greed" then def=e; break end end
+    if not def then return end
+    -- Force one immediate greed event
+    local demand = math.random(5,15)
+    if GS.IsShatter then demand = math.random(def.ShatterMinDemand, def.ShatterMaxDemand) end
+    local timerDur = GS.IsShatter and def.ShatterTimerDuration or def.TimerDuration
+    local collected = 0
+
+    local face=mkFrame(GUI,{Size=UDim2.new(0,180,0,220),Position=UDim2.new(0.5,-90,0.08,0),BackgroundColor3=Color3.fromRGB(60,200,60),BackgroundTransparency=0.05,ZIndex=35}); corner(face,90)
+    local eye1=mkLabel(face,{Size=UDim2.new(0,50,0,50),Position=UDim2.new(0.12,0,0.12,0),BackgroundColor3=Color3.fromRGB(0,0,0),BackgroundTransparency=0,TextColor3=Color3.fromRGB(255,215,0),TextScaled=true,Font=Enum.Font.GothamBold,Text="$",ZIndex=36}); corner(eye1,25)
+    local eye2=mkLabel(face,{Size=UDim2.new(0,50,0,50),Position=UDim2.new(0.6,0,0.12,0),BackgroundColor3=Color3.fromRGB(0,0,0),BackgroundTransparency=0,TextColor3=Color3.fromRGB(255,215,0),TextScaled=true,Font=Enum.Font.GothamBold,Text="$",ZIndex=36}); corner(eye2,25)
+    mkLabel(face,{Size=UDim2.new(0.75,0,0,36),Position=UDim2.new(0.125,0,0.58,0),BackgroundTransparency=1,TextColor3=Color3.fromRGB(0,0,0),TextScaled=true,Font=Enum.Font.GothamBold,Text="^___^",ZIndex=36})
+    mkLabel(face,{Size=UDim2.new(1,0,0,30),Position=UDim2.new(0,0,-0.18,0),BackgroundTransparency=1,TextColor3=Color3.fromRGB(255,230,0),TextScaled=true,Font=Enum.Font.GothamBold,Text="REMEMBER!!!",ZIndex=36})
+    local progLbl=mkLabel(face,{Size=UDim2.new(1,0,0,26),Position=UDim2.new(0,0,0.82,0),BackgroundTransparency=1,TextColor3=Color3.fromRGB(255,255,255),TextScaled=true,Font=Enum.Font.Gotham,Text="0/"..demand,ZIndex=36})
+    local timerBg=mkFrame(face,{Size=UDim2.new(1,0,0,10),Position=UDim2.new(0,0,0.94,0),BackgroundColor3=Color3.fromRGB(40,40,40),ZIndex=36})
+    local timerBar=mkFrame(timerBg,{Size=UDim2.new(1,0,1,0),BackgroundColor3=Color3.fromRGB(80,255,80),ZIndex=37})
+
+    task.spawn(function()
+        task.wait(def.WarnTime)
+        if not face.Parent then return end
+        eye1.Text=tostring(math.floor(demand/10)); eye1.TextColor3=Color3.fromRGB(255,255,255)
+        eye2.Text=tostring(demand%10); eye2.TextColor3=Color3.fromRGB(255,255,255)
+        local elapsed=0; local done=false
+        local gc; gc=RunService.Heartbeat:Connect(function(dt)
+            if not face.Parent then gc:Disconnect(); return end
+            elapsed+=dt
+            local frac=math.max(0,1-elapsed/timerDur)
+            timerBar.Size=UDim2.new(frac,0,1,0); timerBar.BackgroundColor3=Color3.fromHSV(frac*0.33,1,1)
+            local hrp=getHRP()
+            if hrp then
+                for i=#GS.RealityShards,1,-1 do
+                    local s=GS.RealityShards[i]
+                    if s and s.Parent and (hrp.Position-s.Position).Magnitude<5.5 then collected+=1; progLbl.Text=collected.."/"..demand end
+                end
+            end
+            if collected>=demand and not done then
+                done=true; gc:Disconnect()
+                face.BackgroundColor3=Color3.fromRGB(80,255,80)
+                task.wait(1.5); if face.Parent then TweenService:Create(face,TweenInfo.new(0.5),{BackgroundTransparency=1}):Play(); Debris:AddItem(face,0.6) end
+            elseif elapsed>=timerDur and not done then
+                done=true; gc:Disconnect()
+                local hum=getHum(); if hum and hum.Health>0 then hum.Health=0 end
+                if face.Parent then face:Destroy() end
+            end
+        end)
+    end)
+end
+
+local function cmdSpawnCrescendo()
+    local def = nil
+    for _,e in ipairs(EntityRegistry) do if e.AI=="Crescendo" then def=e; break end end
+    if not def then return end
+    local hrp=getHRP(); if not hrp then return end
+    local beamCount=3
+    local BEAM_LENGTH=8000
+    local beams={}; local swordModels={}
+    local dirs={}
+    for i=1,beamCount do
+        local ang=math.random()*math.pi*2
+        table.insert(dirs,{vec=Vector3.new(math.cos(ang),0,math.sin(ang)),vertical=false})
+    end
+    local origin=hrp.Position
+    for _,dirData in ipairs(dirs) do
+        local d=dirData.vec
+        local beam=Instance.new("Part",MAP_FOLDER)
+        beam.Name="CrescendoBeam";beam.Size=Vector3.new(2.5,2.5,BEAM_LENGTH)
+        beam.Anchored=true;beam.CanCollide=false;beam.Material=Enum.Material.Neon
+        beam.Color=Color3.fromRGB(220,0,0);beam.Transparency=0.72
+        beam.CFrame=CFrame.lookAt(origin,origin+d)
+        table.insert(beams,{part=beam,dir=dirData})
+    end
+    task.spawn(function()
+        task.wait(def.WarnTime)
+        local fireOrigin=getHRP() and getHRP().Position or origin
+        for _,b in ipairs(beams) do if b.part.Parent then b.part:Destroy() end end
+        for _,beamData in ipairs(beams) do
+            local d=beamData.dir.vec
+            local sModel=Instance.new("Model",MAP_FOLDER); sModel.Name="CrescendoSword"
+            local blade=Instance.new("Part",sModel)
+            blade.Size=Vector3.new(1,1,22);blade.Material=Enum.Material.Neon;blade.Color=Color3.fromRGB(200,80,255);blade.CanCollide=false;blade.Anchored=true
+            local tip=Instance.new("Part",sModel)
+            tip.Size=Vector3.new(0.5,0.5,5);tip.Material=Enum.Material.Neon;tip.Color=Color3.fromRGB(255,200,255);tip.CanCollide=false;tip.Anchored=true
+            local startPos=fireOrigin-d*50
+            blade.CFrame=CFrame.new(startPos,startPos+d); tip.CFrame=CFrame.new(startPos+d*13,startPos+d*14)
+            table.insert(swordModels,{model=sModel,blade=blade,tip=tip,dir=d,isVert=false,startPos=startPos})
+        end
+        local elapsed=0; local speed=90; local flyConn
+        flyConn=RunService.Heartbeat:Connect(function(fdt)
+            elapsed+=fdt; local moved=speed*elapsed
+            for _,sw in ipairs(swordModels) do
+                if not sw.blade.Parent then continue end
+                if not sw.tip or not sw.tip.Parent then continue end
+                local newPos=sw.startPos+sw.dir*moved
+                sw.blade.CFrame=CFrame.new(newPos,newPos+sw.dir)
+                sw.tip.CFrame=CFrame.new(newPos+sw.dir*13,newPos+sw.dir*14)
+                local hrp2=getHRP()
+                if hrp2 and (hrp2.Position-newPos).Magnitude<6 then
+                    local hum=getHum(); if hum and hum.Health>0 then hum.Health=0 end
+                end
+            end
+            if elapsed>BEAM_LENGTH/speed+0.5 then
+                flyConn:Disconnect()
+                for _,sw in ipairs(swordModels) do if sw.model.Parent then sw.model:Destroy() end end
+            end
+        end)
+        table.insert(GS.EntityConns,flyConn)
+    end)
+end
+
 local function parseCmd(msg)
     local parts={}
     for w in msg:gmatch("%S+") do table.insert(parts,w) end
     local cmd=(parts[1] or ""):lower()
-    if cmd=="/skip" then skipRound(parts[2])
-    elseif cmd=="/shatter" then shatterNow()
-    elseif cmd=="/give" then giveCosmicCommand(parts[2])
+    if     cmd=="/skip"        then skipRound(parts[2])
+    elseif cmd=="/shatter"     then shatterNow()
+    elseif cmd=="/give"        then giveCosmicCommand(parts[2])
+    elseif cmd=="/follower"    then cmdSpawnFollower()
+    elseif cmd=="/seed"        then cmdSpawnSeed()
+    elseif cmd=="/target"      then task.spawn(cmdSpawnTarget)
+    elseif cmd=="/helloworld"  then cmdSpawnHelloworld()
+    elseif cmd=="/camera"      then cmdSpawnCamera()
+    elseif cmd=="/keeper"      then cmdSpawnKeeper()
+    elseif cmd=="/distortion"  then cmdSpawnDistortion()
+    elseif cmd=="/malware"     then cmdSpawnMalware()
+    elseif cmd=="/hookeddoll"  then cmdSpawnHookedDoll()
+    elseif cmd=="/greed"       then task.spawn(cmdSpawnGreed)
+    elseif cmd=="/crescendo"   then task.spawn(cmdSpawnCrescendo)
     end
 end
 
@@ -2936,10 +3228,14 @@ buildLobby()
 startCollectionLoop()
 
 print("╔════════════════════════════════════╗")
-print("║  DEVOID v9 — loaded                 ║")
+print("║  DEVOID v10 — loaded                ║")
 print("║  Entities : "..#EntityRegistry.."                   ║")
 print("║  Upgrades : "..#UpgradeRegistry.."                    ║")
 print("║  Map  Y   = "..MAP_Y.."               ║")
 print("║  Lobby Y  = "..LOBBY_Y.."              ║")
 print("║  /skip [n]  /shatter  /give [n]     ║")
+print("║  /follower /seed /target /helloworld ║")
+print("║  /camera /keeper /distortion        ║")
+print("║  /malware /hookeddoll /greed        ║")
+print("║  /crescendo                         ║")
 print("╚════════════════════════════════════╝")
