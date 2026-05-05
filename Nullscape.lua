@@ -156,6 +156,15 @@ local EntityRegistry = {
         WarnTime=3, TimerDuration=10,
         ShatterMinDemand=10, ShatterMaxDemand=20, ShatterTimerDuration=7,
     },
+    {
+        Name="Crescendo",
+        Tips="Three beams lock onto you — dodge before the swords fly through.",
+        AppearRound=13, AI="Crescendo",
+        MinInterval=25, MaxInterval=30,
+        BeamCount=3, ShatterBeamCount=5,
+        ShatterMinInterval=10, ShatterMaxInterval=15,
+        WarnTime=3,
+    },
 }
 
 -- ============================================================
@@ -331,7 +340,11 @@ end
 local function generateMap(round)
     clearMap()
     local radius   = getMapRadius(round)
-    local maxPlats = 85+round*45
+    -- Platform count matches shard count so every shard has a platform to land on
+    local shardRange = SHARD_RANGES[math.min(round,#SHARD_RANGES)]
+    local minShards  = shardRange[1]
+    local maxShards  = shardRange[2]
+    local maxPlats   = math.max(85+round*45, maxShards + 20)  -- at least enough for all shards + buffer
     local placed={}
 
     local function overlaps(cx,cz,hw,hd)
@@ -1813,6 +1826,189 @@ local function spawnGreed(def, platforms)
     print("[Devoid] Greed spawned")
 end
 
+-- CRESCENDO
+local function spawnCrescendo(def, platforms)
+    local timer = 0
+    local nextInterval = math.random(def.MinInterval, def.MaxInterval)
+    local active = false
+
+    local conn = RunService.Heartbeat:Connect(function(dt)
+        if GS.Phase=="DEAD" or GS.Phase=="LOBBY" then return end
+        timer += dt
+        if timer < nextInterval or active then return end
+        timer = 0
+        local minI = GS.IsShatter and def.ShatterMinInterval or def.MinInterval
+        local maxI = GS.IsShatter and def.ShatterMaxInterval or def.MaxInterval
+        nextInterval = math.random(minI, maxI)
+        active = true
+
+        task.spawn(function()
+            local hrp = getHRP(); if not hrp then active=false; return end
+
+            local beamCount = GS.IsShatter and def.ShatterBeamCount or def.BeamCount
+            local BEAM_LENGTH = 8000  -- extends endlessly in both directions
+            local beams = {}
+            local swordModels = {}
+
+            -- Build beams anchored on player position
+            local origin = hrp.Position
+
+            -- Generate beam directions: equally spaced angles around player
+            -- In Shatter: some beams are vertical (sky-to-ground)
+            local dirs = {}
+            for i = 1, beamCount do
+                local angle = (math.pi * 2 / beamCount) * (i - 1) + math.random() * 0.4
+                local vertical = GS.IsShatter and math.random() < 0.4  -- 40% chance vertical in shatter
+                if vertical then
+                    table.insert(dirs, {vec=Vector3.new(0,1,0), vertical=true})
+                else
+                    -- Random horizontal direction (diagonal or axis-aligned)
+                    local randAngle = math.random() * math.pi * 2
+                    table.insert(dirs, {
+                        vec=Vector3.new(math.cos(randAngle), 0, math.sin(randAngle)),
+                        vertical=false
+                    })
+                end
+            end
+
+            -- Spawn transparent red beams locked to player's current position
+            for i, dirData in ipairs(dirs) do
+                local d = dirData.vec
+                local beam = Instance.new("Part", MAP_FOLDER)
+                beam.Name = "CrescendoBeam"
+                beam.Size = Vector3.new(2.5, 2.5, BEAM_LENGTH)
+                beam.Anchored = true
+                beam.CanCollide = false
+                beam.Material = Enum.Material.Neon
+                beam.Color = Color3.fromRGB(220, 0, 0)
+                beam.Transparency = 0.72
+
+                -- Orient beam along its direction
+                if dirData.vertical then
+                    beam.CFrame = CFrame.new(origin) * CFrame.Angles(math.pi/2, 0, 0)
+                else
+                    beam.CFrame = CFrame.new(origin, origin + d)
+                end
+                beam.Position = origin  -- re-center so beam extends both ways
+
+                table.insert(beams, {part=beam, dir=dirData})
+            end
+
+            -- Warning label
+            local warnLbl = Instance.new("TextLabel", GUI)
+            warnLbl.Size = UDim2.new(0.6,0,0,44); warnLbl.Position = UDim2.new(0.2,0,0.3,0)
+            warnLbl.BackgroundTransparency = 1; warnLbl.TextColor3 = Color3.fromRGB(255,40,40)
+            warnLbl.TextScaled = true; warnLbl.Font = Enum.Font.GothamBold
+            warnLbl.Text = "⚠  DODGE THE BEAMS  ⚠"; warnLbl.ZIndex = 15
+            TweenService:Create(warnLbl, TweenInfo.new(2.8), {TextTransparency=1}):Play()
+            Debris:AddItem(warnLbl, 3)
+
+            -- Wait for dodge window
+            task.wait(def.WarnTime)
+            if GS.Phase == "DEAD" then
+                for _, b in ipairs(beams) do if b.part.Parent then b.part:Destroy() end end
+                active = false; return
+            end
+
+            -- Fire swords along each beam
+            for _, beamData in ipairs(beams) do
+                local b = beamData.part
+                local d = beamData.dir.vec
+                local isVert = beamData.dir.vertical
+
+                -- Sword model: narrow elongated part + tip
+                local sModel = Instance.new("Model", MAP_FOLDER); sModel.Name = "CrescendoSword"
+                local blade = Instance.new("Part", sModel)
+                blade.Size = Vector3.new(1, 1, 22)
+                blade.Material = Enum.Material.Neon
+                blade.Color = Color3.fromRGB(200, 80, 255)
+                blade.CanCollide = false; blade.Anchored = true
+
+                local tip = Instance.new("Part", sModel)
+                tip.Size = Vector3.new(0.5, 0.5, 5)
+                tip.Material = Enum.Material.Neon
+                tip.Color = Color3.fromRGB(255, 200, 255)
+                tip.CanCollide = false; tip.Anchored = true
+
+                -- Wings on sword
+                for _, side in ipairs({-1, 1}) do
+                    local wing = Instance.new("Part", sModel)
+                    wing.Size = Vector3.new(5, 0.4, 3)
+                    wing.Material = Enum.Material.Neon
+                    wing.Color = Color3.fromRGB(180, 50, 220)
+                    wing.CanCollide = false; wing.Anchored = true
+                    if isVert then
+                        wing.CFrame = CFrame.new(origin + Vector3.new(side*3.5, -50, 0))
+                    else
+                        wing.CFrame = CFrame.new(origin - d*50 + Vector3.new(side*3,0,0), origin - d*50 + d)
+                    end
+                end
+
+                -- Start sword 50 studs behind player along beam
+                local startPos = isVert and (origin + Vector3.new(0, 50, 0)) or (origin - d*50)
+                if isVert then
+                    blade.CFrame = CFrame.new(startPos) * CFrame.Angles(math.pi/2, 0, 0)
+                    tip.CFrame   = CFrame.new(startPos + Vector3.new(0, 13, 0)) * CFrame.Angles(math.pi/2, 0, 0)
+                else
+                    blade.CFrame = CFrame.new(startPos, startPos + d)
+                    tip.CFrame   = CFrame.new(startPos + d*13, startPos + d*14)
+                end
+
+                table.insert(swordModels, {model=sModel, blade=blade, dir=d, isVert=isVert, startPos=startPos})
+            end
+
+            -- Animate swords flying through beams
+            local elapsed = 0
+            local speed = 280  -- studs per second
+            local dmgCd = {}
+            local flyConn
+            flyConn = RunService.Heartbeat:Connect(function(fdt)
+                elapsed += fdt
+                local moved = speed * elapsed
+
+                for _, sw in ipairs(swordModels) do
+                    if not sw.blade.Parent then continue end
+                    local newPos
+                    if sw.isVert then
+                        newPos = sw.startPos - Vector3.new(0, moved, 0)
+                        sw.blade.CFrame = CFrame.new(newPos) * CFrame.Angles(math.pi/2, 0, 0)
+                        sw.tip.CFrame   = CFrame.new(newPos - Vector3.new(0, 13, 0)) * CFrame.Angles(math.pi/2, 0, 0)
+                    else
+                        newPos = sw.startPos + sw.dir * moved
+                        sw.blade.CFrame = CFrame.new(newPos, newPos + sw.dir)
+                        sw.tip.CFrame   = CFrame.new(newPos + sw.dir*13, newPos + sw.dir*14)
+                    end
+
+                    -- Damage player if close to blade
+                    local hrp2 = getHRP()
+                    if hrp2 then
+                        local dist = (hrp2.Position - newPos).Magnitude
+                        if dist < 6 then
+                            local now = tick()
+                            if not dmgCd[sw] or now - dmgCd[sw] > 0.2 then
+                                dmgCd[sw] = now
+                                local hum = getHum()
+                                if hum and hum.Health > 0 then hum.Health = 0 end
+                            end
+                        end
+                    end
+                end
+
+                -- Remove everything after sword fully travels
+                if elapsed > BEAM_LENGTH / speed + 0.5 then
+                    flyConn:Disconnect()
+                    for _, b in ipairs(beams) do if b.part.Parent then b.part:Destroy() end end
+                    for _, sw in ipairs(swordModels) do if sw.model.Parent then sw.model:Destroy() end end
+                    active = false
+                end
+            end)
+            table.insert(GS.EntityConns, flyConn)
+        end)
+    end)
+    table.insert(GS.EntityConns, conn)
+    print("[Devoid] Crescendo spawned")
+end
+
 -- Spawn dispatcher
 local function spawnEntities(platforms)
     for _,c in ipairs(GS.EntityConns) do c:Disconnect() end;GS.EntityConns={}
@@ -1837,6 +2033,7 @@ local function spawnEntities(platforms)
             elseif def.AI=="Malware"    then spawnMalware(def,platforms)
             elseif def.AI=="HookedDoll" then spawnHookedDoll(def,platforms)
             elseif def.AI=="Greed"      then spawnGreed(def,platforms)
+            elseif def.AI=="Crescendo"  then spawnCrescendo(def,platforms)
             end
         end
     end
@@ -1958,6 +2155,7 @@ startRound=function()
 
     if GS.RandomMode then
         -- Random Mode: spawn 1 random entity immediately, then every 20s another
+        -- Eligible = ALL entities up to current round (includes round 13+ when in that range)
         local function spawnRandomEntity()
             local eligible={}
             for _,e in ipairs(EntityRegistry) do
@@ -1976,12 +2174,11 @@ startRound=function()
             elseif def.AI=="Malware"    then spawnMalware(def,platforms)
             elseif def.AI=="HookedDoll" then spawnHookedDoll(def,platforms)
             elseif def.AI=="Greed"      then spawnGreed(def,platforms)
+            elseif def.AI=="Crescendo"  then spawnCrescendo(def,platforms)
             end
         end
         spawnRandomEntity()
-        -- Periodic random spawns every 20s
-        local rmConn
-        rmConn = task.spawn(function()
+        task.spawn(function()
             while GS.Phase=="PLAYING" or GS.Phase=="SHATTER" do
                 task.wait(20)
                 if GS.Phase~="PLAYING" and GS.Phase~="SHATTER" then break end
@@ -2719,7 +2916,7 @@ buildLobby()
 startCollectionLoop()
 
 print("╔════════════════════════════════════╗")
-print("║  DEVOID v8 — loaded                 ║")
+print("║  DEVOID v9 — loaded                 ║")
 print("║  Entities : "..#EntityRegistry.."                   ║")
 print("║  Upgrades : "..#UpgradeRegistry.."                    ║")
 print("║  Map  Y   = "..MAP_Y.."               ║")
