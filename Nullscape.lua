@@ -142,10 +142,19 @@ local EntityRegistry = {
         Name="Hooked Doll",
         Tips="Avoid black platforms and don't collect leaking shards unless you can handle the fling.",
         AppearRound=13, AI="HookedDoll",
-        Speed=5,
+        Speed=10,
         InfectDuration=5,
         ShardLeakDuration=5,
         ShardDamage=30,
+    },
+    {
+        Name="Greed",
+        Tips="Collect exactly what it demands before time runs out, or you die.",
+        AppearRound=13, AI="Greed",
+        MinInterval=34, MaxInterval=45,
+        Demand=0,  -- set dynamically
+        WarnTime=3, TimerDuration=10,
+        ShatterMinDemand=10, ShatterMaxDemand=20, ShatterTimerDuration=7,
     },
 }
 
@@ -158,6 +167,10 @@ local GS = {
     RealityShards={}, CosmicShards={}, MapPlatforms={},
     Entities={}, EntityConns={}, PickedEntities={}, BeaconChoices={},
     PickedAtLeastOne=false,
+    ShatterStartTick=0,   -- for grace period before beacon can complete round
+    RandomMode=false,     -- random mode flag
+    RandomModeMultiplier=false, -- 3x shard gain
+    RandomModeEntityTimer=0,
     -- entity pick-count cap (max 3 times per entity per lobby)
     PickCounts={},
     -- entities that persist across all future rounds (accumulated)
@@ -1529,6 +1542,12 @@ local function spawnHookedDoll(def, platforms)
             end
         end
 
+        -- Kill on direct contact with body
+        if (hrp.Position-body.Position).Magnitude < 4.5 then
+            local hum2=getHum()
+            if hum2 and hum2.Health>0 then hum2.Health=0 end
+        end
+
         -- Infect nearby platforms
         for _,p in ipairs(GS.MapPlatforms) do
             if p and p.Parent and not p:GetAttribute("HookInfected") then
@@ -1647,6 +1666,153 @@ local function spawnHookedDoll(def, platforms)
     print("[Devoid] Hooked Doll spawned")
 end
 
+-- GREED
+local function spawnGreed(def, platforms)
+    local timer = 0
+    local nextInterval = math.random(def.MinInterval, def.MaxInterval)
+    local greedActive = false
+
+    local conn = RunService.Heartbeat:Connect(function(dt)
+        if GS.Phase=="DEAD" or GS.Phase=="LOBBY" then return end
+        timer += dt
+        if timer < nextInterval or greedActive then return end
+        timer = 0
+        nextInterval = math.random(def.MinInterval, def.MaxInterval)
+        greedActive = true
+
+        task.spawn(function()
+            -- Pick shard demand
+            local demand
+            if GS.IsShatter then
+                demand = math.random(def.ShatterMinDemand, def.ShatterMaxDemand)
+            else
+                demand = math.random(5, 15)
+            end
+            local collected = 0
+            local timerDur = GS.IsShatter and def.ShatterTimerDuration or def.TimerDuration
+
+            -- Build smiley face GUI
+            local face = mkFrame(GUI, {
+                Size = UDim2.new(0,180,0,220),
+                Position = UDim2.new(0.5,-90,0.08,0),
+                BackgroundColor3 = Color3.fromRGB(60,200,60),
+                BackgroundTransparency = 0.05,
+                ZIndex = 35,
+            }); corner(face, 90)
+
+            -- Eyes showing $ for first 3s
+            local eye1 = mkLabel(face, {
+                Size=UDim2.new(0,50,0,50), Position=UDim2.new(0.12,0,0.12,0),
+                BackgroundColor3=Color3.fromRGB(0,0,0), BackgroundTransparency=0,
+                TextColor3=Color3.fromRGB(255,215,0), TextScaled=true,
+                Font=Enum.Font.GothamBold, Text="$", ZIndex=36,
+            }); corner(eye1,25)
+            local eye2 = mkLabel(face, {
+                Size=UDim2.new(0,50,0,50), Position=UDim2.new(0.6,0,0.12,0),
+                BackgroundColor3=Color3.fromRGB(0,0,0), BackgroundTransparency=0,
+                TextColor3=Color3.fromRGB(255,215,0), TextScaled=true,
+                Font=Enum.Font.GothamBold, Text="$", ZIndex=36,
+            }); corner(eye2,25)
+
+            -- Smile
+            local smile = mkLabel(face, {
+                Size=UDim2.new(0.75,0,0,36), Position=UDim2.new(0.125,0,0.58,0),
+                BackgroundTransparency=1, TextColor3=Color3.fromRGB(0,0,0),
+                TextScaled=true, Font=Enum.Font.GothamBold, Text="^___^", ZIndex=36,
+            })
+
+            -- Top label
+            local topLbl = mkLabel(face, {
+                Size=UDim2.new(1,0,0,30), Position=UDim2.new(0,0,-0.18,0),
+                BackgroundTransparency=1, TextColor3=Color3.fromRGB(255,230,0),
+                TextScaled=true, Font=Enum.Font.GothamBold, Text="REMEMBER!!!", ZIndex=36,
+            })
+
+            -- Progress label
+            local progLbl = mkLabel(face, {
+                Size=UDim2.new(1,0,0,26), Position=UDim2.new(0,0,0.82,0),
+                BackgroundTransparency=1, TextColor3=Color3.fromRGB(255,255,255),
+                TextScaled=true, Font=Enum.Font.Gotham, Text="0/"..demand, ZIndex=36,
+            })
+
+            -- Timer bar background
+            local timerBg = mkFrame(face, {
+                Size=UDim2.new(1,0,0,10), Position=UDim2.new(0,0,0.94,0),
+                BackgroundColor3=Color3.fromRGB(40,40,40), ZIndex=36,
+            })
+            local timerBar = mkFrame(timerBg, {
+                Size=UDim2.new(1,0,1,0), BackgroundColor3=Color3.fromRGB(80,255,80), ZIndex=37,
+            })
+
+            task.wait(def.WarnTime)
+            if GS.Phase=="DEAD" then face:Destroy(); greedActive=false; return end
+
+            -- Reveal number eyes: tens digit / ones digit
+            local tens = math.floor(demand/10)
+            local ones = demand % 10
+            eye1.Text = tostring(tens); eye1.TextColor3 = Color3.fromRGB(255,255,255)
+            eye2.Text = tostring(ones); eye2.TextColor3 = Color3.fromRGB(255,255,255)
+            smile.Text = "·_·"
+
+            -- Countdown + collection check
+            local elapsed = 0
+            local done = false
+            local countConn
+            countConn = RunService.Heartbeat:Connect(function(cdt)
+                if not face.Parent then countConn:Disconnect(); return end
+                if GS.Phase=="DEAD" then face:Destroy(); countConn:Disconnect(); greedActive=false; return end
+                elapsed += cdt
+                local frac = math.max(0, 1 - elapsed/timerDur)
+                timerBar.Size = UDim2.new(frac,0,1,0)
+                timerBar.BackgroundColor3 = Color3.fromHSV(frac*0.33, 1, 1)  -- green→red
+
+                -- Count collected shards near player
+                local hrp = getHRP()
+                if hrp then
+                    -- Check reality shards
+                    for i=#GS.RealityShards,1,-1 do
+                        local s=GS.RealityShards[i]
+                        if s and s.Parent and (hrp.Position-s.Position).Magnitude<5.5 then
+                            collected+=1; progLbl.Text=collected.."/"..demand
+                        end
+                    end
+                    -- Check cosmic shards during shatter
+                    if GS.IsShatter then
+                        for i=#GS.CosmicShards,1,-1 do
+                            local s=GS.CosmicShards[i]
+                            if s and s.Parent and (hrp.Position-s.Position).Magnitude<5.5 then
+                                collected+=1; progLbl.Text=collected.."/"..demand
+                            end
+                        end
+                    end
+                end
+
+                if collected >= demand and not done then
+                    done = true; countConn:Disconnect()
+                    smile.Text = ":)"; topLbl.Text = "Thank You."
+                    eye1.Text = "^"; eye2.Text = "^"
+                    face.BackgroundColor3 = Color3.fromRGB(80,255,80)
+                    task.wait(1.5)
+                    if face.Parent then
+                        TweenService:Create(face,TweenInfo.new(0.5),{BackgroundTransparency=1}):Play()
+                        Debris:AddItem(face, 0.6)
+                    end
+                    greedActive = false
+                elseif elapsed >= timerDur and not done then
+                    done = true; countConn:Disconnect()
+                    -- Kill player
+                    local hum = getHum()
+                    if hum and hum.Health > 0 then hum.Health = 0 end
+                    if face.Parent then face:Destroy() end
+                    greedActive = false
+                end
+            end)
+        end)
+    end)
+    table.insert(GS.EntityConns, conn)
+    print("[Devoid] Greed spawned")
+end
+
 -- Spawn dispatcher
 local function spawnEntities(platforms)
     for _,c in ipairs(GS.EntityConns) do c:Disconnect() end;GS.EntityConns={}
@@ -1670,6 +1836,7 @@ local function spawnEntities(platforms)
             elseif def.AI=="Distortion" then spawnDistortion(def,platforms)
             elseif def.AI=="Malware"    then spawnMalware(def,platforms)
             elseif def.AI=="HookedDoll" then spawnHookedDoll(def,platforms)
+            elseif def.AI=="Greed"      then spawnGreed(def,platforms)
             end
         end
     end
@@ -1680,6 +1847,7 @@ end
 -- ============================================================
 local function startShatter(platforms)
     GS.IsShatter=true;GS.Phase="SHATTER"
+    GS.ShatterStartTick=tick()   -- grace period starts here
     lblPhase.Text="⚠  SHATTER";lblPhase.Visible=true
     lblShatterWarn.Visible=true;lblShatterWarn.TextTransparency=0
     TweenService:Create(lblShatterWarn,TweenInfo.new(2.5),{TextTransparency=1}):Play()
@@ -1776,10 +1944,54 @@ startRound=function()
     GS.CollectedReality=0;GS.CollectedCosmic=0
     lblRound.Text="PM "..(GS.Round-1)..":00"
     lblReality.Text="Reality Shards: 0 / ..."
+
+    -- Purple fog starts permanently from round 10
+    if GS.Round>=10 then
+        Lighting.FogColor=Color3.fromRGB(80,0,140)
+        Lighting.FogEnd=600
+        Lighting.FogStart=80
+    end
+
     local platforms=generateMap(GS.Round)
     local count=getShardCount(GS.Round)
     spawnRealityShards(count,platforms)
-    spawnEntities(platforms)
+
+    if GS.RandomMode then
+        -- Random Mode: spawn 1 random entity immediately, then every 20s another
+        local function spawnRandomEntity()
+            local eligible={}
+            for _,e in ipairs(EntityRegistry) do
+                if e.AppearRound<=GS.Round then table.insert(eligible,e) end
+            end
+            if #eligible==0 then return end
+            local def=eligible[math.random(1,#eligible)]
+            if     def.AI=="Follower"   then spawnFollower(def,platforms)
+            elseif def.AI=="Seed"       then spawnSeed(def,platforms)
+            elseif def.AI=="Target"     then spawnTarget(def,platforms)
+            elseif def.AI=="Wormhole"   then spawnWormhole(def,platforms)
+            elseif def.AI=="helloworld" then spawnHelloworld(def,platforms)
+            elseif def.AI=="Keeper"     then spawnKeeper(def,platforms)
+            elseif def.AI=="Camera"     then spawnCameraEntity(def,platforms)
+            elseif def.AI=="Distortion" then spawnDistortion(def,platforms)
+            elseif def.AI=="Malware"    then spawnMalware(def,platforms)
+            elseif def.AI=="HookedDoll" then spawnHookedDoll(def,platforms)
+            elseif def.AI=="Greed"      then spawnGreed(def,platforms)
+            end
+        end
+        spawnRandomEntity()
+        -- Periodic random spawns every 20s
+        local rmConn
+        rmConn = task.spawn(function()
+            while GS.Phase=="PLAYING" or GS.Phase=="SHATTER" do
+                task.wait(20)
+                if GS.Phase~="PLAYING" and GS.Phase~="SHATTER" then break end
+                spawnRandomEntity()
+            end
+        end)
+    else
+        spawnEntities(platforms)
+    end
+
     -- Apply Speedy stacks
     local hum2=getHum()
     if hum2 and GS.Upgrades._SpeedyStacks then
@@ -1806,10 +2018,11 @@ local function startCollectionLoop()
                 if s and s.Parent and (pos-s.Position).Magnitude<5.5 then
                     local isRealimic=(s.Name=="RealimicShard")
                     s:Destroy();table.remove(GS.RealityShards,i)
-                    GS.CollectedReality+=1
+                    -- RandomMode: 3x reality count (not realimic)
+                    local realAdd = (GS.RandomModeMultiplier and not isRealimic) and 3 or 1
+                    GS.CollectedReality += realAdd
                     if isRealimic then
-                        -- Realimic: gives 1 reality + 1 cosmic bank
-                        local gain = GS.Upgrades.MoreIncome and 2 or 1
+                        local gain=(GS.Upgrades.MoreIncome and 2 or 1)
                         GS.CosmicBank+=gain; updateBankLabels()
                     end
                     lblReality.Text="Reality Shards: "..GS.CollectedReality.." / "..GS.TotalShards
@@ -1826,15 +2039,17 @@ local function startCollectionLoop()
                 if s and s.Parent and (pos-s.Position).Magnitude<5.5 then
                     s:Destroy();table.remove(GS.CosmicShards,i)
                     GS.CollectedCosmic+=1
-                    local gain = GS.Upgrades.MoreIncome and 2 or 1
-                    GS.CosmicBank = GS.CosmicBank + gain
+                    -- RandomMode: 3x cosmic bank gain
+                    local gain=(GS.Upgrades.MoreIncome and 2 or 1)*(GS.RandomModeMultiplier and 3 or 1)
+                    GS.CosmicBank=GS.CosmicBank+gain
                     if updateBankLabels then updateBankLabels() end
                     lblCosmic.Text="Cosmic Shards: "..GS.CollectedCosmic.." / "..GS.TotalShards
                 end
             end
-            -- Beacon touch = voluntarily end round (player must walk into it)
+            -- Beacon touch = voluntarily end round — 6s grace period prevents instant trigger
             local beaconPos=Vector3.new(0,MAP_Y+4,0)
-            if (pos-beaconPos).Magnitude<10 then completeRound() end
+            local gracePassed = tick()-GS.ShatterStartTick > 6
+            if gracePassed and (pos-beaconPos).Magnitude<10 then completeRound() end
         end
     end)
 end
@@ -2340,6 +2555,71 @@ buildLobby=function()
         end)
     end
 
+    -- Random Mode offer: every multiple of 10 (10,20,30...)
+    if GS.Round>=10 and GS.Round%10==0 and not GS.RandomMode then
+        task.delay(1.5, function()
+            -- Dark overlay
+            local overlay=mkFrame(GUI,{
+                Size=UDim2.new(1,0,1,0),
+                BackgroundColor3=Color3.fromRGB(0,0,0),BackgroundTransparency=0.45,
+                ZIndex=40,
+            })
+            local offerBox=mkFrame(GUI,{
+                Size=UDim2.new(0,480,0,320),
+                Position=UDim2.new(0.5,-240,0.5,-160),
+                BackgroundColor3=Color3.fromRGB(12,6,28),BackgroundTransparency=0.08,
+                ZIndex=41,
+            }); corner(offerBox,14)
+
+            mkLabel(offerBox,{
+                Size=UDim2.new(1,0,0,52),Position=UDim2.new(0,0,0,0),
+                BackgroundTransparency=1,TextColor3=Color3.fromRGB(255,200,40),
+                TextScaled=true,Font=Enum.Font.GothamBold,Text="Random Mode",ZIndex=42,
+            })
+            mkLabel(offerBox,{
+                Size=UDim2.new(0.9,0,0,60),Position=UDim2.new(0.05,0,0.18,0),
+                BackgroundTransparency=1,TextColor3=Color3.fromRGB(200,190,255),
+                TextScaled=true,Font=Enum.Font.Gotham,TextWrapped=true,ZIndex=42,
+                Text="\"You get filthy rich — we freed the entities to make some space.\"",
+            })
+            mkLabel(offerBox,{
+                Size=UDim2.new(0.9,0,0,44),Position=UDim2.new(0.05,0,0.42,0),
+                BackgroundTransparency=1,TextColor3=Color3.fromRGB(100,255,120),
+                TextScaled=true,Font=Enum.Font.Gotham,TextWrapped=true,ZIndex=42,
+                Text="3x Reality + Cosmic gain permanently (except Realimic)\nEntities spawn randomly every 20s",
+            })
+
+            local yesBtn=mkBtn(offerBox,{
+                Size=UDim2.new(0,140,0,48),Position=UDim2.new(0.08,0,0.74,0),
+                BackgroundColor3=Color3.fromRGB(30,160,30),TextColor3=Color3.fromRGB(255,255,255),
+                TextScaled=true,Font=Enum.Font.GothamBold,Text="Yes",ZIndex=42,
+            }); corner(yesBtn,10)
+            local noBtn=mkBtn(offerBox,{
+                Size=UDim2.new(0,140,0,48),Position=UDim2.new(0.62,0,0.74,0),
+                BackgroundColor3=Color3.fromRGB(160,30,30),TextColor3=Color3.fromRGB(255,255,255),
+                TextScaled=true,Font=Enum.Font.GothamBold,Text="No",ZIndex=42,
+            }); corner(noBtn,10)
+
+            local function closeOffer()
+                overlay:Destroy(); offerBox:Destroy()
+            end
+            yesBtn.MouseButton1Click:Connect(function()
+                GS.RandomMode=true; GS.RandomModeMultiplier=true
+                closeOffer()
+                -- Show brief confirmation
+                local conf=mkLabel(GUI,{
+                    Size=UDim2.new(0.7,0,0,52),Position=UDim2.new(0.15,0,0.45,0),
+                    BackgroundTransparency=1,TextColor3=Color3.fromRGB(100,255,120),
+                    TextScaled=true,Font=Enum.Font.GothamBold,
+                    Text="Random Mode Activated!",ZIndex=43,
+                })
+                TweenService:Create(conf,TweenInfo.new(2.5),{TextTransparency=1}):Play()
+                Debris:AddItem(conf,2.6)
+            end)
+            noBtn.MouseButton1Click:Connect(closeOffer)
+        end)
+    end
+
     task.wait(0.2)
     character:PivotTo(CFrame.new(0,LOBBY_Y+6,-42))
 end
@@ -2353,6 +2633,9 @@ btnRetry.MouseButton1Click:Connect(function()
     GS.PersistentEntities={}
     GS.RerollsLeft=MAX_REROLLS;GS.IsShatter=false
     GS.Upgrades={};GS.CosmicBank=0;updateBankLabels()
+    GS.RandomMode=false;GS.RandomModeMultiplier=false
+    -- Reset fog
+    Lighting.FogColor=Color3.fromRGB(8,4,18);Lighting.FogEnd=1000;Lighting.FogStart=350
     HUD.Visible=false;lblCosmic.Visible=false;lblPhase.Visible=false
     lblRound.Text="PM 0:00";lblReality.Text="Reality Shards: 0 / 0"
     clearMap();buildLobby()
@@ -2436,7 +2719,7 @@ buildLobby()
 startCollectionLoop()
 
 print("╔════════════════════════════════════╗")
-print("║  DEVOID v7 — loaded                 ║")
+print("║  DEVOID v8 — loaded                 ║")
 print("║  Entities : "..#EntityRegistry.."                   ║")
 print("║  Upgrades : "..#UpgradeRegistry.."                    ║")
 print("║  Map  Y   = "..MAP_Y.."               ║")
