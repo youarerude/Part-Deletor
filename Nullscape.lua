@@ -1846,23 +1846,17 @@ local function spawnCrescendo(def, platforms)
             local hrp = getHRP(); if not hrp then active=false; return end
 
             local beamCount = GS.IsShatter and def.ShatterBeamCount or def.BeamCount
-            local BEAM_LENGTH = 8000  -- extends endlessly in both directions
+            local BEAM_LENGTH = 8000
             local beams = {}
             local swordModels = {}
 
-            -- Build beams anchored on player position
-            local origin = hrp.Position
-
-            -- Generate beam directions: equally spaced angles around player
-            -- In Shatter: some beams are vertical (sky-to-ground)
+            -- Generate fixed directions for this attack (random per-fire)
             local dirs = {}
             for i = 1, beamCount do
-                local angle = (math.pi * 2 / beamCount) * (i - 1) + math.random() * 0.4
-                local vertical = GS.IsShatter and math.random() < 0.4  -- 40% chance vertical in shatter
+                local vertical = GS.IsShatter and math.random() < 0.4
                 if vertical then
                     table.insert(dirs, {vec=Vector3.new(0,1,0), vertical=true})
                 else
-                    -- Random horizontal direction (diagonal or axis-aligned)
                     local randAngle = math.random() * math.pi * 2
                     table.insert(dirs, {
                         vec=Vector3.new(math.cos(randAngle), 0, math.sin(randAngle)),
@@ -1871,28 +1865,44 @@ local function spawnCrescendo(def, platforms)
                 end
             end
 
-            -- Spawn transparent red beams locked to player's current position
-            for i, dirData in ipairs(dirs) do
+            -- Spawn beams
+            for _, dirData in ipairs(dirs) do
                 local d = dirData.vec
                 local beam = Instance.new("Part", MAP_FOLDER)
                 beam.Name = "CrescendoBeam"
                 beam.Size = Vector3.new(2.5, 2.5, BEAM_LENGTH)
-                beam.Anchored = true
-                beam.CanCollide = false
+                beam.Anchored = true; beam.CanCollide = false
                 beam.Material = Enum.Material.Neon
                 beam.Color = Color3.fromRGB(220, 0, 0)
                 beam.Transparency = 0.72
-
-                -- Orient beam along its direction
-                if dirData.vertical then
-                    beam.CFrame = CFrame.new(origin) * CFrame.Angles(math.pi/2, 0, 0)
-                else
-                    beam.CFrame = CFrame.new(origin, origin + d)
-                end
-                beam.Position = origin  -- re-center so beam extends both ways
-
                 table.insert(beams, {part=beam, dir=dirData})
             end
+
+            -- Track beams following player during WarnTime
+            local warnElapsed = 0
+            local followConn
+            followConn = RunService.Heartbeat:Connect(function(dt)
+                warnElapsed += dt
+                local hrp2 = getHRP()
+                if not hrp2 then followConn:Disconnect(); return end
+                local pos = hrp2.Position
+                for _, beamData in ipairs(beams) do
+                    local b = beamData.part
+                    if not b.Parent then continue end
+                    local d = beamData.dir.vec
+                    if beamData.dir.vertical then
+                        b.CFrame = CFrame.new(pos) * CFrame.Angles(math.pi/2, 0, 0)
+                    else
+                        -- Keep beam centered on player, oriented along d
+                        b.CFrame = CFrame.new(pos, pos + d)
+                        b.CFrame = CFrame.new(pos) * (b.CFrame - b.CFrame.Position)
+                        -- Simpler: just LookAt + position
+                        local lookCF = CFrame.lookAt(pos, pos + d)
+                        b.CFrame = lookCF
+                    end
+                end
+                if warnElapsed >= def.WarnTime then followConn:Disconnect() end
+            end)
 
             -- Warning label
             local warnLbl = Instance.new("TextLabel", GUI)
@@ -1905,18 +1915,27 @@ local function spawnCrescendo(def, platforms)
 
             -- Wait for dodge window
             task.wait(def.WarnTime)
+            followConn:Disconnect()
+
             if GS.Phase == "DEAD" then
                 for _, b in ipairs(beams) do if b.part.Parent then b.part:Destroy() end end
                 active = false; return
             end
 
-            -- Fire swords along each beam
+            -- Snapshot player position when swords fire (beams lock here)
+            local fireOrigin = getHRP() and getHRP().Position or hrp.Position
+
+            -- Destroy beams NOW — before swords fire
+            for _, b in ipairs(beams) do
+                if b.part.Parent then b.part:Destroy() end
+            end
+
+            -- Fire swords along each beam direction
             for _, beamData in ipairs(beams) do
-                local b = beamData.part
                 local d = beamData.dir.vec
                 local isVert = beamData.dir.vertical
 
-                -- Sword model: narrow elongated part + tip
+                -- Sword model
                 local sModel = Instance.new("Model", MAP_FOLDER); sModel.Name = "CrescendoSword"
                 local blade = Instance.new("Part", sModel)
                 blade.Size = Vector3.new(1, 1, 22)
@@ -1930,7 +1949,7 @@ local function spawnCrescendo(def, platforms)
                 tip.Color = Color3.fromRGB(255, 200, 255)
                 tip.CanCollide = false; tip.Anchored = true
 
-                -- Wings on sword
+                -- Wings
                 for _, side in ipairs({-1, 1}) do
                     local wing = Instance.new("Part", sModel)
                     wing.Size = Vector3.new(5, 0.4, 3)
@@ -1938,14 +1957,14 @@ local function spawnCrescendo(def, platforms)
                     wing.Color = Color3.fromRGB(180, 50, 220)
                     wing.CanCollide = false; wing.Anchored = true
                     if isVert then
-                        wing.CFrame = CFrame.new(origin + Vector3.new(side*3.5, -50, 0))
+                        wing.CFrame = CFrame.new(fireOrigin + Vector3.new(side*3.5, 50, 0))
                     else
-                        wing.CFrame = CFrame.new(origin - d*50 + Vector3.new(side*3,0,0), origin - d*50 + d)
+                        wing.CFrame = CFrame.new(fireOrigin - d*50 + Vector3.new(side*3,0,0), fireOrigin - d*50 + d)
                     end
                 end
 
-                -- Start sword 50 studs behind player along beam
-                local startPos = isVert and (origin + Vector3.new(0, 50, 0)) or (origin - d*50)
+                -- Start sword 50 studs behind player
+                local startPos = isVert and (fireOrigin + Vector3.new(0, 50, 0)) or (fireOrigin - d*50)
                 if isVert then
                     blade.CFrame = CFrame.new(startPos) * CFrame.Angles(math.pi/2, 0, 0)
                     tip.CFrame   = CFrame.new(startPos + Vector3.new(0, 13, 0)) * CFrame.Angles(math.pi/2, 0, 0)
