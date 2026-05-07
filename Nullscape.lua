@@ -339,12 +339,17 @@ end
 
 local function generateMap(round)
     clearMap()
-    local radius   = getMapRadius(round)
-    -- Platform count matches shard count so every shard has a platform to land on
+    -- Shard count for this round
     local shardRange = SHARD_RANGES[math.min(round,#SHARD_RANGES)]
-    local minShards  = shardRange[1]
     local maxShards  = shardRange[2]
-    local maxPlats   = math.max(85+round*45, maxShards + 20)  -- at least enough for all shards + buffer
+    -- Platform count = at least shardCount + 25 buffer (so every shard has a platform)
+    local maxPlats   = math.max(85+round*45, maxShards + 25)
+    -- Radius must be large enough to physically fit maxPlats platforms
+    -- avg platform ~15 studs wide, ~5 stud gap → ~20 studs per platform in a grid
+    -- area needed ≈ maxPlats * 400 studs²  → radius ≈ sqrt(maxPlats*400/pi)
+    local baseRadius = getMapRadius(round)
+    local neededRadius = math.ceil(math.sqrt(maxPlats * 500 / math.pi))
+    local radius = math.max(baseRadius, neededRadius)
     local placed={}
 
     local function overlaps(cx,cz,hw,hd)
@@ -374,10 +379,10 @@ local function generateMap(round)
     local DIRS={{1,0},{-1,0},{0,1},{0,-1}}
     local iter=0
 
-    while #GS.MapPlatforms<maxPlats and iter<18000 do
+    while #GS.MapPlatforms<maxPlats and iter<60000 do
         iter+=1
         if #frontier==0 then break end
-        local base=frontier[math.random(1,math.min(#frontier,30))]
+        local base=frontier[math.random(1,math.min(#frontier,60))]
         local dir=DIRS[math.random(1,4)]
         local def=PLAT_DEFS[math.random(1,#PLAT_DEFS)]
         local nhw=def[1]/2; local nhd=def[2]/2
@@ -394,7 +399,7 @@ local function generateMap(round)
         if overlaps(cx,cz,nhw,nhd) then continue end
         makePlat(cx,cz,def)
         table.insert(frontier,{cx=cx,cz=cz,hw=nhw,hd=nhd})
-        if #frontier>70 then table.remove(frontier,1) end
+        if #frontier>120 then table.remove(frontier,1) end
     end
 
     return GS.MapPlatforms
@@ -2214,6 +2219,9 @@ startRound=function()
     if hum2 and GS.Upgrades._SpeedyStacks then
         hum2.WalkSpeed=16+(GS.Upgrades._SpeedyStacks*5)
     end
+    -- Spawn fatal entities (persists like normal entities)
+    spawnFatalEntities(platforms)
+    GS.FatalBeaconsDone=false  -- reset for next fatal round
     local hrp=getHRP(); if hrp then character:PivotTo(CFrame.new(0,MAP_Y+5,0)) end
     print("[Devoid] Round "..GS.Round.." | Platforms: "..#platforms.." | Shards: "..count)
 end
@@ -2772,6 +2780,111 @@ buildLobby=function()
         end)
     end
 
+    if GS.Round==25 then
+        task.delay(1, function()
+            local lbl=Instance.new("TextLabel",GUI)
+            lbl.Size=UDim2.new(0.85,0,0,62);lbl.Position=UDim2.new(0.075,0,0.4,0)
+            lbl.BackgroundColor3=Color3.fromRGB(25,0,4);lbl.BackgroundTransparency=0.3
+            lbl.TextColor3=Color3.fromRGB(255,20,20)
+            lbl.TextScaled=true;lbl.Font=Enum.Font.GothamBold;lbl.TextWrapped=true
+            lbl.Text="The 3rd gates of void opens, freeing the cosmic disasters."
+            lbl.ZIndex=18;lbl.TextTransparency=1; corner(lbl,10)
+            TweenService:Create(lbl,TweenInfo.new(1.2),{TextTransparency=0,BackgroundTransparency=0.28}):Play()
+            task.delay(5,function()
+                TweenService:Create(lbl,TweenInfo.new(2),{TextTransparency=1,BackgroundTransparency=1}):Play()
+                Debris:AddItem(lbl,2.2)
+            end)
+        end)
+    end
+
+    -- Fatal entity beacons: round 25 and every 2+ rounds after (25,27,29,31…)
+    local isFatalRound = GS.Round>=25 and (GS.Round==25 or (GS.Round-25)%2==0)
+    if isFatalRound and not GS.FatalBeaconsDone then
+        GS.ShowingFatalBeacons = true
+        -- Fatal beacons above normal beacons: dark red orbs
+        local fatalPool={}
+        for _,e in ipairs(FatalEntityRegistry) do
+            if e.AppearRound<=GS.Round then
+                local cnt=GS.FatalPickCounts[e.Name] or 0
+                if cnt<MAX_FATAL_PICKS then table.insert(fatalPool,e) end
+            end
+        end
+        GS.FatalBeaconChoices = {}
+        for i=1,math.min(BEACON_COUNT,#fatalPool) do
+            table.insert(GS.FatalBeaconChoices, fatalPool[i])
+        end
+        -- Display fatal beacons
+        local fbxs={-40,0,40}
+        for i=1,math.min(BEACON_COUNT,#GS.FatalBeaconChoices) do
+            local bx=fbxs[i]; local bz=22; local by=LOBBY_Y+1.5
+            local fBase=Instance.new("Part",LOBBY_FOLDER)
+            fBase.Name="FatalBeaconBase_"..i; fBase.Size=Vector3.new(10,1,10)
+            fBase.Position=Vector3.new(bx,by+20,bz); fBase.Anchored=true
+            fBase.Material=Enum.Material.SmoothPlastic; fBase.Color=Color3.fromRGB(50,0,0)
+            local fPillar=Instance.new("Part",LOBBY_FOLDER)
+            fPillar.Size=Vector3.new(2,12,2); fPillar.Position=Vector3.new(bx,by+26,bz)
+            fPillar.Anchored=true; fPillar.Material=Enum.Material.Neon; fPillar.Color=Color3.fromRGB(180,0,0)
+            local fOrb=Instance.new("Part",LOBBY_FOLDER)
+            fOrb.Name="FatalBeaconOrb_"..i; fOrb.Shape=Enum.PartType.Ball; fOrb.Size=Vector3.new(3.5,3.5,3.5)
+            fOrb.Position=Vector3.new(bx,by+34,bz); fOrb.Anchored=true; fOrb.CanCollide=false
+            fOrb.Material=Enum.Material.Neon; fOrb.Color=Color3.fromRGB(200,0,0)
+            local fbb=Instance.new("BillboardGui",fOrb)
+            fbb.Size=UDim2.new(0,235,0,140); fbb.StudsOffset=Vector3.new(0,4,0); fbb.AlwaysOnTop=true; fbb.LightInfluence=0
+            local fbg=Instance.new("Frame",fbb); fbg.Size=UDim2.new(1,0,1,0)
+            fbg.BackgroundColor3=Color3.fromRGB(25,0,0); fbg.BackgroundTransparency=0.28; corner(fbg,10)
+            local fTitle=Instance.new("TextLabel",fbg)
+            fTitle.Size=UDim2.new(1,0,0,22); fTitle.BackgroundTransparency=1
+            fTitle.TextColor3=Color3.fromRGB(255,50,50); fTitle.TextScaled=true
+            fTitle.Font=Enum.Font.GothamBold; fTitle.Text="⚠ FATAL ENTITY"
+            local fnmL=Instance.new("TextLabel",fbg)
+            fnmL.Name="FatalName"; fnmL.Size=UDim2.new(1,-8,0.38,0); fnmL.Position=UDim2.new(0,4,0.2,0)
+            fnmL.BackgroundTransparency=1; fnmL.TextColor3=Color3.fromRGB(255,120,120)
+            fnmL.TextScaled=true; fnmL.Font=Enum.Font.GothamBold; fnmL.Text=GS.FatalBeaconChoices[i].Name
+            local ftpL=Instance.new("TextLabel",fbg)
+            ftpL.Size=UDim2.new(1,-8,0.38,0); ftpL.Position=UDim2.new(0,4,0.58,0)
+            ftpL.BackgroundTransparency=1; ftpL.TextColor3=Color3.fromRGB(220,160,160)
+            ftpL.TextScaled=true; ftpL.Font=Enum.Font.Gotham; ftpL.TextWrapped=true
+            ftpL.Text="💡 "..GS.FatalBeaconChoices[i].Tips
+            local fpp=Instance.new("ProximityPrompt",fBase)
+            fpp.ActionText="Pick Fatal Entity"; fpp.ObjectText=GS.FatalBeaconChoices[i].Name
+            fpp.MaxActivationDistance=35; fpp.RequiresLineOfSight=false
+            local fi=i
+            fpp.Triggered:Connect(function(p)
+                if p~=player then return end
+                local chosen=GS.FatalBeaconChoices[fi]; if not chosen then return end
+                table.insert(GS.FatalPickedEntities, chosen)
+                GS.FatalPickCounts[chosen.Name]=(GS.FatalPickCounts[chosen.Name] or 0)+1
+                GS.FatalBeaconsDone=true
+                GS.ShowingFatalBeacons=false
+                -- Flash red
+                local flash=Instance.new("Frame",GUI)
+                flash.Size=UDim2.new(1,0,1,0);flash.BackgroundColor3=Color3.fromRGB(140,0,0)
+                flash.BackgroundTransparency=0.3;flash.ZIndex=20
+                TweenService:Create(flash,TweenInfo.new(0.9),{BackgroundTransparency=1}):Play();Debris:AddItem(flash,1)
+                local popup=Instance.new("TextLabel",GUI)
+                popup.Size=UDim2.new(1,0,0,58);popup.Position=UDim2.new(0,0,0.42,0)
+                popup.BackgroundTransparency=1;popup.TextColor3=Color3.fromRGB(255,100,100)
+                popup.TextScaled=true;popup.Font=Enum.Font.GothamBold
+                popup.Text="Fatal Entity: "..chosen.Name;popup.ZIndex=21
+                TweenService:Create(popup,TweenInfo.new(1.8,Enum.EasingStyle.Quad,Enum.EasingDirection.Out,0,false,0.5),{TextTransparency=1}):Play()
+                Debris:AddItem(popup,2.5)
+                -- Switch to normal entity beacons
+                pickBeaconChoices(); updateBeaconBillboards()
+            end)
+        end
+        mkLabel(LOBBY_FOLDER,{}) -- placeholder (beacons are above lobby)
+        -- Label above fatal beacons
+        local fSign=Instance.new("Part",LOBBY_FOLDER)
+        fSign.Size=Vector3.new(52,8,1);fSign.Position=Vector3.new(0,LOBBY_Y+38,-62)
+        fSign.Anchored=true;fSign.Material=Enum.Material.SmoothPlastic;fSign.Color=Color3.fromRGB(25,0,0)
+        local fsG=Instance.new("SurfaceGui",fSign)
+        fsG.Face=Enum.NormalId.Back;fsG.SizingMode=Enum.SurfaceGuiSizingMode.PixelsPerStud;fsG.PixelsPerStud=42
+        local fsL=Instance.new("TextLabel",fsG)
+        fsL.Size=UDim2.new(1,0,1,0);fsL.BackgroundTransparency=1
+        fsL.TextColor3=Color3.fromRGB(255,60,60);fsL.TextScaled=true;fsL.Font=Enum.Font.GothamBold
+        fsL.Text="⚠  FATAL ENTITIES  ⚠  (Pick 1 first)"
+    end
+
     -- Random Mode offer: every multiple of 10 (10,20,30...)
     if GS.Round>=10 and GS.Round%10==0 and not GS.RandomMode then
         task.delay(1.5, function()
@@ -2851,6 +2964,7 @@ btnRetry.MouseButton1Click:Connect(function()
     GS.RerollsLeft=MAX_REROLLS;GS.IsShatter=false
     GS.Upgrades={};GS.CosmicBank=0;updateBankLabels()
     GS.RandomMode=false;GS.RandomModeMultiplier=false
+    GS.FatalPickedEntities={};GS.FatalPickCounts={};GS.FatalBeaconsDone=false
     -- Reset fog
     Lighting.FogColor=Color3.fromRGB(8,4,18);Lighting.FogEnd=1000;Lighting.FogStart=350
     HUD.Visible=false;lblCosmic.Visible=false;lblPhase.Visible=false
@@ -3177,6 +3291,181 @@ local function cmdSpawnCrescendo()
     end)
 end
 
+-- ============================================================
+-- FATAL ENTITY REGISTRY
+-- ============================================================
+local FatalEntityRegistry = {
+    {
+        Name="Guardian",
+        Tips="When 'Death on Sight' appears, run — orbs explode into lethal vertical beams.",
+        AppearRound=25, AI="Guardian",
+        MinInterval=50, MaxInterval=90,
+        OrbCount=3, ShatterOrbCount=5,
+        OrbSpeed=20, BeamDamage=100,
+    },
+}
+local MAX_FATAL_PICKS = 3
+GS.FatalPickedEntities = GS.FatalPickedEntities or {}
+GS.FatalPickCounts     = GS.FatalPickCounts     or {}
+GS.FatalBeaconsDone    = GS.FatalBeaconsDone    or false
+
+-- ============================================================
+-- GUARDIAN AI
+-- ============================================================
+local function spawnGuardian(def, platforms)
+    local timer = 0
+    local nextInterval = math.random(def.MinInterval, def.MaxInterval)
+    local conn = RunService.Heartbeat:Connect(function(dt)
+        if GS.Phase=="DEAD" or GS.Phase=="LOBBY" then return end
+        timer += dt
+        if timer < nextInterval then return end
+        timer = 0; nextInterval = math.random(def.MinInterval, def.MaxInterval)
+        task.spawn(function()
+            local hrp = getHRP(); if not hrp then return end
+            local spawnPos = hrp.Position + hrp.CFrame.LookVector * 8
+            local gModel = Instance.new("Model", ENTITY_FOLDER); gModel.Name = "Guardian"
+            local function mkGPart(sz, pos, col, mat, trans)
+                local p = Instance.new("Part", gModel)
+                p.Size=sz; p.Position=pos; p.Anchored=true; p.CanCollide=false
+                p.Material=mat or Enum.Material.SmoothPlastic
+                p.Color=col; p.Transparency=trans or 0; return p
+            end
+            local torso  = mkGPart(Vector3.new(2,2,1), spawnPos+Vector3.new(0,1,0),   Color3.fromRGB(20,0,40),  Enum.Material.Neon)
+            local _      = mkGPart(Vector3.new(2.2,2.2,1.1), torso.Position,          Color3.fromRGB(100,0,200),Enum.Material.Neon, 0.6)
+            local head   = mkGPart(Vector3.new(2,2,1), spawnPos+Vector3.new(0,3.2,0), Color3.fromRGB(10,0,20))
+            local _      = mkGPart(Vector3.new(1.6,0.3,0.2), head.Position+Vector3.new(0,0.15,-0.55), Color3.fromRGB(160,0,255), Enum.Material.Neon)
+            for _,sx in ipairs({-1.5,1.5}) do
+                mkGPart(Vector3.new(0.8,1.2,1.2), torso.Position+Vector3.new(sx,0.4,0), Color3.fromRGB(80,0,160), Enum.Material.Neon)
+                mkGPart(Vector3.new(1,2,1), torso.Position+Vector3.new(sx*1.5,-0.5,0), Color3.fromRGB(15,0,30))
+            end
+            for _,lx in ipairs({-0.5,0.5}) do mkGPart(Vector3.new(0.9,2,1), torso.Position+Vector3.new(lx,-2,0), Color3.fromRGB(15,0,30)) end
+            -- Cape particles
+            local att=Instance.new("Attachment",torso); att.Position=Vector3.new(0,-1,0.6)
+            local cpe=Instance.new("ParticleEmitter",att)
+            cpe.Color=ColorSequence.new({ColorSequenceKeypoint.new(0,Color3.fromRGB(80,0,160)),ColorSequenceKeypoint.new(1,Color3.fromRGB(0,0,0))})
+            cpe.LightEmission=0.8;cpe.Rate=20;cpe.Speed=NumberRange.new(2,5);cpe.Lifetime=NumberRange.new(0.4,1.2)
+            cpe.Size=NumberSequence.new({NumberSequenceKeypoint.new(0,0.6),NumberSequenceKeypoint.new(1,0)});cpe.EmissionDirection=Enum.NormalId.Back
+            table.insert(GS.Entities, gModel)
+            -- Follow for 3s
+            local fEl=0; local fConn
+            fConn=RunService.Heartbeat:Connect(function(fdt)
+                fEl+=fdt; if fEl>=3 then fConn:Disconnect(); return end
+                local h2=getHRP(); if not h2 then fConn:Disconnect(); return end
+                local move=(h2.Position+h2.CFrame.LookVector*8-torso.Position)*Vector3.new(1,0,1)
+                if move.Magnitude>0.5 then
+                    local mv=move.Unit*6*fdt
+                    for _,p in ipairs(gModel:GetChildren()) do if p:IsA("BasePart") then p.Position+=mv end end
+                end
+            end)
+            task.wait(3)
+            local sub=Instance.new("TextLabel",GUI)
+            sub.Size=UDim2.new(0.6,0,0,44);sub.Position=UDim2.new(0.2,0,0.82,0)
+            sub.BackgroundTransparency=1;sub.TextColor3=Color3.fromRGB(160,0,255)
+            sub.TextScaled=true;sub.Font=Enum.Font.GothamBold;sub.Text="Death on Sight.";sub.ZIndex=15
+            TweenService:Create(sub,TweenInfo.new(3),{TextTransparency=1}):Play(); Debris:AddItem(sub,3.5)
+            local orbCount=GS.IsShatter and def.ShatterOrbCount or def.OrbCount
+            for wave=1,3 do
+                if GS.Phase=="DEAD" then break end
+                for o=1,orbCount do
+                    if GS.Phase=="DEAD" then break end
+                    local theta=math.random()*math.pi*2; local phi=(math.random()-0.5)*math.pi
+                    local dir=Vector3.new(math.cos(phi)*math.cos(theta),math.sin(phi)*0.5,math.cos(phi)*math.sin(theta)).Unit
+                    local orb=Instance.new("Part",MAP_FOLDER)
+                    orb.Shape=Enum.PartType.Ball;orb.Size=Vector3.new(2.5,2.5,2.5)
+                    orb.Position=torso.Position;orb.Anchored=true;orb.CanCollide=false
+                    orb.Material=Enum.Material.Neon;orb.Color=Color3.fromRGB(5,0,15)
+                    local sel=Instance.new("SelectionBox",orb);sel.Adornee=orb
+                    sel.Color3=Color3.fromRGB(130,0,255);sel.LineThickness=0.05;sel.SurfaceTransparency=0.92
+                    local oEl=0; local oConn
+                    oConn=RunService.Heartbeat:Connect(function(odt)
+                        oEl+=odt
+                        local spd=math.max(0, def.OrbSpeed-oEl*18)
+                        if orb.Parent then orb.Position=orb.Position+dir*spd*odt end
+                        if spd<=0 then
+                            oConn:Disconnect()
+                            task.wait(1)
+                            if not orb.Parent then return end
+                            local bPos=orb.Position
+                            local beamH=GS.IsShatter and 250 or 140
+                            local bW=GS.IsShatter and 5 or 3
+                            local beam=Instance.new("Part",MAP_FOLDER)
+                            beam.Size=Vector3.new(bW,beamH,bW)
+                            beam.Position=bPos+Vector3.new(0,beamH/2,0)
+                            beam.Anchored=true;beam.CanCollide=false
+                            beam.Material=Enum.Material.Neon;beam.Color=Color3.fromRGB(10,0,25);beam.Transparency=0.2
+                            local bSel=Instance.new("SelectionBox",beam);bSel.Adornee=beam
+                            bSel.Color3=Color3.fromRGB(120,0,240);bSel.LineThickness=0.06;bSel.SurfaceTransparency=0.88
+                            local h3=getHRP()
+                            if h3 then
+                                local bd=h3.Position-bPos
+                                if math.abs(bd.X)<bW+1 and math.abs(bd.Z)<bW+1 and bd.Y>-5 and bd.Y<beamH then
+                                    local hum=getHum(); if hum and hum.Health>0 then hum.Health=math.max(0,hum.Health-def.BeamDamage) end
+                                end
+                            end
+                            task.wait(1)
+                            if orb.Parent  then TweenService:Create(orb, TweenInfo.new(0.4),{Transparency=1}):Play();Debris:AddItem(orb,0.5) end
+                            if beam.Parent then TweenService:Create(beam,TweenInfo.new(0.6),{Transparency=1}):Play();Debris:AddItem(beam,0.7) end
+                        end
+                    end)
+                    table.insert(GS.EntityConns,oConn)
+                    task.wait(0.18)
+                end
+                task.wait(3)
+            end
+            task.wait(3)
+            if gModel.Parent then
+                for _,p in ipairs(gModel:GetChildren()) do if p:IsA("BasePart") then TweenService:Create(p,TweenInfo.new(1.2),{Transparency=1}):Play() end end
+                Debris:AddItem(gModel,1.3)
+            end
+        end)
+    end)
+    table.insert(GS.EntityConns,conn)
+    print("[Devoid] Guardian spawned")
+end
+
+-- Dispatch fatal entities
+local function spawnFatalEntities(platforms)
+    for _,def in ipairs(GS.FatalPickedEntities) do
+        if def.AI=="Guardian" then spawnGuardian(def, platforms) end
+    end
+end
+
+-- ============================================================
+-- CMD: /wormhole and /guardian (one-shot)
+-- ============================================================
+local function cmdSpawnWormhole()
+    local def=nil; for _,e in ipairs(EntityRegistry) do if e.AI=="Wormhole" then def=e;break end end
+    if not def or #GS.MapPlatforms==0 then return end
+    spawnWormhole(def, GS.MapPlatforms)
+end
+
+local function cmdSpawnGuardian()
+    local def=nil; for _,e in ipairs(FatalEntityRegistry) do if e.AI=="Guardian" then def=e;break end end
+    if not def then return end
+    -- One-shot: fire immediately once
+    local dummy = {
+        Name=def.Name, AI=def.AI,
+        MinInterval=0, MaxInterval=0.001,
+        OrbCount=def.OrbCount, ShatterOrbCount=def.ShatterOrbCount,
+        OrbSpeed=def.OrbSpeed, BeamDamage=def.BeamDamage,
+        AppearRound=1,
+    }
+    -- Run guardian attack directly without recurring interval
+    task.spawn(function()
+        local hrp=getHRP(); if not hrp then return end
+        local spawnPos=hrp.Position+hrp.CFrame.LookVector*8
+        -- reuse internal attack by calling spawnGuardian with a very short interval
+        -- so it fires immediately — we override interval to near-zero
+        local onceConn; local fired=false
+        onceConn=RunService.Heartbeat:Connect(function()
+            if fired then onceConn:Disconnect(); return end
+            fired=true; onceConn:Disconnect()
+            -- directly invoke the attack logic via spawnGuardian on dummy
+            spawnGuardian(dummy, GS.MapPlatforms)
+        end)
+    end)
+end
+
 local function parseCmd(msg)
     local parts={}
     for w in msg:gmatch("%S+") do table.insert(parts,w) end
@@ -3195,6 +3484,8 @@ local function parseCmd(msg)
     elseif cmd=="/hookeddoll"  then cmdSpawnHookedDoll()
     elseif cmd=="/greed"       then task.spawn(cmdSpawnGreed)
     elseif cmd=="/crescendo"   then task.spawn(cmdSpawnCrescendo)
+    elseif cmd=="/wormhole"    then cmdSpawnWormhole()
+    elseif cmd=="/guardian"    then task.spawn(cmdSpawnGuardian)
     end
 end
 
@@ -3228,7 +3519,7 @@ buildLobby()
 startCollectionLoop()
 
 print("╔════════════════════════════════════╗")
-print("║  DEVOID v10 — loaded                ║")
+print("║  DEVOID v11 — loaded                ║")
 print("║  Entities : "..#EntityRegistry.."                   ║")
 print("║  Upgrades : "..#UpgradeRegistry.."                    ║")
 print("║  Map  Y   = "..MAP_Y.."               ║")
