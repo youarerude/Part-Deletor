@@ -191,6 +191,12 @@ local GS = {
     -- upgrade beacon state
     ShowingUpgrades=false,
     UpgradeChoices={},
+    -- fatal entity state (initialized here so never nil)
+    FatalPickedEntities={},
+    FatalPickCounts={},
+    FatalBeaconsDone=false,
+    ShowingFatalBeacons=false,
+    FatalBeaconChoices={},
 }
 
 -- ============================================================
@@ -291,6 +297,8 @@ local btnRetry=mkBtn(DEATH,{
 local buildLobby,startRound,refreshBeacons,selectEntity,doReroll,onDeath,activateStartPP
 -- upgrade labels — defined later in upgrade system, forward-declared so earlier functions can reference them
 local lblLobbyBank, lblCosmicBank
+-- fatal entity spawner — defined later but called from startRound
+local spawnFatalEntities
 
 -- ============================================================
 -- CAMERA SHAKE
@@ -329,7 +337,7 @@ local function clearMap()
     for _,s in ipairs(GS.RealityShards) do if s and s.Parent then s:Destroy() end end
     for _,s in ipairs(GS.CosmicShards)  do if s and s.Parent then s:Destroy() end end
     for _,e in ipairs(GS.Entities)      do if e and e.Parent then e:Destroy() end end
-    for _,c in ipairs(GS.EntityConns)   do c:Disconnect() end
+    for _,c in ipairs(GS.EntityConns)   do if c then pcall(function() c:Disconnect() end) end end
     GS.MapPlatforms={};GS.RealityShards={};GS.CosmicShards={}
     GS.Entities={};GS.EntityConns={}
     for _,o in ipairs(MAP_FOLDER:GetChildren())    do o:Destroy() end
@@ -2104,7 +2112,7 @@ onDeath=function()
     if deathLock or GS.Phase=="DEAD" then return end
     deathLock=true;GS.Phase="DEAD"
     playSound(SFX.PlayerDie, 1.2)
-    for _,c in ipairs(GS.EntityConns) do c:Disconnect() end
+    for _,c in ipairs(GS.EntityConns) do if c then pcall(function() c:Disconnect() end) end end
     task.wait(0.8);HUD.Visible=false
     local names={}
     for _,e in ipairs(GS.PersistentEntities) do table.insert(names,e.Name) end
@@ -2133,7 +2141,7 @@ local function completeRound()
     if GS.Phase~="SHATTER" then return end
     GS.Phase="COMPLETE";GS.RoundsBeaten+=1
     local sb=MAP_FOLDER:FindFirstChild("SpawnBeacon"); if sb then sb:Destroy() end
-    for _,c in ipairs(GS.EntityConns) do c:Disconnect() end
+    for _,c in ipairs(GS.EntityConns) do if c then pcall(function() c:Disconnect() end) end end
     -- Destroy any leftover cosmic shards (uncollected ones)
     for _,s in ipairs(GS.CosmicShards) do if s and s.Parent then s:Destroy() end end
     GS.CosmicShards={}
@@ -2978,7 +2986,7 @@ end)
 local function skipRound(count)
     count = math.max(1, math.floor(tonumber(count) or 1))
     if GS.Phase=="DEAD" then return end
-    for _,c in ipairs(GS.EntityConns) do c:Disconnect() end;GS.EntityConns={}
+    for _,c in ipairs(GS.EntityConns) do if c then pcall(function() c:Disconnect() end) end end;GS.EntityConns={}
     clearMap()
     GS.Round += count
     GS.RoundsBeaten += count
@@ -3305,9 +3313,6 @@ local FatalEntityRegistry = {
     },
 }
 local MAX_FATAL_PICKS = 3
-GS.FatalPickedEntities = GS.FatalPickedEntities or {}
-GS.FatalPickCounts     = GS.FatalPickCounts     or {}
-GS.FatalBeaconsDone    = GS.FatalBeaconsDone    or false
 
 -- ============================================================
 -- GUARDIAN AI
@@ -3423,8 +3428,8 @@ local function spawnGuardian(def, platforms)
     print("[Devoid] Guardian spawned")
 end
 
--- Dispatch fatal entities
-local function spawnFatalEntities(platforms)
+-- Dispatch fatal entities (assigns to forward-declared upvalue)
+spawnFatalEntities = function(platforms)
     for _,def in ipairs(GS.FatalPickedEntities) do
         if def.AI=="Guardian" then spawnGuardian(def, platforms) end
     end
