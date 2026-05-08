@@ -168,6 +168,30 @@ local EntityRegistry = {
 }
 
 -- ============================================================
+-- FATAL ENTITY REGISTRY
+-- ============================================================
+local FatalEntityRegistry = {
+    {
+        Name="Guardian",
+        Tips="When 'Death on Sight' appears, run — orbs explode into lethal vertical beams.",
+        AppearRound=25, AI="Guardian",
+        MinInterval=50, MaxInterval=90,
+        OrbCount=3, ShatterOrbCount=5,
+        OrbSpeed=20, BeamDamage=100,
+    },
+    {
+        Name="Memento Mori",
+        Tips="Don't leave the ground when the fog turns red. Artificial platform will be stripped.",
+        AppearRound=25, AI="MementoMori",
+        MinInterval=45, MaxInterval=85,
+        Duration=10, ShatterDuration=13,
+        AirTime=2, ShatterAirTime=1,
+        BaseTextCount=5, ExtraTextPerRound=7,
+    },
+}
+local MAX_FATAL_PICKS = 3
+
+-- ============================================================
 -- GAME STATE
 -- ============================================================
 local GS = {
@@ -3335,30 +3359,6 @@ local function cmdSpawnCrescendo()
 end
 
 -- ============================================================
--- FATAL ENTITY REGISTRY
--- ============================================================
-local FatalEntityRegistry = {
-    {
-        Name="Guardian",
-        Tips="When 'Death on Sight' appears, run — orbs explode into lethal vertical beams.",
-        AppearRound=25, AI="Guardian",
-        MinInterval=50, MaxInterval=90,
-        OrbCount=3, ShatterOrbCount=5,
-        OrbSpeed=20, BeamDamage=100,
-    },
-    {
-        Name="Memento Mori",
-        Tips="Don't leave the ground when the fog turns red. Artificial platform will be stripped.",
-        AppearRound=25, AI="MementoMori",
-        MinInterval=45, MaxInterval=85,
-        Duration=10, ShatterDuration=13,
-        AirTime=2, ShatterAirTime=1,
-        BaseTextCount=5, ExtraTextPerRound=7,
-    },
-}
-local MAX_FATAL_PICKS = 3
-
--- ============================================================
 -- GUARDIAN AI
 -- ============================================================
 local function spawnGuardian(def, platforms)
@@ -3651,13 +3651,18 @@ end
 local function cmdSpawnGuardian()
     local def=nil; for _,e in ipairs(FatalEntityRegistry) do if e.AI=="Guardian" then def=e;break end end
     if not def then return end
-    task.spawn(function() spawnGuardian(def, GS.MapPlatforms) end)
+    -- Override with zero interval so it fires on the very first tick
+    local immDef = {}; for k,v in pairs(def) do immDef[k]=v end
+    immDef.MinInterval=0; immDef.MaxInterval=0
+    task.spawn(function() spawnGuardian(immDef, GS.MapPlatforms) end)
 end
 
 local function cmdSpawnMementoMori()
     local def=nil; for _,e in ipairs(FatalEntityRegistry) do if e.AI=="MementoMori" then def=e;break end end
     if not def then return end
-    task.spawn(function() spawnMementoMori(def, GS.MapPlatforms) end)
+    local immDef = {}; for k,v in pairs(def) do immDef[k]=v end
+    immDef.MinInterval=0; immDef.MaxInterval=0
+    task.spawn(function() spawnMementoMori(immDef, GS.MapPlatforms) end)
 end
 
 local function parseCmd(msg)
