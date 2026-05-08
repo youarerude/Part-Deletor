@@ -44,6 +44,7 @@ local SFX = {
     HelloworldCharge   = "76488643226841",
     HelloworldTeleport = "95957174060681",
     NukeExplosion      = "102353491611087",
+    NukeCharging       = "138764534704077",
     PlayerDie          = "136836070379847",
     SeedInfect         = "125378217647252",
     CameraFlash        = "133385770201451",
@@ -53,6 +54,10 @@ local SFX = {
     HookedDollTeleport = "77995265370404",
     HookedDollInfect   = "125531588934587",
     MalwarePopup       = "130988530651697",
+    OrbCharge          = "140049602451857",
+    OrbExplode         = "127421570919272",
+    MementoAirborne    = "139810065060748",
+    MementoAmbience    = "140707174776546",
 }
 
 -- ============================================================
@@ -812,6 +817,19 @@ local function spawnTarget(def,platforms)
                 warn.TextScaled=true;warn.Font=Enum.Font.GothamBold
                 warn.Text="⚠  INCOMING STRIKE  ⚠";warn.ZIndex=15
                 TweenService:Create(warn,TweenInfo.new(4.8),{TextTransparency=1}):Play();Debris:AddItem(warn,5)
+                -- Charging sound that speeds up over 5s
+                task.spawn(function()
+                    local snd=Instance.new("Sound",workspace)
+                    snd.SoundId="rbxassetid://"..SFX.NukeCharging
+                    snd.Volume=1.4; snd.PlaybackSpeed=0.5; snd.Looped=true; snd:Play()
+                    local elapsed=0
+                    local sc; sc=RunService.Heartbeat:Connect(function(dt)
+                        elapsed+=dt
+                        snd.PlaybackSpeed=0.5+elapsed*0.28  -- ramps from 0.5 to ~1.9 over 5s
+                        snd.Pitch=0.6+elapsed*0.26
+                        if elapsed>=5 then sc:Disconnect(); snd:Stop(); snd:Destroy() end
+                    end)
+                end)
                 task.wait(5); if circ.Parent then circ:Destroy() end
                 local mis=Instance.new("Part",MAP_FOLDER)
                 mis.Name="NukeMissile";mis.Size=Vector3.new(2.5,22,2.5)
@@ -880,8 +898,12 @@ local function spawnWormhole(def,platforms)
                 local duration=GS.IsShatter and def.ShatterDuration or def.Duration
                 local pullForce=GS.IsShatter and def.ShatterPullForce or def.PullForce
                 local elapsed=0
-                local spinConn=RunService.Heartbeat:Connect(function(sDt)
-                    if not ring1.Parent then return end
+                local spinConn  -- pre-declared so callback can safely reference it
+                spinConn=RunService.Heartbeat:Connect(function(sDt)
+                    if not ring1.Parent then
+                        if spinConn then pcall(function() spinConn:Disconnect() end) end
+                        whActive=false; return
+                    end
                     ring1.CFrame=ring1.CFrame*CFrame.Angles(0,sDt*2.5,0)
                     ring2.CFrame=ring2.CFrame*CFrame.Angles(sDt*1.8,sDt*1.2,0)
                     elapsed+=sDt
@@ -906,7 +928,7 @@ local function spawnWormhole(def,platforms)
                         end
                     end
                     if elapsed>=duration then
-                        spinConn:Disconnect()
+                        if spinConn then pcall(function() spinConn:Disconnect() end) end
                         if core.Parent then
                             TweenService:Create(core,TweenInfo.new(0.6,Enum.EasingStyle.Back,Enum.EasingDirection.In),{Size=Vector3.new(0.1,0.1,0.1),Transparency=1}):Play()
                             TweenService:Create(ring1,TweenInfo.new(0.5),{Size=Vector3.new(0.1,0.1,0.1),Transparency=1}):Play()
@@ -2141,6 +2163,7 @@ onDeath=function()
     local names={}
     for _,e in ipairs(GS.PersistentEntities) do table.insert(names,e.Name) end
     for _,e in ipairs(GS.PickedEntities)     do table.insert(names,e.Name) end
+    for _,e in ipairs(GS.FatalPickedEntities) do table.insert(names,"[FATAL] "..e.Name) end
     -- Build buffs string
     local buffLines={}
     if GS.Upgrades.MoreIncome then table.insert(buffLines,"More Income (x2 ✦)") end
@@ -2280,7 +2303,7 @@ local function startCollectionLoop()
                     GS.CollectedReality += realAdd
                     if isRealimic then
                         local gain=(GS.Upgrades.MoreIncome and 2 or 1)
-                        GS.CosmicBank+=gain; updateBankLabels()
+                        GS.CosmicBank+=gain; if updateBankLabels then updateBankLabels() end
                     end
                     lblReality.Text="Reality Shards: "..GS.CollectedReality.." / "..GS.TotalShards
                     if GS.CollectedReality>=GS.TotalShards then
@@ -3420,40 +3443,54 @@ local function spawnGuardian(def, platforms)
                     local theta=math.random()*math.pi*2; local phi=(math.random()-0.5)*math.pi
                     local dir=Vector3.new(math.cos(phi)*math.cos(theta),math.sin(phi)*0.5,math.cos(phi)*math.sin(theta)).Unit
                     local orb=Instance.new("Part",MAP_FOLDER)
-                    orb.Shape=Enum.PartType.Ball;orb.Size=Vector3.new(7,7,7)
+                    orb.Shape=Enum.PartType.Ball;orb.Size=Vector3.new(14,14,14)
                     orb.Position=torso.Position;orb.Anchored=true;orb.CanCollide=false
                     orb.Material=Enum.Material.Neon;orb.Color=Color3.fromRGB(5,0,15)
                     local sel=Instance.new("SelectionBox",orb);sel.Adornee=orb
-                    sel.Color3=Color3.fromRGB(130,0,255);sel.LineThickness=0.08;sel.SurfaceTransparency=0.88
+                    sel.Color3=Color3.fromRGB(130,0,255);sel.LineThickness=0.12;sel.SurfaceTransparency=0.82
+                    -- Charge sound on the orb (5s long)
+                    playSound(SFX.OrbCharge, 1.2, orb.Position)
                     local oEl=0; local oConn
                     oConn=RunService.Heartbeat:Connect(function(odt)
                         oEl+=odt
-                        local spd=math.max(0, def.OrbSpeed - oEl*12)  -- decelerate slower = travel further
+                        local spd=math.max(0, def.OrbSpeed - oEl*6)  -- slower decel = travels much further
                         if orb.Parent then orb.Position=orb.Position+dir*spd*odt end
                         if spd<=0 then
                             oConn:Disconnect()
-                            task.wait(1)
+                            -- Wait 5s (charge sound duration) before exploding
+                            task.wait(5)
                             if not orb.Parent then return end
+                            playSound(SFX.OrbExplode, 1.4, orb.Position)
                             local bPos=orb.Position
-                            local beamH=GS.IsShatter and 400 or 260
-                            local bW=GS.IsShatter and 10 or 6
-                            local beam=Instance.new("Part",MAP_FOLDER)
-                            beam.Size=Vector3.new(bW,beamH,bW)
-                            beam.Position=bPos+Vector3.new(0,beamH/2,0)
-                            beam.Anchored=true;beam.CanCollide=false
-                            beam.Material=Enum.Material.Neon;beam.Color=Color3.fromRGB(10,0,25);beam.Transparency=0.1
-                            local bSel=Instance.new("SelectionBox",beam);bSel.Adornee=beam
-                            bSel.Color3=Color3.fromRGB(120,0,240);bSel.LineThickness=0.09;bSel.SurfaceTransparency=0.85
+                            local beamH=GS.IsShatter and 500 or 320
+                            local bW=GS.IsShatter and 14 or 9
+                            -- Beam goes BOTH up and down from explosion point
+                            local beamUp=Instance.new("Part",MAP_FOLDER)
+                            beamUp.Size=Vector3.new(bW,beamH,bW)
+                            beamUp.Position=bPos+Vector3.new(0,beamH/2,0)
+                            beamUp.Anchored=true;beamUp.CanCollide=false
+                            beamUp.Material=Enum.Material.Neon;beamUp.Color=Color3.fromRGB(10,0,25);beamUp.Transparency=0.08
+                            local bSelU=Instance.new("SelectionBox",beamUp);bSelU.Adornee=beamUp
+                            bSelU.Color3=Color3.fromRGB(120,0,240);bSelU.LineThickness=0.12;bSelU.SurfaceTransparency=0.82
+                            local beamDn=Instance.new("Part",MAP_FOLDER)
+                            beamDn.Size=Vector3.new(bW,beamH,bW)
+                            beamDn.Position=bPos-Vector3.new(0,beamH/2,0)
+                            beamDn.Anchored=true;beamDn.CanCollide=false
+                            beamDn.Material=Enum.Material.Neon;beamDn.Color=Color3.fromRGB(10,0,25);beamDn.Transparency=0.08
+                            local bSelD=Instance.new("SelectionBox",beamDn);bSelD.Adornee=beamDn
+                            bSelD.Color3=Color3.fromRGB(120,0,240);bSelD.LineThickness=0.12;bSelD.SurfaceTransparency=0.82
+                            shakeCamera(3,1.5)
                             local h3=getHRP()
                             if h3 then
                                 local bd=h3.Position-bPos
-                                if math.abs(bd.X)<bW+1 and math.abs(bd.Z)<bW+1 and bd.Y>-5 and bd.Y<beamH then
+                                if math.abs(bd.X)<bW+1 and math.abs(bd.Z)<bW+1 then
                                     local hum=getHum(); if hum and hum.Health>0 then hum.Health=math.max(0,hum.Health-def.BeamDamage) end
                                 end
                             end
                             task.wait(1)
-                            if orb.Parent  then TweenService:Create(orb, TweenInfo.new(0.4),{Transparency=1}):Play();Debris:AddItem(orb,0.5) end
-                            if beam.Parent then TweenService:Create(beam,TweenInfo.new(0.6),{Transparency=1}):Play();Debris:AddItem(beam,0.7) end
+                            if orb.Parent    then TweenService:Create(orb,    TweenInfo.new(0.4),{Transparency=1}):Play();Debris:AddItem(orb,0.5) end
+                            if beamUp.Parent then TweenService:Create(beamUp, TweenInfo.new(0.6),{Transparency=1}):Play();Debris:AddItem(beamUp,0.7) end
+                            if beamDn.Parent then TweenService:Create(beamDn, TweenInfo.new(0.6),{Transparency=1}):Play();Debris:AddItem(beamDn,0.7) end
                         end
                     end)
                     table.insert(GS.EntityConns,oConn)
@@ -3505,6 +3542,12 @@ local function spawnMementoMori(def, platforms)
             Lighting.FogEnd   = 500
             Lighting.FogStart = 60
 
+            -- Ambience sound
+            local ambSnd=Instance.new("Sound",workspace)
+            ambSnd.SoundId="rbxassetid://"..SFX.MementoAmbience
+            ambSnd.Volume=1.2; ambSnd.Looped=true; ambSnd:Play()
+            Debris:AddItem(ambSnd, duration+0.5)
+
             -- Spawn 3D world text labels (BillboardGui on anchored parts across the map)
             local spawnedParts = {}
             local spawnTextConn; local textTimer = 0; local textSpawned = 0
@@ -3551,8 +3594,8 @@ local function spawnMementoMori(def, platforms)
             local airborneTimer = 0
             local artPlatStripped = false
             local secondChanceActive = false
-            local secondChanceTimer = 0
             local warnLabel = nil
+            local airborneSnd = nil
 
             local airConn; airConn = RunService.Heartbeat:Connect(function(adt)
                 local hrp = getHRP(); local hum = getHum()
@@ -3560,51 +3603,73 @@ local function spawnMementoMori(def, platforms)
                 local st = hum:GetState()
                 local isAirborne = (st == Enum.HumanoidStateType.Freefall or st == Enum.HumanoidStateType.Jumping)
 
-                -- Strip artificial platform if used during event
+                -- Strip artificial platform
                 if isAirborne and GS.Upgrades.ArtificialPlatform and not artPlatStripped then
                     artPlatStripped = true
-                    GS.Upgrades.ArtificialPlatform = false  -- disable it for this event
+                    GS.Upgrades.ArtificialPlatform = false
                     local noCheat = Instance.new("TextLabel", GUI)
-                    noCheat.Size = UDim2.new(0.8, 0, 0, 44); noCheat.Position = UDim2.new(0.1, 0, 0.8, 0)
-                    noCheat.BackgroundTransparency = 1; noCheat.TextColor3 = Color3.fromRGB(255, 50, 50)
+                    noCheat.Size = UDim2.new(0.8,0,0,44); noCheat.Position = UDim2.new(0.1,0,0.8,0)
+                    noCheat.BackgroundTransparency = 1; noCheat.TextColor3 = Color3.fromRGB(255,50,50)
                     noCheat.TextScaled = true; noCheat.Font = Enum.Font.GothamBold
                     noCheat.Text = "不正行為はありません。"; noCheat.ZIndex = 20
-                    TweenService:Create(noCheat, TweenInfo.new(3), {TextTransparency = 1}):Play()
+                    TweenService:Create(noCheat, TweenInfo.new(3), {TextTransparency=1}):Play()
                     Debris:AddItem(noCheat, 3.5)
-                    secondChanceActive = true; secondChanceTimer = 0
+                    secondChanceActive = true
                 end
 
                 if isAirborne then
                     airborneTimer += adt
+                    -- Start airborne sound on first frame airborne
+                    if airborneSnd == nil then
+                        airborneSnd = Instance.new("Sound", workspace)
+                        airborneSnd.SoundId = "rbxassetid://"..SFX.MementoAirborne
+                        airborneSnd.Volume = 1.2; airborneSnd.Looped = true
+                        airborneSnd.PlaybackSpeed = 0.5; airborneSnd:Play()
+                    end
+                    -- Pitch and speed ramp from 0.5 to 2.0 over the airTimeLimit window
+                    local limit = secondChanceActive and (airTimeLimit + 3) or airTimeLimit
+                    local frac = math.min(airborneTimer / limit, 1)
+                    airborneSnd.PlaybackSpeed = 0.5 + frac * 1.5
                     if warnLabel == nil then
                         warnLabel = Instance.new("TextLabel", GUI)
-                        warnLabel.Size = UDim2.new(0.5, 0, 0, 38); warnLabel.Position = UDim2.new(0.25, 0, 0.88, 0)
-                        warnLabel.BackgroundTransparency = 1; warnLabel.TextColor3 = Color3.fromRGB(255, 80, 0)
+                        warnLabel.Size = UDim2.new(0.5,0,0,38); warnLabel.Position = UDim2.new(0.25,0,0.88,0)
+                        warnLabel.BackgroundTransparency = 1; warnLabel.TextColor3 = Color3.fromRGB(255,80,0)
                         warnLabel.TextScaled = true; warnLabel.Font = Enum.Font.GothamBold
                         warnLabel.Text = "LAND NOW!"; warnLabel.ZIndex = 18
                     end
-                    local limit = secondChanceActive and (airTimeLimit + 3) or airTimeLimit
                     if airborneTimer >= limit then
-                        airConn:Disconnect()
+                        if airborneSnd then airborneSnd:Stop(); airborneSnd:Destroy(); airborneSnd=nil end
                         if warnLabel then warnLabel:Destroy(); warnLabel = nil end
-                        -- Giant beam kill
+                        airConn:Disconnect()
+                        -- Giant beam: up AND down
                         local bp = hrp.Position
                         local theta = math.random() * math.pi * 2
                         local beamH = 600
-                        local bPart = Instance.new("Part", MAP_FOLDER)
-                        bPart.Size = Vector3.new(18, beamH, 18)
-                        bPart.CFrame = CFrame.new(bp) * CFrame.Angles(0, theta, 0) * CFrame.new(0, beamH/2, 0)
-                        bPart.Anchored = true; bPart.CanCollide = false
-                        bPart.Material = Enum.Material.Neon; bPart.Color = Color3.fromRGB(0, 0, 0)
-                        local bSel = Instance.new("SelectionBox", bPart); bSel.Adornee = bPart
-                        bSel.Color3 = Color3.fromRGB(255, 0, 0); bSel.LineThickness = 0.1; bSel.SurfaceTransparency = 0.85
-                        shakeCamera(5, 0.5)
+                        local bW = 24
+                        -- Up beam
+                        local bUp = Instance.new("Part", MAP_FOLDER)
+                        bUp.Size = Vector3.new(bW, beamH, bW)
+                        bUp.Position = bp + Vector3.new(0, beamH/2, 0)
+                        bUp.Anchored=true; bUp.CanCollide=false
+                        bUp.Material=Enum.Material.Neon; bUp.Color=Color3.fromRGB(0,0,0)
+                        local bSelU=Instance.new("SelectionBox",bUp); bSelU.Adornee=bUp
+                        bSelU.Color3=Color3.fromRGB(255,0,0); bSelU.LineThickness=0.12; bSelU.SurfaceTransparency=0.82
+                        -- Down beam
+                        local bDn = Instance.new("Part", MAP_FOLDER)
+                        bDn.Size = Vector3.new(bW, beamH, bW)
+                        bDn.Position = bp - Vector3.new(0, beamH/2, 0)
+                        bDn.Anchored=true; bDn.CanCollide=false
+                        bDn.Material=Enum.Material.Neon; bDn.Color=Color3.fromRGB(0,0,0)
+                        local bSelD=Instance.new("SelectionBox",bDn); bSelD.Adornee=bDn
+                        bSelD.Color3=Color3.fromRGB(255,0,0); bSelD.LineThickness=0.12; bSelD.SurfaceTransparency=0.82
+                        shakeCamera(5, 0.6)
                         if hum.Health > 0 then hum.Health = 0 end
-                        TweenService:Create(bPart, TweenInfo.new(0.8), {Transparency = 1}):Play()
-                        Debris:AddItem(bPart, 0.9)
+                        TweenService:Create(bUp,TweenInfo.new(0.8),{Transparency=1}):Play(); Debris:AddItem(bUp,0.9)
+                        TweenService:Create(bDn,TweenInfo.new(0.8),{Transparency=1}):Play(); Debris:AddItem(bDn,0.9)
                     end
                 else
                     airborneTimer = 0
+                    if airborneSnd then airborneSnd:Stop(); airborneSnd:Destroy(); airborneSnd=nil end
                     if warnLabel then warnLabel:Destroy(); warnLabel = nil end
                 end
             end)
@@ -3613,6 +3678,8 @@ local function spawnMementoMori(def, platforms)
             task.wait(duration)
             spawnTextConn:Disconnect(); airConn:Disconnect()
             if warnLabel then warnLabel:Destroy() end
+            if airborneSnd then airborneSnd:Stop(); airborneSnd:Destroy(); airborneSnd=nil end
+            if ambSnd and ambSnd.Parent then ambSnd:Stop(); ambSnd:Destroy() end
 
             -- Clean up text parts
             for _, p in ipairs(spawnedParts) do if p and p.Parent then p:Destroy() end end
