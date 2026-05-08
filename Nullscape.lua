@@ -58,6 +58,8 @@ local SFX = {
     OrbExplode         = "127421570919272",
     MementoAirborne    = "139810065060748",
     MementoAmbience    = "140707174776546",
+    FleshTrain         = "133008658452162",
+    FleshCrash         = "138307089384990",
 }
 
 -- ============================================================
@@ -190,8 +192,20 @@ local FatalEntityRegistry = {
         AppearRound=25, AI="MementoMori",
         MinInterval=45, MaxInterval=85,
         Duration=10, ShatterDuration=13,
-        AirTime=2, ShatterAirTime=1,
+        AirTime=1, ShatterAirTime=1,
         BaseTextCount=5, ExtraTextPerRound=7,
+    },
+    {
+        Name="Flesh",
+        Tips="When the beam appears, get out of the way — the train will follow but can't turn fast.",
+        AppearRound=25, AI="Flesh",
+        -- Normal: beam every 3s, train appears after 2s
+        BeamInterval=3, WarnTime=2,
+        TrainSpeed=180, TurnSpeed=0.4,
+        CartCount=5, TrainLength=28,
+        -- Shatter: beam every 1s, train appears after 1s, unholy speed, better turn
+        ShatterBeamInterval=1, ShatterWarnTime=1,
+        ShatterTrainSpeed=420, ShatterTurnSpeed=1.8,
     },
 }
 local MAX_FATAL_PICKS = 3
@@ -2241,6 +2255,12 @@ startRound=function()
             for _,e in ipairs(EntityRegistry) do
                 if e.AppearRound<=GS.Round then table.insert(eligible,e) end
             end
+            -- Include fatal entities in random mode at round 30+
+            if GS.Round>=30 then
+                for _,e in ipairs(FatalEntityRegistry) do
+                    if e.AppearRound<=GS.Round then table.insert(eligible,e) end
+                end
+            end
             if #eligible==0 then return end
             local def=eligible[math.random(1,#eligible)]
             if     def.AI=="Follower"   then spawnFollower(def,platforms)
@@ -2255,6 +2275,10 @@ startRound=function()
             elseif def.AI=="HookedDoll" then spawnHookedDoll(def,platforms)
             elseif def.AI=="Greed"      then spawnGreed(def,platforms)
             elseif def.AI=="Crescendo"  then spawnCrescendo(def,platforms)
+            -- Fatal entities
+            elseif def.AI=="Guardian"    then spawnGuardian(def,platforms)
+            elseif def.AI=="MementoMori" then spawnMementoMori(def,platforms)
+            elseif def.AI=="Flesh"       then spawnFlesh(def,platforms)
             end
         end
         spawnRandomEntity()
@@ -3418,14 +3442,16 @@ local function spawnGuardian(def, platforms)
             cpe.LightEmission=0.8;cpe.Rate=20;cpe.Speed=NumberRange.new(2,5);cpe.Lifetime=NumberRange.new(0.4,1.2)
             cpe.Size=NumberSequence.new({NumberSequenceKeypoint.new(0,0.6),NumberSequenceKeypoint.new(1,0)});cpe.EmissionDirection=Enum.NormalId.Back
             table.insert(GS.Entities, gModel)
-            -- Follow for 3s
+            -- Follow for 3s at player's current walk speed
             local fEl=0; local fConn
             fConn=RunService.Heartbeat:Connect(function(fdt)
                 fEl+=fdt; if fEl>=3 then fConn:Disconnect(); return end
                 local h2=getHRP(); if not h2 then fConn:Disconnect(); return end
+                local hum2=getHum()
+                local followSpeed = hum2 and hum2.WalkSpeed or 16
                 local move=(h2.Position+h2.CFrame.LookVector*8-torso.Position)*Vector3.new(1,0,1)
                 if move.Magnitude>0.5 then
-                    local mv=move.Unit*6*fdt
+                    local mv=move.Unit*followSpeed*fdt
                     for _,p in ipairs(gModel:GetChildren()) do if p:IsA("BasePart") then p.Position+=mv end end
                 end
             end)
@@ -3457,8 +3483,8 @@ local function spawnGuardian(def, platforms)
                         if orb.Parent then orb.Position=orb.Position+dir*spd*odt end
                         if spd<=0 then
                             oConn:Disconnect()
-                            -- Wait 5s (charge sound duration) before exploding
-                            task.wait(5)
+                            -- Wait 3s before exploding
+                            task.wait(3)
                             if not orb.Parent then return end
                             playSound(SFX.OrbExplode, 1.4, orb.Position)
                             local bPos=orb.Position
@@ -3697,11 +3723,250 @@ local function spawnMementoMori(def, platforms)
     print("[Devoid] Memento Mori spawned")
 end
 
+-- FLESH
+local function spawnFlesh(def, platforms)
+    local active = false
+
+    local conn = RunService.Heartbeat:Connect(function(dt)
+        if GS.Phase=="DEAD" or GS.Phase=="LOBBY" then return end
+        if active then return end
+        active = true
+
+        task.spawn(function()
+            while GS.Phase~="DEAD" and GS.Phase~="LOBBY" do
+                local beamInterval = GS.IsShatter and def.ShatterBeamInterval or def.BeamInterval
+                local warnTime     = GS.IsShatter and def.ShatterWarnTime     or def.WarnTime
+                local trainSpeed   = GS.IsShatter and def.ShatterTrainSpeed   or def.TrainSpeed
+                local turnSpeed    = GS.IsShatter and def.ShatterTurnSpeed    or def.TurnSpeed
+                local cartCount    = def.CartCount
+                local cartLen      = def.TrainLength
+
+                local hrp = getHRP(); if not hrp then task.wait(1); continue end
+
+                -- Random direction for beam (always horizontal for normal, can be any angle)
+                local ang = math.random() * math.pi * 2
+                local dir = Vector3.new(math.cos(ang), 0, math.sin(ang)).Unit
+
+                -- Transparent warning beam centered on player
+                local BEAM_LENGTH = 600
+                local warnBeam = Instance.new("Part", MAP_FOLDER)
+                warnBeam.Name = "FleshBeam"
+                warnBeam.Size = Vector3.new(cartLen * 1.2, cartLen * 1.2, BEAM_LENGTH)
+                warnBeam.CFrame = CFrame.lookAt(hrp.Position, hrp.Position + dir)
+                warnBeam.Anchored = true; warnBeam.CanCollide = false
+                warnBeam.Material = Enum.Material.Neon
+                warnBeam.Color = Color3.fromRGB(200, 0, 0)
+                warnBeam.Transparency = 0.78
+
+                -- Pulse the warning beam
+                task.spawn(function()
+                    for _ = 1, math.floor(warnTime/0.3) do
+                        if not warnBeam.Parent then return end
+                        TweenService:Create(warnBeam,TweenInfo.new(0.15),{Transparency=0.55}):Play(); task.wait(0.15)
+                        TweenService:Create(warnBeam,TweenInfo.new(0.15),{Transparency=0.82}):Play(); task.wait(0.15)
+                    end
+                end)
+
+                task.wait(warnTime)
+                if warnBeam.Parent then warnBeam:Destroy() end
+                if GS.Phase=="DEAD" or GS.Phase=="LOBBY" then break end
+
+                -- Snapshot player position for spawn origin
+                local hrp2 = getHRP(); if not hrp2 then task.wait(1); continue end
+                local origin = hrp2.Position
+                -- Spawn 100 studs behind player along the beam direction
+                local spawnOffset = -dir * 100
+
+                -- Build Flesh train model
+                local trainModel = Instance.new("Model", ENTITY_FOLDER); trainModel.Name = "FleshTrain"
+
+                local CART_GAP = cartLen + 2
+                local carts = {}
+
+                -- Flesh color
+                local fleshColors = {
+                    Color3.fromRGB(200,100,80),
+                    Color3.fromRGB(210,90,70),
+                    Color3.fromRGB(190,110,90),
+                }
+
+                for c = 1, cartCount do
+                    local cartPos = origin + spawnOffset - dir * (c-1) * CART_GAP
+
+                    local cart = Instance.new("Part", trainModel)
+                    cart.Name = "Cart"..c
+                    cart.Size = Vector3.new(cartLen, cartLen*0.9, cartLen)
+                    cart.Position = cartPos + Vector3.new(0, 2, 0)
+                    cart.Anchored = true; cart.CanCollide = false
+                    cart.Material = Enum.Material.SmoothPlastic
+                    cart.Color = fleshColors[math.random(1,#fleshColors)]
+
+                    -- Vein-like neon streaks
+                    local vein = Instance.new("Part", trainModel)
+                    vein.Size = Vector3.new(cartLen*0.12, cartLen*0.8, cartLen)
+                    vein.Position = cartPos + Vector3.new(math.random(-4,4), 2, 0)
+                    vein.Anchored = true; vein.CanCollide = false
+                    vein.Material = Enum.Material.Neon; vein.Color = Color3.fromRGB(255,40,60)
+                    vein.Transparency = 0.3
+
+                    -- Lead cart gets a mouth (front face)
+                    if c == 1 then
+                        local mouth = Instance.new("Part", trainModel)
+                        mouth.Size = Vector3.new(cartLen*0.65, cartLen*0.3, 1)
+                        mouth.CFrame = CFrame.new(cartPos + Vector3.new(0,1.5,-(cartLen/2+0.6)),
+                                                   cartPos + Vector3.new(0,1.5,-(cartLen/2+1.6)))
+                        mouth.Anchored = true; mouth.CanCollide = false
+                        mouth.Material = Enum.Material.Neon; mouth.Color = Color3.fromRGB(0,0,0)
+
+                        -- Teeth (white nubs)
+                        for t=1,5 do
+                            local tooth = Instance.new("Part", trainModel)
+                            tooth.Size = Vector3.new(1.2, 1.8, 1)
+                            tooth.Position = cartPos + Vector3.new(-cartLen*0.25 + (t-1)*cartLen*0.13, 1.2, -(cartLen/2+0.6))
+                            tooth.Anchored=true; tooth.CanCollide=false
+                            tooth.Material=Enum.Material.SmoothPlastic; tooth.Color=Color3.fromRGB(240,235,220)
+                        end
+                    end
+
+                    -- Shatter: all carts get eyes
+                    if GS.IsShatter or c==1 then
+                        for _,ex in ipairs({-cartLen*0.18, cartLen*0.18}) do
+                            local eye=Instance.new("Part",trainModel)
+                            eye.Shape=Enum.PartType.Ball; eye.Size=Vector3.new(2.2,2.2,2.2)
+                            eye.Position=cartPos+Vector3.new(ex,cartLen*0.3,-(cartLen/2+0.8))
+                            eye.Anchored=true; eye.CanCollide=false
+                            eye.Material=Enum.Material.Neon; eye.Color=Color3.fromRGB(255,255,0)
+                        end
+                    end
+
+                    table.insert(carts, {part=cart, offset=-(c-1)*CART_GAP})
+                end
+
+                -- Train sound
+                local snd = Instance.new("Sound", MAP_FOLDER)
+                snd.SoundId = "rbxassetid://"..SFX.FleshTrain
+                snd.Volume = 2.5; snd.Looped = true; snd.RollOffMaxDistance = 50
+                snd:Play()
+
+                table.insert(GS.Entities, trainModel)
+
+                -- Movement: train follows player with very slow turn
+                local trainCFrame = CFrame.new(origin + spawnOffset, origin)
+                local elapsed = 0
+                local destroyed = false
+                local moveConn; moveConn = RunService.Heartbeat:Connect(function(mdt)
+                    if not trainModel.Parent or destroyed then
+                        if moveConn then pcall(function() moveConn:Disconnect() end) end
+                        snd:Stop(); snd:Destroy(); return
+                    end
+                    elapsed += mdt
+
+                    local hrp3 = getHRP()
+                    if hrp3 and not (GS.Phase=="DEAD") then
+                        -- Slowly rotate toward player (very low turn speed)
+                        local targetDir = (hrp3.Position - trainCFrame.Position)
+                        targetDir = Vector3.new(targetDir.X, 0, targetDir.Z)
+                        if targetDir.Magnitude > 0.1 then
+                            local targetCF = CFrame.lookAt(trainCFrame.Position, trainCFrame.Position + targetDir)
+                            trainCFrame = CFrame.new(trainCFrame.Position) * CFrame.fromEulerAnglesYXZ(
+                                0,
+                                math.atan2(
+                                    math.sin(math.rad(turnSpeed * mdt * 57.3)),
+                                    math.cos(math.rad(turnSpeed * mdt * 57.3)) + 0
+                                ) * 0 -- simplified: lerp rotation
+                                , 0
+                            )
+                            -- Simple lerp of look direction
+                            local curFwd = trainCFrame.LookVector
+                            local tgtFwd = targetDir.Unit
+                            local newFwd = (curFwd + tgtFwd * turnSpeed * mdt * 0.8).Unit
+                            trainCFrame = CFrame.new(trainCFrame.Position, trainCFrame.Position + newFwd)
+                        end
+                    end
+
+                    -- Advance train forward
+                    local fwd = trainCFrame.LookVector
+                    trainCFrame = CFrame.new(trainCFrame.Position + fwd * trainSpeed * mdt, trainCFrame.Position + fwd * (trainSpeed * mdt + 1))
+
+                    -- Update cart positions
+                    for ci, cartData in ipairs(carts) do
+                        if cartData.part.Parent then
+                            local cartWorldPos = trainCFrame.Position + trainCFrame.LookVector * cartData.offset
+                            cartData.part.CFrame = CFrame.new(cartWorldPos, cartWorldPos + trainCFrame.LookVector)
+                            -- Update child parts (veins, eyes, mouth etc)
+                            for _, child in ipairs(trainModel:GetChildren()) do
+                                if child ~= cartData.part and child:IsA("BasePart") and child.Name ~= "Cart"..ci then
+                                    -- handled by offset; sub-parts follow their cart implicitly through position tracking
+                                end
+                            end
+                        end
+                    end
+
+                    -- Also sync decorative parts
+                    for _, p in ipairs(trainModel:GetChildren()) do
+                        if p:IsA("BasePart") and p.Name:sub(1,4)~="Cart" then
+                            -- Find nearest cart and lock relative
+                            local nearCart = carts[1]
+                            local minDist = 9e9
+                            for _,cd in ipairs(carts) do
+                                local d=(cd.part.Position-p.Position).Magnitude
+                                if d<minDist then minDist=d; nearCart=cd end
+                            end
+                            -- Snap decorative parts to their cart
+                            if nearCart and nearCart.part.Parent then
+                                local rel = nearCart.part.CFrame:ToObjectSpace(p.CFrame)
+                                p.CFrame = nearCart.part.CFrame * rel
+                            end
+                        end
+                    end
+
+                    -- Check player collision
+                    local hrp4=getHRP()
+                    if hrp4 then
+                        for _,cd in ipairs(carts) do
+                            if cd.part.Parent then
+                                local d=(hrp4.Position-cd.part.Position).Magnitude
+                                if d<cartLen*0.55 then
+                                    playSound(SFX.FleshCrash,2,cd.part.Position)
+                                    local hum=getHum(); if hum and hum.Health>0 then hum.Health=0 end
+                                end
+                            end
+                        end
+                    end
+
+                    -- Destroy train after it travels 200 studs past origin (100 studs approach + 100 studs away)
+                    local distFromOrigin=(trainCFrame.Position-origin).Magnitude
+                    if distFromOrigin > 200 then
+                        destroyed=true
+                        moveConn:Disconnect(); snd:Stop(); snd:Destroy()
+                        for _,p in ipairs(trainModel:GetChildren()) do
+                            if p:IsA("BasePart") then
+                                TweenService:Create(p,TweenInfo.new(0.5),{Transparency=1}):Play()
+                            end
+                        end
+                        Debris:AddItem(trainModel,0.6)
+                        -- Remove from entities list
+                        for i,e in ipairs(GS.Entities) do if e==trainModel then table.remove(GS.Entities,i);break end end
+                    end
+                end)
+                table.insert(GS.EntityConns,moveConn)
+
+                -- Wait for train to clear then restart cycle
+                task.wait(beamInterval + warnTime + 3)
+            end
+            active=false
+        end)
+    end)
+    table.insert(GS.EntityConns, conn)
+    print("[Devoid] Flesh spawned")
+end
+
 -- Dispatch fatal entities (assigns to forward-declared upvalue)
 spawnFatalEntities = function(platforms)
     for _,def in ipairs(GS.FatalPickedEntities) do
-        if def.AI=="Guardian"    then spawnGuardian(def, platforms)
+        if     def.AI=="Guardian"    then spawnGuardian(def, platforms)
         elseif def.AI=="MementoMori" then spawnMementoMori(def, platforms)
+        elseif def.AI=="Flesh"       then spawnFlesh(def, platforms)
         end
     end
 end
@@ -3713,6 +3978,14 @@ local function cmdSpawnWormhole()
     local def=nil; for _,e in ipairs(EntityRegistry) do if e.AI=="Wormhole" then def=e;break end end
     if not def or #GS.MapPlatforms==0 then return end
     spawnWormhole(def, GS.MapPlatforms)
+end
+
+local function cmdSpawnFlesh()
+    local def=nil; for _,e in ipairs(FatalEntityRegistry) do if e.AI=="Flesh" then def=e;break end end
+    if not def then return end
+    local immDef={}; for k,v in pairs(def) do immDef[k]=v end
+    immDef.BeamInterval=0; immDef.ShatterBeamInterval=0
+    task.spawn(function() spawnFlesh(immDef, GS.MapPlatforms) end)
 end
 
 local function cmdSpawnGuardian()
@@ -3753,6 +4026,7 @@ local function parseCmd(msg)
     elseif cmd=="/wormhole"      then cmdSpawnWormhole()
     elseif cmd=="/guardian"      then task.spawn(cmdSpawnGuardian)
     elseif cmd=="/mementomori"   then task.spawn(cmdSpawnMementoMori)
+    elseif cmd=="/flesh"         then task.spawn(cmdSpawnFlesh)
     end
 end
 
