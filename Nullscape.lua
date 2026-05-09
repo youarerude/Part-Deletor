@@ -1110,7 +1110,8 @@ local function spawnKeeper(def,platforms)
         local rp=hrp.Position
         local bp=body.Position
 
-        local zoneRadius=GS.IsShatter and def.ShatterAreaRadius or def.AreaRadius
+        local zoneRadius=(GS.IsShatter and def.ShatterAreaRadius or def.AreaRadius)
+                        - (GS.Upgrades.SensoryDeprivation and 20 or 0)
         local inZone=(Vector3.new(rp.X,bp.Y,rp.Z)-bp).Magnitude < zoneRadius
 
         -- Sync zone disc pos
@@ -2144,6 +2145,24 @@ local function startShatter(platforms)
     task.delay(3,function() lblShatterWarn.Visible=false end)
     createSpawnBeacon()
     spawnCosmicShards(GS.TotalShards,platforms)
+
+    -- Pathway upgrade: draw a line from player to beacon
+    if GS.Upgrades.Pathway then
+        task.spawn(function()
+            while GS.Phase=="SHATTER" do
+                local hrp=getHRP(); if not hrp then task.wait(0.1); continue end
+                local beaconPos=Vector3.new(0,MAP_Y+1,0)
+                local diff=beaconPos-hrp.Position
+                local midPos=hrp.Position+diff*0.5
+                local line=Instance.new("Part",MAP_FOLDER)
+                line.Name="PathwayLine"; line.Size=Vector3.new(0.4,0.4,diff.Magnitude)
+                line.CFrame=CFrame.new(midPos,beaconPos); line.Anchored=true; line.CanCollide=false
+                line.Material=Enum.Material.Neon; line.Color=Color3.fromRGB(0,255,80); line.Transparency=0.25
+                Debris:AddItem(line,0.12)
+                task.wait(0.1)
+            end
+        end)
+    end
     local toShatter={}
     for _,p in ipairs(GS.MapPlatforms) do
         if p and p.Parent and p.Name~="SpawnPlatform" then table.insert(toShatter,p) end
@@ -2293,10 +2312,11 @@ startRound=function()
         spawnEntities(platforms)
     end
 
-    -- Apply Speedy stacks
+    -- Apply Speedy + Jumpy stacks
     local hum2=getHum()
-    if hum2 and GS.Upgrades._SpeedyStacks then
-        hum2.WalkSpeed=16+(GS.Upgrades._SpeedyStacks*5)
+    if hum2 then
+        if GS.Upgrades._SpeedyStacks then hum2.WalkSpeed=16+(GS.Upgrades._SpeedyStacks*5) end
+        if GS.Upgrades._JumpyStacks  then hum2.JumpPower=50+(GS.Upgrades._JumpyStacks*10) end
     end
     -- Spawn fatal entities (persists like normal entities)
     spawnFatalEntities(platforms)
@@ -2316,6 +2336,21 @@ local function startCollectionLoop()
         local hum=getHum()
         if hum and hum.Health<=0 then onDeath();return end
         if pos.Y<MAP_Y-150 then onDeath();return end
+
+        -- Magnetic Force: pull nearby shards toward player
+        if GS.Upgrades.MagneticForce then
+            local allS={}
+            for _,s in ipairs(GS.RealityShards) do table.insert(allS,s) end
+            for _,s in ipairs(GS.CosmicShards)  do table.insert(allS,s) end
+            for _,s in ipairs(allS) do
+                if s and s.Parent then
+                    local diff=pos-s.Position
+                    if diff.Magnitude<10 and diff.Magnitude>0.5 then
+                        s.Position=s.Position+diff.Unit*12*(1/60)  -- pull toward player
+                    end
+                end
+            end
+        end
         if GS.Phase=="PLAYING" then
             for i=#GS.RealityShards,1,-1 do
                 local s=GS.RealityShards[i]
@@ -2517,24 +2552,49 @@ end
 -- ============================================================
 local UpgradeRegistry = {
     {
-        Name="More Income",
-        Tips="1 cosmic shard counts as 2 from now on.",
-        Cost=3, Key="MoreIncome", OneTime=false,
+        Name="More Income", Tips="1 cosmic shard counts as 2 from now on.",
+        Cost=3, Key="MoreIncome", OneTime=false, Chain=nil,
     },
     {
-        Name="Speedy",
-        Tips="+5 walk speed permanently.",
-        Cost=5, Key="Speedy", OneTime=false,
+        Name="Speedy", Tips="+5 walk speed permanently.",
+        Cost=5, Key="Speedy", OneTime=false, Chain=nil,
     },
     {
-        Name="Infusion",
-        Tips="30% of reality shards become Realimic shards — collect them for 1 reality + 1 cosmic each.",
-        Cost=8, Key="Infusion", OneTime=true,
+        Name="Infusion", Tips="30% of reality shards become Realimic shards.",
+        Cost=8, Key="Infusion", OneTime=true, Chain=nil,
     },
     {
-        Name="Artificial Platform",
-        Tips="While airborne, a platform spawns under your feet for 1 second.",
-        Cost=10, Key="ArtificialPlatform", OneTime=true,
+        Name="Artificial Platform", Tips="While airborne, a platform spawns under your feet for 1 second.",
+        Cost=10, Key="ArtificialPlatform", OneTime=true, Chain=nil,
+    },
+    {
+        Name="Magnetic Force", Tips="Reality/Cosmic/Realimic shards within 10 studs are pulled to you.",
+        Cost=6, Key="MagneticForce", OneTime=true, Chain=nil,
+    },
+    {
+        Name="Jumpy", Tips="+10 jump power.",
+        Cost=4, Key="Jumpy", OneTime=false, Chain=nil,
+    },
+    {
+        Name="Radar", Tips="ESP all entities on the map with their names.",
+        Cost=12, Key="Radar", OneTime=true, Chain=nil,
+    },
+    {
+        Name="Pathway", Tips="During Shatter, a line guides you to the beacon.",
+        Cost=7, Key="Pathway", OneTime=true, Chain=nil,
+    },
+    -- Chain upgrades (only appear after specific entity/upgrade)
+    {
+        Name="Sensory Deprivation", Tips="Keeper's detection range is reduced by 20 studs.",
+        Cost=9, Key="SensoryDeprivation", OneTime=true, Chain="Keeper",
+    },
+    {
+        Name="Where'd Go?", Tips="Guardian's orbs spawn at random spots 30-50 studs away instead of bursting from it.",
+        Cost=11, Key="WheredGo", OneTime=true, Chain="Guardian",
+    },
+    {
+        Name="Railway", Tips="Flesh train is locked to the beam rail — turn speed becomes 0.",
+        Cost=8, Key="Railway", OneTime=true, Chain="Flesh",
     },
 }
 
@@ -2605,24 +2665,62 @@ local function applyUpgradeEffect(upg)
     GS.Upgrades[upg.Key]=true
     if upg.Key=="Speedy" then
         local hum=getHum()
-        if hum then hum.WalkSpeed+=(GS.Upgrades._SpeedyStacks or 0)==0 and 5 or 5 end
         GS.Upgrades._SpeedyStacks=(GS.Upgrades._SpeedyStacks or 0)+1
+        if hum then hum.WalkSpeed=16+(GS.Upgrades._SpeedyStacks*5) end
+    elseif upg.Key=="Jumpy" then
+        local hum=getHum()
+        GS.Upgrades._JumpyStacks=(GS.Upgrades._JumpyStacks or 0)+1
+        if hum then hum.JumpPower=(hum.JumpPower or 50)+10 end
+    elseif upg.Key=="Radar" then
+        -- ESP: attach BillboardGui to all existing entity models
+        task.spawn(function()
+            while GS.Upgrades.Radar do
+                for _,e in ipairs(GS.Entities) do
+                    if e and e.Parent then
+                        local root=e:FindFirstChild("HumanoidRootPart") or e:FindFirstChild("Root") or e:FindFirstChild("Torso")
+                        if root and not root:FindFirstChild("RadarBB") then
+                            local bb=Instance.new("BillboardGui",root); bb.Name="RadarBB"
+                            bb.Size=UDim2.new(0,110,0,28); bb.StudsOffset=Vector3.new(0,6,0); bb.AlwaysOnTop=true
+                            local lbl=Instance.new("TextLabel",bb); lbl.Size=UDim2.new(1,0,1,0)
+                            lbl.BackgroundColor3=Color3.fromRGB(0,0,0); lbl.BackgroundTransparency=0.35
+                            lbl.TextColor3=Color3.fromRGB(0,255,200); lbl.TextScaled=true
+                            lbl.Font=Enum.Font.GothamBold; lbl.Text="[ESP] "..e.Name
+                        end
+                    end
+                end
+                task.wait(1)
+            end
+        end)
+    elseif upg.Key=="SensoryDeprivation" then
+        -- Applied live in Keeper AI via GS.Upgrades.SensoryDeprivation check
+    elseif upg.Key=="WheredGo" then
+        -- Applied live in Guardian AI
+    elseif upg.Key=="Railway" then
+        -- Applied live in Flesh AI via GS.Upgrades.Railway
     end
 end
 
 pickUpgradeChoices = function()
     local pool={}
     for _,u in ipairs(UpgradeRegistry) do
-        if u.OneTime and GS.Upgrades[u.Key] then continue end
-        table.insert(pool,u)
+        if u.OneTime and GS.Upgrades[u.Key] then continue end  -- already owned
+        -- Chain check: only show if the required entity/upgrade was picked
+        if u.Chain then
+            local found = false
+            for _,e in ipairs(GS.PersistentEntities) do if e.Name==u.Chain then found=true end end
+            for _,e in ipairs(GS.PickedEntities)     do if e.Name==u.Chain then found=true end end
+            for _,e in ipairs(GS.FatalPickedEntities) do if e.Name==u.Chain then found=true end end
+            if not found then continue end
+        end
+        table.insert(pool, u)
     end
     if #pool==0 then GS.UpgradeChoices={}; return end
     local used={}; GS.UpgradeChoices={}
-    local n=math.min(BEACON_COUNT,#pool)
+    local n=math.min(BEACON_COUNT, #pool)
     for i=1,n do
         local idx;local t=0
         repeat idx=math.random(1,#pool);t+=1 until not used[idx] or t>30
-        used[idx]=true; table.insert(GS.UpgradeChoices,pool[idx])
+        used[idx]=true; table.insert(GS.UpgradeChoices, pool[idx])
     end
 end
 
@@ -3468,9 +3566,23 @@ local function spawnGuardian(def, platforms)
                     if GS.Phase=="DEAD" then break end
                     local theta=math.random()*math.pi*2; local phi=(math.random()-0.5)*math.pi
                     local dir=Vector3.new(math.cos(phi)*math.cos(theta),math.sin(phi)*0.5,math.cos(phi)*math.sin(theta)).Unit
+                    local orbSpawnPos
+                    if GS.Upgrades.WheredGo then
+                        -- Spawn at random position 30-50 studs from player instead of from Guardian
+                        local hrpNow=getHRP()
+                        if hrpNow then
+                            local rAng=math.random()*math.pi*2
+                            local rDist=math.random(30,50)
+                            orbSpawnPos=hrpNow.Position+Vector3.new(math.cos(rAng)*rDist,math.random(-5,10),math.sin(rAng)*rDist)
+                        else
+                            orbSpawnPos=torso.Position
+                        end
+                    else
+                        orbSpawnPos=torso.Position
+                    end
                     local orb=Instance.new("Part",MAP_FOLDER)
                     orb.Shape=Enum.PartType.Ball;orb.Size=Vector3.new(14,14,14)
-                    orb.Position=torso.Position;orb.Anchored=true;orb.CanCollide=false
+                    orb.Position=orbSpawnPos;orb.Anchored=true;orb.CanCollide=false
                     orb.Material=Enum.Material.Neon;orb.Color=Color3.fromRGB(5,0,15)
                     local sel=Instance.new("SelectionBox",orb);sel.Adornee=orb
                     sel.Color3=Color3.fromRGB(130,0,255);sel.LineThickness=0.12;sel.SurfaceTransparency=0.82
@@ -3850,106 +3962,107 @@ local function spawnFlesh(def, platforms)
 
                 table.insert(GS.Entities, trainModel)
 
-                -- Movement: train follows player with very slow turn
-                local trainCFrame = CFrame.new(origin + spawnOffset, origin)
+                -- Train runs along `dir` from spawn, slowly steering toward player
+                -- `trainDir` is the current heading (unit Vector3, Y=0)
+                local trainPos = origin + spawnOffset
+                local trainDir = dir  -- initial heading = beam direction
                 local elapsed = 0
                 local destroyed = false
+
                 local moveConn; moveConn = RunService.Heartbeat:Connect(function(mdt)
                     if not trainModel.Parent or destroyed then
                         if moveConn then pcall(function() moveConn:Disconnect() end) end
-                        snd:Stop(); snd:Destroy(); return
+                        if snd and snd.Parent then snd:Stop(); snd:Destroy() end
+                        return
                     end
                     elapsed += mdt
 
-                    local hrp3 = getHRP()
-                    if hrp3 and not (GS.Phase=="DEAD") then
-                        -- Slowly rotate toward player (very low turn speed)
-                        local targetDir = (hrp3.Position - trainCFrame.Position)
-                        targetDir = Vector3.new(targetDir.X, 0, targetDir.Z)
-                        if targetDir.Magnitude > 0.1 then
-                            local targetCF = CFrame.lookAt(trainCFrame.Position, trainCFrame.Position + targetDir)
-                            trainCFrame = CFrame.new(trainCFrame.Position) * CFrame.fromEulerAnglesYXZ(
-                                0,
-                                math.atan2(
-                                    math.sin(math.rad(turnSpeed * mdt * 57.3)),
-                                    math.cos(math.rad(turnSpeed * mdt * 57.3)) + 0
-                                ) * 0 -- simplified: lerp rotation
-                                , 0
-                            )
-                            -- Simple lerp of look direction
-                            local curFwd = trainCFrame.LookVector
-                            local tgtFwd = targetDir.Unit
-                            local newFwd = (curFwd + tgtFwd * turnSpeed * mdt * 0.8).Unit
-                            trainCFrame = CFrame.new(trainCFrame.Position, trainCFrame.Position + newFwd)
+                    -- Steer toward player (slow turn)
+                    local effectiveTurn = (GS.Upgrades.Railway and 0) or turnSpeed
+                    if effectiveTurn > 0 then
+                        local hrp3 = getHRP()
+                        if hrp3 and GS.Phase ~= "DEAD" then
+                            local toPlayer = hrp3.Position - trainPos
+                            local toPlayerFlat = Vector3.new(toPlayer.X, 0, toPlayer.Z)
+                            if toPlayerFlat.Magnitude > 1 then
+                                local target = toPlayerFlat.Unit
+                                -- Lerp current direction toward target
+                                local lerpFrac = math.min(effectiveTurn * mdt, 1)
+                                local newDir = (trainDir + target * lerpFrac)
+                                if newDir.Magnitude > 0.001 then
+                                    trainDir = newDir.Unit
+                                end
+                            end
                         end
                     end
 
-                    -- Advance train forward
-                    local fwd = trainCFrame.LookVector
-                    trainCFrame = CFrame.new(trainCFrame.Position + fwd * trainSpeed * mdt, trainCFrame.Position + fwd * (trainSpeed * mdt + 1))
+                    -- Move forward along trainDir
+                    trainPos = trainPos + trainDir * trainSpeed * mdt
 
-                    -- Update cart positions
+                    -- Position each cart along the train axis (cart 1 = front, cart N = back)
                     for ci, cartData in ipairs(carts) do
                         if cartData.part.Parent then
-                            local cartWorldPos = trainCFrame.Position + trainCFrame.LookVector * cartData.offset
-                            cartData.part.CFrame = CFrame.new(cartWorldPos, cartWorldPos + trainCFrame.LookVector)
-                            -- Update child parts (veins, eyes, mouth etc)
-                            for _, child in ipairs(trainModel:GetChildren()) do
-                                if child ~= cartData.part and child:IsA("BasePart") and child.Name ~= "Cart"..ci then
-                                    -- handled by offset; sub-parts follow their cart implicitly through position tracking
-                                end
-                            end
+                            local cartPos = trainPos + trainDir * cartData.offset
+                            cartData.part.CFrame = CFrame.new(cartPos, cartPos + trainDir)
                         end
                     end
 
-                    -- Also sync decorative parts
+                    -- Sync decorative parts (veins, eyes, teeth, mouth) to their cart
+                    -- We stored a "relCF" on first frame per part; just update each frame
                     for _, p in ipairs(trainModel:GetChildren()) do
                         if p:IsA("BasePart") and p.Name:sub(1,4)~="Cart" then
-                            -- Find nearest cart and lock relative
-                            local nearCart = carts[1]
-                            local minDist = 9e9
+                            local nearCart = carts[1]; local minD = 9e9
                             for _,cd in ipairs(carts) do
                                 local d=(cd.part.Position-p.Position).Magnitude
-                                if d<minDist then minDist=d; nearCart=cd end
+                                if d<minD then minD=d; nearCart=cd end
                             end
-                            -- Snap decorative parts to their cart
                             if nearCart and nearCart.part.Parent then
-                                local rel = nearCart.part.CFrame:ToObjectSpace(p.CFrame)
-                                p.CFrame = nearCart.part.CFrame * rel
+                                local rel = p:GetAttribute("RelCF")
+                                if not rel then
+                                    -- First frame: store relative CFrame as numbers
+                                    local relCF = nearCart.part.CFrame:ToObjectSpace(p.CFrame)
+                                    p:SetAttribute("RelCF_PX", relCF.Position.X)
+                                    p:SetAttribute("RelCF_PY", relCF.Position.Y)
+                                    p:SetAttribute("RelCF_PZ", relCF.Position.Z)
+                                    p:SetAttribute("RelCF", true)
+                                end
+                                local rx = p:GetAttribute("RelCF_PX") or 0
+                                local ry = p:GetAttribute("RelCF_PY") or 0
+                                local rz = p:GetAttribute("RelCF_PZ") or 0
+                                p.CFrame = nearCart.part.CFrame * CFrame.new(rx, ry, rz)
                             end
                         end
                     end
 
-                    -- Check player collision
-                    local hrp4=getHRP()
+                    -- Update sound position
+                    if snd and snd.Parent then snd.Parent.Position = trainPos end
+
+                    -- Collision check
+                    local hrp4 = getHRP()
                     if hrp4 then
                         for _,cd in ipairs(carts) do
-                            if cd.part.Parent then
-                                local d=(hrp4.Position-cd.part.Position).Magnitude
-                                if d<cartLen*0.55 then
-                                    playSound(SFX.FleshCrash,2,cd.part.Position)
-                                    local hum=getHum(); if hum and hum.Health>0 then hum.Health=0 end
-                                end
+                            if cd.part.Parent and (hrp4.Position-cd.part.Position).Magnitude < cartLen*0.55 then
+                                playSound(SFX.FleshCrash, 2, cd.part.Position)
+                                local hum=getHum(); if hum and hum.Health>0 then hum.Health=0 end
                             end
                         end
                     end
 
-                    -- Destroy train after it travels 200 studs past origin (100 studs approach + 100 studs away)
-                    local distFromOrigin=(trainCFrame.Position-origin).Magnitude
-                    if distFromOrigin > 200 then
-                        destroyed=true
-                        moveConn:Disconnect(); snd:Stop(); snd:Destroy()
+                    -- Destroy after traveling 200 studs from spawn origin
+                    if (trainPos - origin).Magnitude > 200 then
+                        destroyed = true
+                        if moveConn then pcall(function() moveConn:Disconnect() end) end
+                        if snd and snd.Parent then snd:Stop(); snd:Destroy() end
                         for _,p in ipairs(trainModel:GetChildren()) do
                             if p:IsA("BasePart") then
                                 TweenService:Create(p,TweenInfo.new(0.5),{Transparency=1}):Play()
                             end
                         end
-                        Debris:AddItem(trainModel,0.6)
-                        -- Remove from entities list
+                        Debris:AddItem(trainModel, 0.6)
                         for i,e in ipairs(GS.Entities) do if e==trainModel then table.remove(GS.Entities,i);break end end
                     end
                 end)
-                table.insert(GS.EntityConns,moveConn)
+                table.insert(GS.EntityConns, moveConn)
 
                 -- Wait for train to clear then restart cycle
                 task.wait(beamInterval + warnTime + 3)
