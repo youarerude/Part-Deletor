@@ -1242,14 +1242,14 @@ local function spawnCameraEntity(def,platforms)
                         shakeCamera(3.5,1.2)
                     end
 
-                                        if phaseTimer >= 5 then
+                    -- Fade out flash
                     TweenService:Create(flash,TweenInfo.new(1.8),{BackgroundTransparency=1}):Play()
                     Debris:AddItem(flash,2)
 
                     if fi<flashes then task.wait(3) end
                 end
-                                    warnBeam.Transparency = 0.5 -- This makes the "charge" visible immediately
-                                warnBeam.Material = Enum.Material.Neon -- Makes it glow so it's impossible to miss
+                flashActive=false
+            end)
         end
     end)
     table.insert(GS.EntityConns,conn)
