@@ -1277,8 +1277,9 @@ local function spawnDistortion(def,platforms)
         local att=Instance.new("Attachment",body)
         local pe=Instance.new("ParticleEmitter",att)
         pe.Color=ColorSequence.new({ColorSequenceKeypoint.new(0,Color3.fromRGB(180,0,255)),ColorSequenceKeypoint.new(1,Color3.fromRGB(80,0,140))})
-        pe.LightEmission=1; pe.Rate=30; pe.Speed=NumberRange.new(1,4)
-        pe.Lifetime=NumberRange.new(0.3,0.9)
+                    local closest=beamStart+aimDir*proj
+                    local distXZ = Vector3.new(hrpPos.X - closest.X, 0, hrpPos.Z - closest.Z).Magnitude
+                    if distXZ < 7 then
         pe.Size=NumberSequence.new({NumberSequenceKeypoint.new(0,0.6),NumberSequenceKeypoint.new(1,0)})
         local bb=Instance.new("BillboardGui",body)
         bb.Size=UDim2.new(0,110,0,28); bb.StudsOffset=Vector3.new(0,4,0); bb.AlwaysOnTop=true
