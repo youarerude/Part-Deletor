@@ -1242,14 +1242,14 @@ local function spawnCameraEntity(def,platforms)
                         shakeCamera(3.5,1.2)
                     end
 
-                    -- Fade out flash
+                                        if phaseTimer >= 5 then
                     TweenService:Create(flash,TweenInfo.new(1.8),{BackgroundTransparency=1}):Play()
                     Debris:AddItem(flash,2)
 
                     if fi<flashes then task.wait(3) end
                 end
-                flashActive=false
-            end)
+                                    warnBeam.Transparency = 0.5 -- This makes the "charge" visible immediately
+                                warnBeam.Material = Enum.Material.Neon -- Makes it glow so it's impossible to miss
         end
     end)
     table.insert(GS.EntityConns,conn)
@@ -1277,9 +1277,8 @@ local function spawnDistortion(def,platforms)
         local att=Instance.new("Attachment",body)
         local pe=Instance.new("ParticleEmitter",att)
         pe.Color=ColorSequence.new({ColorSequenceKeypoint.new(0,Color3.fromRGB(180,0,255)),ColorSequenceKeypoint.new(1,Color3.fromRGB(80,0,140))})
-                    local closest=beamStart+aimDir*proj
-                    local distXZ = Vector3.new(hrpPos.X - closest.X, 0, hrpPos.Z - closest.Z).Magnitude
-                    if distXZ < 7 then
+        pe.LightEmission=1; pe.Rate=30; pe.Speed=NumberRange.new(1,4)
+        pe.Lifetime=NumberRange.new(0.3,0.9)
         pe.Size=NumberSequence.new({NumberSequenceKeypoint.new(0,0.6),NumberSequenceKeypoint.new(1,0)})
         local bb=Instance.new("BillboardGui",body)
         bb.Size=UDim2.new(0,110,0,28); bb.StudsOffset=Vector3.new(0,4,0); bb.AlwaysOnTop=true
