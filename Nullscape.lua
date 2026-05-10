@@ -60,6 +60,7 @@ local SFX = {
     MementoAmbience    = "140707174776546",
     FleshTrain         = "133008658452162",
     FleshCrash         = "138307089384990",
+    StarlightCharge    = "138453151679878",
 }
 
 -- ============================================================
@@ -171,6 +172,14 @@ local EntityRegistry = {
         BeamCount=3, ShatterBeamCount=5,
         ShatterMinInterval=10, ShatterMaxInterval=15,
         WarnTime=3,
+    },
+    {
+        Name="Starlight",
+        Tips="When it stops and aims, move — you have 2 seconds before the beam fires.",
+        AppearRound=25, AI="Starlight",
+        Speed=20, ShatterSpeed=25,
+        AimDelay=2, ShatterAimDelay=1,
+        BeamLength=5000, Damage=100,
     },
 }
 
@@ -2103,6 +2112,154 @@ local function spawnCrescendo(def, platforms)
     print("[Devoid] Crescendo spawned")
 end
 
+-- STARLIGHT
+local function spawnStarlight(def, platforms)
+    if #platforms==0 then return end
+    local hrpInit=getHRP(); if not hrpInit then return end
+    local ang=math.random()*math.pi*2
+    local dist=math.random(100,150)
+    local spawnPos=hrpInit.Position+Vector3.new(math.cos(ang)*dist,0,math.sin(ang)*dist)
+    spawnPos=Vector3.new(spawnPos.X,MAP_Y+8,spawnPos.Z)
+
+    local model=Instance.new("Model",ENTITY_FOLDER); model.Name="Starlight"
+
+    -- 2D star body (flat disc + points)
+    local body=Instance.new("Part",model)
+    body.Name="Root"; body.Shape=Enum.PartType.Ball; body.Size=Vector3.new(10,10,2)
+    body.Position=spawnPos; body.Anchored=true; body.CanCollide=false
+    body.Material=Enum.Material.Neon; body.Color=Color3.fromRGB(255,220,40)
+
+    -- Star points (5)
+    for i=1,5 do
+        local pAng=(i/5)*math.pi*2
+        local pPt=Instance.new("Part",model)
+        pPt.Size=Vector3.new(3,3,1.5)
+        pPt.Position=body.Position+Vector3.new(math.cos(pAng)*7,math.sin(pAng)*7,0)
+        pPt.Anchored=true; pPt.CanCollide=false
+        pPt.Material=Enum.Material.Neon; pPt.Color=Color3.fromRGB(255,235,60)
+    end
+
+    -- Single eye
+    local eye=Instance.new("Part",model)
+    eye.Shape=Enum.PartType.Ball; eye.Size=Vector3.new(3,3,1.5)
+    eye.Position=body.Position+Vector3.new(0,0,-1.5)
+    eye.Anchored=true; eye.CanCollide=false
+    eye.Material=Enum.Material.Neon; eye.Color=Color3.fromRGB(0,0,0)
+    local pupil=Instance.new("Part",model)
+    pupil.Shape=Enum.PartType.Ball; pupil.Size=Vector3.new(1.4,1.4,1.6)
+    pupil.Position=body.Position+Vector3.new(0,0,-2)
+    pupil.Anchored=true; pupil.CanCollide=false
+    pupil.Material=Enum.Material.Neon; pupil.Color=Color3.fromRGB(0,200,255)
+
+    local bb=Instance.new("BillboardGui",body)
+    bb.Size=UDim2.new(0,100,0,28); bb.StudsOffset=Vector3.new(0,8,0); bb.AlwaysOnTop=true
+    local bl=Instance.new("TextLabel",bb); bl.Size=UDim2.new(1,0,1,0)
+    bl.BackgroundTransparency=1; bl.TextColor3=Color3.fromRGB(255,240,80)
+    bl.TextScaled=true; bl.Font=Enum.Font.GothamBold; bl.Text="Starlight"
+
+    model.PrimaryPart=body; table.insert(GS.Entities,model)
+
+    local phase="chase"  -- chase | aim | fire | cooldown
+    local phaseTimer=0
+    local aimDir=Vector3.new(1,0,0)
+    local warnBeam=nil; local fireBeam=nil
+
+    local conn=RunService.Heartbeat:Connect(function(dt)
+        if not model.Parent then return end
+        if GS.Phase=="DEAD" or GS.Phase=="LOBBY" then return end
+        local hrp=getHRP(); if not hrp then return end
+
+        phaseTimer+=dt
+
+        -- Rotate star visually
+        for _,p in ipairs(model:GetChildren()) do
+            if p:IsA("BasePart") then
+                p.CFrame=p.CFrame*CFrame.Angles(0,0,dt*1.5)
+            end
+        end
+
+        if phase=="chase" then
+            local speed=GS.IsShatter and def.ShatterSpeed or def.Speed
+            local diff=hrp.Position-body.Position; diff=Vector3.new(diff.X,0,diff.Z)
+            local dist2=diff.Magnitude
+            if dist2>2 then
+                local mv=diff.Unit*speed*dt
+                for _,p in ipairs(model:GetChildren()) do
+                    if p:IsA("BasePart") then p.Position+=mv end
+                end
+            end
+            -- Switch to aim after random 4-8s
+            if phaseTimer>=math.random(4,8) then
+                phase="aim"; phaseTimer=0
+            end
+
+        elseif phase=="aim" then
+            -- Transparent warning beam tracking player with 2s delay
+            local aimDelay=GS.IsShatter and def.ShatterAimDelay or def.AimDelay
+            local hrpPos=hrp.Position
+            local newDir=(hrpPos-body.Position); newDir=Vector3.new(newDir.X,0,newDir.Z)
+            if newDir.Magnitude>0 then
+                -- Lerp aim direction slowly (the 2s delay effect)
+                aimDir=(aimDir+(newDir.Unit-aimDir)*dt*(1/aimDelay)*0.5)
+                if aimDir.Magnitude>0 then aimDir=aimDir.Unit end
+            end
+            -- Update/create warning beam
+            if warnBeam==nil then
+                warnBeam=Instance.new("Part",MAP_FOLDER)
+                warnBeam.Name="StarlightWarnBeam"; warnBeam.CanCollide=false; warnBeam.Anchored=true
+                warnBeam.Material=Enum.Material.Neon; warnBeam.Color=Color3.fromRGB(255,240,80)
+                warnBeam.Transparency=0.78
+            end
+            warnBeam.Size=Vector3.new(4,4,def.BeamLength)
+            warnBeam.CFrame=CFrame.new(body.Position+aimDir*(def.BeamLength/2),body.Position+aimDir*(def.BeamLength+1))
+
+            if phaseTimer>=aimDelay then
+                phase="fire"; phaseTimer=0
+                -- Fire sound
+                playSound(SFX.StarlightCharge,2,body.Position)
+                if warnBeam and warnBeam.Parent then warnBeam:Destroy(); warnBeam=nil end
+                -- Spawn real beam
+                fireBeam=Instance.new("Part",MAP_FOLDER)
+                fireBeam.Name="StarlightBeam"; fireBeam.CanCollide=false; fireBeam.Anchored=true
+                fireBeam.Material=Enum.Material.Neon; fireBeam.Color=Color3.fromRGB(255,255,100)
+                fireBeam.Transparency=0.08
+                fireBeam.Size=Vector3.new(7,7,def.BeamLength)
+                fireBeam.CFrame=CFrame.new(body.Position+aimDir*(def.BeamLength/2),body.Position+aimDir*(def.BeamLength+1))
+            end
+
+        elseif phase=="fire" then
+            -- Keep beam in place for 3s, deal damage if player in beam
+            if fireBeam and fireBeam.Parent then
+                local hrpPos=hrp.Position
+                -- Simple beam collision: project player onto beam axis
+                local beamStart=body.Position
+                local beamEnd=beamStart+aimDir*def.BeamLength
+                local toPlayer=hrpPos-beamStart
+                local proj=toPlayer:Dot(aimDir)
+                if proj>=0 and proj<=def.BeamLength then
+                    local closest=beamStart+aimDir*proj
+                    if (hrpPos-closest).Magnitude<5 then
+                        local hum=getHum()
+                        if hum and hum.Health>0 then hum.Health=math.max(0,hum.Health-def.Damage*dt*3) end
+                    end
+                end
+            end
+            if phaseTimer>=3 then
+                phase="cooldown"; phaseTimer=0
+                if fireBeam and fireBeam.Parent then
+                    TweenService:Create(fireBeam,TweenInfo.new(0.4),{Transparency=1}):Play()
+                    Debris:AddItem(fireBeam,0.5); fireBeam=nil
+                end
+            end
+
+        elseif phase=="cooldown" then
+            if phaseTimer>=5 then phase="chase"; phaseTimer=0 end
+        end
+    end)
+    table.insert(GS.EntityConns,conn)
+    print("[Devoid] Starlight spawned")
+end
+
 -- Spawn dispatcher
 local function spawnEntities(platforms)
     for _,c in ipairs(GS.EntityConns) do c:Disconnect() end;GS.EntityConns={}
@@ -2128,6 +2285,7 @@ local function spawnEntities(platforms)
             elseif def.AI=="HookedDoll" then spawnHookedDoll(def,platforms)
             elseif def.AI=="Greed"      then spawnGreed(def,platforms)
             elseif def.AI=="Crescendo"  then spawnCrescendo(def,platforms)
+            elseif def.AI=="Starlight"  then spawnStarlight(def,platforms)
             end
         end
     end
@@ -2294,6 +2452,7 @@ startRound=function()
             elseif def.AI=="HookedDoll" then spawnHookedDoll(def,platforms)
             elseif def.AI=="Greed"      then spawnGreed(def,platforms)
             elseif def.AI=="Crescendo"  then spawnCrescendo(def,platforms)
+            elseif def.AI=="Starlight"  then spawnStarlight(def,platforms)
             -- Fatal entities
             elseif def.AI=="Guardian"    then spawnGuardian(def,platforms)
             elseif def.AI=="MementoMori" then spawnMementoMori(def,platforms)
@@ -3954,8 +4113,12 @@ local function spawnFlesh(def, platforms)
                     table.insert(carts, {part=cart, offset=-(c-1)*CART_GAP})
                 end
 
-                -- Train sound
-                local snd = Instance.new("Sound", MAP_FOLDER)
+                -- Sound on a moving anchor part
+                local sndAnchor = Instance.new("Part", MAP_FOLDER)
+                sndAnchor.Size = Vector3.new(0.1,0.1,0.1); sndAnchor.Transparency=1
+                sndAnchor.Anchored=true; sndAnchor.CanCollide=false
+                sndAnchor.Position = origin + spawnOffset
+                local snd = Instance.new("Sound", sndAnchor)
                 snd.SoundId = "rbxassetid://"..SFX.FleshTrain
                 snd.Volume = 2.5; snd.Looped = true; snd.RollOffMaxDistance = 50
                 snd:Play()
@@ -3973,6 +4136,7 @@ local function spawnFlesh(def, platforms)
                     if not trainModel.Parent or destroyed then
                         if moveConn then pcall(function() moveConn:Disconnect() end) end
                         if snd and snd.Parent then snd:Stop(); snd:Destroy() end
+                        if sndAnchor and sndAnchor.Parent then sndAnchor:Destroy() end
                         return
                     end
                     elapsed += mdt
@@ -3996,14 +4160,22 @@ local function spawnFlesh(def, platforms)
                         end
                     end
 
-                    -- Move forward along trainDir
-                    trainPos = trainPos + trainDir * trainSpeed * mdt
+                    -- Move forward — keep Y locked at MAP_Y level so it doesn't follow player vertically
+                    trainPos = Vector3.new(
+                        trainPos.X + trainDir.X * trainSpeed * mdt,
+                        MAP_Y + 3,  -- fixed height, never follows player Y
+                        trainPos.Z + trainDir.Z * trainSpeed * mdt
+                    )
 
-                    -- Position each cart along the train axis (cart 1 = front, cart N = back)
+                    -- Update sound anchor position
+                    if sndAnchor and sndAnchor.Parent then sndAnchor.Position = trainPos end
+
+                    -- Position each cart along the train axis
                     for ci, cartData in ipairs(carts) do
                         if cartData.part.Parent then
                             local cartPos = trainPos + trainDir * cartData.offset
-                            cartData.part.CFrame = CFrame.new(cartPos, cartPos + trainDir)
+                            cartPos = Vector3.new(cartPos.X, MAP_Y+3, cartPos.Z)
+                            cartData.part.CFrame = CFrame.new(cartPos, cartPos + Vector3.new(trainDir.X,0,trainDir.Z))
                         end
                     end
 
@@ -4053,6 +4225,7 @@ local function spawnFlesh(def, platforms)
                         destroyed = true
                         if moveConn then pcall(function() moveConn:Disconnect() end) end
                         if snd and snd.Parent then snd:Stop(); snd:Destroy() end
+                        if sndAnchor and sndAnchor.Parent then sndAnchor:Destroy() end
                         for _,p in ipairs(trainModel:GetChildren()) do
                             if p:IsA("BasePart") then
                                 TweenService:Create(p,TweenInfo.new(0.5),{Transparency=1}):Play()
@@ -4140,6 +4313,9 @@ local function parseCmd(msg)
     elseif cmd=="/guardian"      then task.spawn(cmdSpawnGuardian)
     elseif cmd=="/mementomori"   then task.spawn(cmdSpawnMementoMori)
     elseif cmd=="/flesh"         then task.spawn(cmdSpawnFlesh)
+    elseif cmd=="/starlight"     then
+        local def=nil; for _,e in ipairs(EntityRegistry) do if e.AI=="Starlight" then def=e;break end end
+        if def then task.spawn(function() spawnStarlight(def,GS.MapPlatforms) end) end
     end
 end
 
