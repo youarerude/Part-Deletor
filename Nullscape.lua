@@ -2117,148 +2117,157 @@ local function spawnStarlight(def, platforms)
     if #platforms==0 then return end
     local hrpInit=getHRP(); if not hrpInit then return end
     local ang=math.random()*math.pi*2
-    local dist=math.random(100,150)
-    local spawnPos=hrpInit.Position+Vector3.new(math.cos(ang)*dist,0,math.sin(ang)*dist)
-    spawnPos=Vector3.new(spawnPos.X,MAP_Y+8,spawnPos.Z)
+    local dist2=math.random(100,150)
+    local spawnPos=hrpInit.Position+Vector3.new(math.cos(ang)*dist2,0,math.sin(ang)*dist2)
+    spawnPos=Vector3.new(spawnPos.X,MAP_Y+4,spawnPos.Z)
 
     local model=Instance.new("Model",ENTITY_FOLDER); model.Name="Starlight"
 
-    -- 2D star body (flat disc + points)
     local body=Instance.new("Part",model)
-    body.Name="Root"; body.Shape=Enum.PartType.Ball; body.Size=Vector3.new(10,10,2)
+    body.Name="Root"; body.Size=Vector3.new(12,12,2)
     body.Position=spawnPos; body.Anchored=true; body.CanCollide=false
     body.Material=Enum.Material.Neon; body.Color=Color3.fromRGB(255,220,40)
 
-    -- Star points (5)
+    -- 5 star points
+    local pointOffsets={}
     for i=1,5 do
         local pAng=(i/5)*math.pi*2
-        local pPt=Instance.new("Part",model)
-        pPt.Size=Vector3.new(3,3,1.5)
-        pPt.Position=body.Position+Vector3.new(math.cos(pAng)*7,math.sin(pAng)*7,0)
-        pPt.Anchored=true; pPt.CanCollide=false
-        pPt.Material=Enum.Material.Neon; pPt.Color=Color3.fromRGB(255,235,60)
+        local pt=Instance.new("Part",model)
+        pt.Size=Vector3.new(3.5,3.5,1.5)
+        pt.Position=body.Position+Vector3.new(math.cos(pAng)*9,math.sin(pAng)*9,0)
+        pt.Anchored=true;pt.CanCollide=false
+        pt.Material=Enum.Material.Neon;pt.Color=Color3.fromRGB(255,235,60)
+        table.insert(pointOffsets,{part=pt,ox=math.cos(pAng)*9,oy=math.sin(pAng)*9})
     end
-
-    -- Single eye
-    local eye=Instance.new("Part",model)
-    eye.Shape=Enum.PartType.Ball; eye.Size=Vector3.new(3,3,1.5)
-    eye.Position=body.Position+Vector3.new(0,0,-1.5)
-    eye.Anchored=true; eye.CanCollide=false
-    eye.Material=Enum.Material.Neon; eye.Color=Color3.fromRGB(0,0,0)
+    local eyePart=Instance.new("Part",model)
+    eyePart.Shape=Enum.PartType.Ball;eyePart.Size=Vector3.new(4,4,2)
+    eyePart.Position=body.Position+Vector3.new(0,0,-1.6)
+    eyePart.Anchored=true;eyePart.CanCollide=false
+    eyePart.Material=Enum.Material.Neon;eyePart.Color=Color3.fromRGB(0,0,0)
     local pupil=Instance.new("Part",model)
-    pupil.Shape=Enum.PartType.Ball; pupil.Size=Vector3.new(1.4,1.4,1.6)
-    pupil.Position=body.Position+Vector3.new(0,0,-2)
-    pupil.Anchored=true; pupil.CanCollide=false
-    pupil.Material=Enum.Material.Neon; pupil.Color=Color3.fromRGB(0,200,255)
+    pupil.Shape=Enum.PartType.Ball;pupil.Size=Vector3.new(2,2,2)
+    pupil.Position=body.Position+Vector3.new(0,0,-2.2)
+    pupil.Anchored=true;pupil.CanCollide=false
+    pupil.Material=Enum.Material.Neon;pupil.Color=Color3.fromRGB(0,200,255)
 
     local bb=Instance.new("BillboardGui",body)
-    bb.Size=UDim2.new(0,100,0,28); bb.StudsOffset=Vector3.new(0,8,0); bb.AlwaysOnTop=true
-    local bl=Instance.new("TextLabel",bb); bl.Size=UDim2.new(1,0,1,0)
-    bl.BackgroundTransparency=1; bl.TextColor3=Color3.fromRGB(255,240,80)
-    bl.TextScaled=true; bl.Font=Enum.Font.GothamBold; bl.Text="Starlight"
+    bb.Size=UDim2.new(0,100,0,28);bb.StudsOffset=Vector3.new(0,10,0);bb.AlwaysOnTop=true
+    local bl=Instance.new("TextLabel",bb);bl.Size=UDim2.new(1,0,1,0)
+    bl.BackgroundTransparency=1;bl.TextColor3=Color3.fromRGB(255,240,80)
+    bl.TextScaled=true;bl.Font=Enum.Font.GothamBold;bl.Text="Starlight"
 
-    model.PrimaryPart=body; table.insert(GS.Entities,model)
+    model.PrimaryPart=body;table.insert(GS.Entities,model)
 
-    local phase="chase"  -- chase | aim | fire | cooldown
-    local phaseTimer=0
-    local aimDir=Vector3.new(1,0,0)
-    local warnBeam=nil; local fireBeam=nil
+    local phase="chase"
+    local chaseTimer=0
+    local CHASE_INTERVAL=5
+    local aimTimer=0
+    local lockedDir=Vector3.new(1,0,0)
+    local warnBeam=nil;local fireBeam=nil
+    local rotAngle=0
+
+    -- placeBeam: Part starts at startPos, extends len studs in dir direction
+    local function placeBeam(beam,startPos,dir,len)
+        local cf=CFrame.lookAt(startPos,startPos+dir)
+        beam.CFrame=cf*CFrame.new(0,0,-len/2)
+        beam.Size=Vector3.new(beam.Size.X,beam.Size.Y,len)
+    end
 
     local conn=RunService.Heartbeat:Connect(function(dt)
         if not model.Parent then return end
         if GS.Phase=="DEAD" or GS.Phase=="LOBBY" then return end
         local hrp=getHRP(); if not hrp then return end
 
-        phaseTimer+=dt
-
-        -- Rotate star visually
-        for _,p in ipairs(model:GetChildren()) do
-            if p:IsA("BasePart") then
-                p.CFrame=p.CFrame*CFrame.Angles(0,0,dt*1.5)
+        -- Spin star points around body
+        rotAngle+=dt*1.8
+        local bPos=body.Position
+        for _,pd in ipairs(pointOffsets) do
+            if pd.part.Parent then
+                local rx=math.cos(rotAngle)*pd.ox-math.sin(rotAngle)*pd.oy
+                local ry=math.sin(rotAngle)*pd.ox+math.cos(rotAngle)*pd.oy
+                pd.part.Position=bPos+Vector3.new(rx,ry,0)
             end
         end
+        if eyePart.Parent  then eyePart.Position=bPos+Vector3.new(0,0,-1.6) end
+        if pupil.Parent    then pupil.Position=bPos+Vector3.new(0,0,-2.2) end
+
+        local speed=GS.IsShatter and def.ShatterSpeed or def.Speed
+        local aimDelay=GS.IsShatter and def.ShatterAimDelay or def.AimDelay
 
         if phase=="chase" then
-            local speed=GS.IsShatter and def.ShatterSpeed or def.Speed
-            local diff=hrp.Position-body.Position; diff=Vector3.new(diff.X,0,diff.Z)
-            local dist2=diff.Magnitude
-            if dist2>2 then
+            local diff=Vector3.new(hrp.Position.X-bPos.X,0,hrp.Position.Z-bPos.Z)
+            if diff.Magnitude>2 then
                 local mv=diff.Unit*speed*dt
                 for _,p in ipairs(model:GetChildren()) do
                     if p:IsA("BasePart") then p.Position+=mv end
                 end
             end
-            -- Switch to aim after random 4-8s
-            if phaseTimer>=math.random(4,8) then
-                phase="aim"; phaseTimer=0
+            chaseTimer+=dt
+            if chaseTimer>=CHASE_INTERVAL then
+                chaseTimer=0;aimTimer=0;phase="aim"
+                local d=Vector3.new(hrp.Position.X-bPos.X,0,hrp.Position.Z-bPos.Z)
+                lockedDir=d.Magnitude>0 and d.Unit or Vector3.new(1,0,0)
+                warnBeam=Instance.new("Part",MAP_FOLDER)
+                warnBeam.Name="StarlightWarnBeam";warnBeam.CanCollide=false;warnBeam.Anchored=true
+                warnBeam.Material=Enum.Material.Neon;warnBeam.Color=Color3.fromRGB(255,240,80)
+                warnBeam.Transparency=0.65;warnBeam.Size=Vector3.new(5,5,def.BeamLength)
+                placeBeam(warnBeam,bPos,lockedDir,def.BeamLength)
             end
 
         elseif phase=="aim" then
-            -- Transparent warning beam tracking player with 2s delay
-            local aimDelay=GS.IsShatter and def.ShatterAimDelay or def.AimDelay
-            local hrpPos=hrp.Position
-            local newDir=(hrpPos-body.Position); newDir=Vector3.new(newDir.X,0,newDir.Z)
-            if newDir.Magnitude>0 then
-                -- Lerp aim direction slowly (the 2s delay effect)
-                aimDir=(aimDir+(newDir.Unit-aimDir)*dt*(1/aimDelay)*0.5)
-                if aimDir.Magnitude>0 then aimDir=aimDir.Unit end
+            aimTimer+=dt
+            -- Slowly track player - large lerpFrac = faster tracking
+            local d=Vector3.new(hrp.Position.X-bPos.X,0,hrp.Position.Z-bPos.Z)
+            if d.Magnitude>0 then
+                local lf=math.min(dt/aimDelay*0.8,1)
+                lockedDir=(lockedDir+(d.Unit-lockedDir)*lf)
+                if lockedDir.Magnitude>0 then lockedDir=lockedDir.Unit end
             end
-            -- Update/create warning beam
-            if warnBeam==nil then
-                warnBeam=Instance.new("Part",MAP_FOLDER)
-                warnBeam.Name="StarlightWarnBeam"; warnBeam.CanCollide=false; warnBeam.Anchored=true
-                warnBeam.Material=Enum.Material.Neon; warnBeam.Color=Color3.fromRGB(255,240,80)
-                warnBeam.Transparency=0.78
+            if warnBeam and warnBeam.Parent then
+                placeBeam(warnBeam,bPos,lockedDir,def.BeamLength)
             end
-            warnBeam.Size=Vector3.new(4,4,def.BeamLength)
-            warnBeam.CFrame=CFrame.new(body.Position+aimDir*(def.BeamLength/2),body.Position+aimDir*(def.BeamLength+1))
-
-            if phaseTimer>=aimDelay then
-                phase="fire"; phaseTimer=0
-                -- Fire sound
-                playSound(SFX.StarlightCharge,2,body.Position)
-                if warnBeam and warnBeam.Parent then warnBeam:Destroy(); warnBeam=nil end
-                -- Spawn real beam
+            if aimTimer>=aimDelay then
+                phase="fire";aimTimer=0
+                playSound(SFX.StarlightCharge,2.5,bPos)
+                if warnBeam and warnBeam.Parent then warnBeam:Destroy();warnBeam=nil end
                 fireBeam=Instance.new("Part",MAP_FOLDER)
-                fireBeam.Name="StarlightBeam"; fireBeam.CanCollide=false; fireBeam.Anchored=true
-                fireBeam.Material=Enum.Material.Neon; fireBeam.Color=Color3.fromRGB(255,255,100)
-                fireBeam.Transparency=0.08
-                fireBeam.Size=Vector3.new(7,7,def.BeamLength)
-                fireBeam.CFrame=CFrame.new(body.Position+aimDir*(def.BeamLength/2),body.Position+aimDir*(def.BeamLength+1))
+                fireBeam.Name="StarlightBeam";fireBeam.CanCollide=false;fireBeam.Anchored=true
+                fireBeam.Material=Enum.Material.Neon;fireBeam.Color=Color3.fromRGB(255,255,80)
+                fireBeam.Transparency=0;fireBeam.Size=Vector3.new(12,12,def.BeamLength)
+                placeBeam(fireBeam,bPos,lockedDir,def.BeamLength)
             end
 
         elseif phase=="fire" then
-            -- Keep beam in place for 3s, deal damage if player in beam
+            aimTimer+=dt
             if fireBeam and fireBeam.Parent then
-                local hrpPos=hrp.Position
-                -- Simple beam collision: project player onto beam axis
-                local beamStart=body.Position
-                local beamEnd=beamStart+aimDir*def.BeamLength
-                local toPlayer=hrpPos-beamStart
-                local proj=toPlayer:Dot(aimDir)
+                -- Damage: project player onto beam axis
+                local toP=hrp.Position-bPos
+                local proj=toP:Dot(lockedDir)
                 if proj>=0 and proj<=def.BeamLength then
-                    local closest=beamStart+aimDir*proj
-                    if (hrpPos-closest).Magnitude<5 then
+                    local closest=bPos+lockedDir*proj
+                    if (hrp.Position-closest).Magnitude<8 then
                         local hum=getHum()
-                        if hum and hum.Health>0 then hum.Health=math.max(0,hum.Health-def.Damage*dt*3) end
+                        if hum and hum.Health>0 then hum.Health=math.max(0,hum.Health-def.Damage*dt*4) end
                     end
                 end
             end
-            if phaseTimer>=3 then
-                phase="cooldown"; phaseTimer=0
+            if aimTimer>=3 then
+                phase="cooldown";aimTimer=0
                 if fireBeam and fireBeam.Parent then
-                    TweenService:Create(fireBeam,TweenInfo.new(0.4),{Transparency=1}):Play()
-                    Debris:AddItem(fireBeam,0.5); fireBeam=nil
+                    TweenService:Create(fireBeam,TweenInfo.new(0.5),{Transparency=1}):Play()
+                    Debris:AddItem(fireBeam,0.6);fireBeam=nil
                 end
             end
 
         elseif phase=="cooldown" then
-            if phaseTimer>=5 then phase="chase"; phaseTimer=0 end
+            aimTimer+=dt
+            if aimTimer>=2 then phase="chase";aimTimer=0;chaseTimer=0 end
         end
     end)
     table.insert(GS.EntityConns,conn)
     print("[Devoid] Starlight spawned")
 end
+
 
 -- Spawn dispatcher
 local function spawnEntities(platforms)
@@ -4014,16 +4023,20 @@ local function spawnFlesh(def, platforms)
 
                 local hrp = getHRP(); if not hrp then task.wait(1); continue end
 
-                -- Random direction for beam (always horizontal for normal, can be any angle)
+                -- Direction = random horizontal angle
                 local ang = math.random() * math.pi * 2
                 local dir = Vector3.new(math.cos(ang), 0, math.sin(ang)).Unit
 
-                -- Transparent warning beam centered on player
-                local BEAM_LENGTH = 600
+                -- Spawn point is 100 studs behind player along -dir
+                local spawnPoint = hrp.Position - dir * 100
+                spawnPoint = Vector3.new(spawnPoint.X, MAP_Y+3, spawnPoint.Z)
+
+                -- Warning beam goes FROM spawnPoint through player and 300 studs beyond
+                local BEAM_LENGTH = 500
                 local warnBeam = Instance.new("Part", MAP_FOLDER)
                 warnBeam.Name = "FleshBeam"
                 warnBeam.Size = Vector3.new(cartLen * 1.2, cartLen * 1.2, BEAM_LENGTH)
-                warnBeam.CFrame = CFrame.lookAt(hrp.Position, hrp.Position + dir)
+                warnBeam.CFrame = CFrame.lookAt(spawnPoint, spawnPoint + dir) * CFrame.new(0,0,-BEAM_LENGTH/2)
                 warnBeam.Anchored = true; warnBeam.CanCollide = false
                 warnBeam.Material = Enum.Material.Neon
                 warnBeam.Color = Color3.fromRGB(200, 0, 0)
@@ -4044,9 +4057,9 @@ local function spawnFlesh(def, platforms)
 
                 -- Snapshot player position for spawn origin
                 local hrp2 = getHRP(); if not hrp2 then task.wait(1); continue end
-                local origin = hrp2.Position
-                -- Spawn 100 studs behind player along the beam direction
-                local spawnOffset = -dir * 100
+                local origin = Vector3.new(spawnPoint.X, MAP_Y+3, spawnPoint.Z)
+                -- Train travels in dir (from spawnPoint toward player and beyond)
+                local spawnOffset = Vector3.new(0,0,0)  -- already at spawnPoint
 
                 -- Build Flesh train model
                 local trainModel = Instance.new("Model", ENTITY_FOLDER); trainModel.Name = "FleshTrain"
@@ -4062,7 +4075,8 @@ local function spawnFlesh(def, platforms)
                 }
 
                 for c = 1, cartCount do
-                    local cartPos = origin + spawnOffset - dir * (c-1) * CART_GAP
+                    -- Carts line up BEHIND spawnPoint (further from player)
+                    local cartPos = origin - dir * (c-1) * CART_GAP
 
                     local cart = Instance.new("Part", trainModel)
                     cart.Name = "Cart"..c
@@ -4127,8 +4141,8 @@ local function spawnFlesh(def, platforms)
 
                 -- Train runs along `dir` from spawn, slowly steering toward player
                 -- `trainDir` is the current heading (unit Vector3, Y=0)
-                local trainPos = origin + spawnOffset
-                local trainDir = dir  -- initial heading = beam direction
+                local trainPos = origin
+                local trainDir = dir  -- travels from spawn toward player
                 local elapsed = 0
                 local destroyed = false
 
