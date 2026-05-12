@@ -179,7 +179,7 @@ local EntityRegistry = {
         AppearRound=25, AI="Starlight",
         Speed=20, ShatterSpeed=25,
         AimDelay=2, ShatterAimDelay=1,
-        BeamLength=5000, Damage=100,
+        BeamLength=800, Damage=100,
     },
 }
 
@@ -2166,11 +2166,14 @@ local function spawnStarlight(def, platforms)
     local warnBeam=nil;local fireBeam=nil
     local rotAngle=0
 
-    -- placeBeam: Part starts at startPos, extends len studs in dir direction
+    -- placeBeam: near edge starts at startPos, beam extends len studs in dir
     local function placeBeam(beam,startPos,dir,len)
-        local cf=CFrame.lookAt(startPos,startPos+dir)
-        beam.CFrame=cf*CFrame.new(0,0,-len/2)
-        beam.Size=Vector3.new(beam.Size.X,beam.Size.Y,len)
+        local safeLen = math.min(len, 2040)
+        beam.Size = Vector3.new(beam.Size.X, beam.Size.Y, safeLen)
+        -- CFrame.lookAt makes +Z face AWAY from target; Roblox Parts extend along their Z axis
+        -- So: position center at startPos + dir*(safeLen/2)
+        local center = startPos + dir * (safeLen/2)
+        beam.CFrame = CFrame.lookAt(center, center + dir)
     end
 
     local conn=RunService.Heartbeat:Connect(function(dt)
