@@ -61,6 +61,11 @@ local SFX = {
     FleshTrain         = "133008658452162",
     FleshCrash         = "138307089384990",
     StarlightCharge    = "138453151679878",
+    GreedAppear        = "128248309095369",
+    HungerAmbient      = "92665389750132",
+    HungerDash         = "138383389938029",
+    HungerLine         = "92502103787032",
+    LobbyMusic         = "112296438347538",
 }
 
 -- ============================================================
@@ -162,7 +167,8 @@ local EntityRegistry = {
         MinInterval=34, MaxInterval=45,
         Demand=0,  -- set dynamically
         WarnTime=3, TimerDuration=10,
-        ShatterMinDemand=10, ShatterMaxDemand=20, ShatterTimerDuration=7,
+        ShatterMinDemand=5, ShatterMaxDemand=9, ShatterTimerDuration=7,
+        MinDemand=3, MaxDemand=6,
     },
     {
         Name="Crescendo",
@@ -180,6 +186,14 @@ local EntityRegistry = {
         Speed=20, ShatterSpeed=25,
         AimDelay=2, ShatterAimDelay=1,
         BeamLength=800, Damage=100,
+    },
+    {
+        Name="Hunger",
+        Tips="Don't stand still — it telegraphs its dash with a red line. Move perpendicular.",
+        AppearRound=25, AI="Hunger",
+        LineInterval=2, ShatterLineInterval=1,
+        LineLength=20, ShatterLineLength=25,
+        DashSpeed=20,
     },
 }
 
@@ -1782,7 +1796,7 @@ local function spawnGreed(def, platforms)
             if GS.IsShatter then
                 demand = math.random(def.ShatterMinDemand, def.ShatterMaxDemand)
             else
-                demand = math.random(5, 15)
+                demand = math.random(def.MinDemand or 3, def.MaxDemand or 6)
             end
             local collected = 0
             local timerDur = GS.IsShatter and def.ShatterTimerDuration or def.TimerDuration
@@ -1795,8 +1809,7 @@ local function spawnGreed(def, platforms)
                 BackgroundTransparency = 0.05,
                 ZIndex = 35,
             }); corner(face, 90)
-
-            -- Eyes showing $ for first 3s
+            playSound(SFX.GreedAppear, 1.5)
             local eye1 = mkLabel(face, {
                 Size=UDim2.new(0,50,0,50), Position=UDim2.new(0.12,0,0.12,0),
                 BackgroundColor3=Color3.fromRGB(0,0,0), BackgroundTransparency=0,
@@ -2243,6 +2256,17 @@ local function spawnStarlight(def, platforms)
         elseif phase=="fire" then
             aimTimer+=dt
             if fireBeam and fireBeam.Parent then
+                -- Aim beam while firing: speed based on distance
+                local d=Vector3.new(hrp.Position.X-bPos.X,0,hrp.Position.Z-bPos.Z)
+                if d.Magnitude>0 then
+                    local dist=d.Magnitude
+                    -- 11+ studs away = fast aim (100), 1-10 studs = slow aim (16)
+                    local aimSpeed = dist>=11 and 100 or 16
+                    local lf=math.min(aimSpeed*dt*0.015,1)
+                    lockedDir=(lockedDir+(d.Unit-lockedDir)*lf)
+                    if lockedDir.Magnitude>0 then lockedDir=lockedDir.Unit end
+                end
+                placeBeam(fireBeam,bPos,lockedDir,def.BeamLength)
                 -- Damage: project player onto beam axis
                 local toP=hrp.Position-bPos
                 local proj=toP:Dot(lockedDir)
@@ -2272,6 +2296,163 @@ local function spawnStarlight(def, platforms)
 end
 
 
+-- HUNGER
+local function spawnHunger(def, platforms)
+    if #platforms==0 then return end
+    local sp=anyMapPlat() or platforms[math.random(1,#platforms)]
+
+    local model=Instance.new("Model",ENTITY_FOLDER); model.Name="Hunger"
+
+    -- Teeth body: flat disc
+    local body=Instance.new("Part",model)
+    body.Name="Root"; body.Size=Vector3.new(8,8,1.5)
+    body.Position=sp.Position+Vector3.new(0,5,0)
+    body.Anchored=true; body.CanCollide=false
+    body.Material=Enum.Material.SmoothPlastic; body.Color=Color3.fromRGB(30,30,30)
+
+    -- Upper jaw
+    local upperJaw=Instance.new("Part",model)
+    upperJaw.Size=Vector3.new(8,3,1.5)
+    upperJaw.Position=body.Position+Vector3.new(0,2,0)
+    upperJaw.Anchored=true; upperJaw.CanCollide=false
+    upperJaw.Material=Enum.Material.SmoothPlastic; upperJaw.Color=Color3.fromRGB(40,40,40)
+
+    -- Lower jaw
+    local lowerJaw=Instance.new("Part",model)
+    lowerJaw.Size=Vector3.new(8,3,1.5)
+    lowerJaw.Position=body.Position+Vector3.new(0,-2,0)
+    lowerJaw.Anchored=true; lowerJaw.CanCollide=false
+    lowerJaw.Material=Enum.Material.SmoothPlastic; lowerJaw.Color=Color3.fromRGB(40,40,40)
+
+    -- Teeth (upper)
+    for t=1,5 do
+        local tooth=Instance.new("Part",model)
+        tooth.Size=Vector3.new(1.2,2,1)
+        tooth.Position=body.Position+Vector3.new(-4+t*1.5,0.8,-0.8)
+        tooth.Anchored=true; tooth.CanCollide=false
+        tooth.Material=Enum.Material.SmoothPlastic; tooth.Color=Color3.fromRGB(240,235,220)
+    end
+    -- Teeth (lower)
+    for t=1,4 do
+        local tooth=Instance.new("Part",model)
+        tooth.Size=Vector3.new(1.2,2,1)
+        tooth.Position=body.Position+Vector3.new(-3.2+t*1.5,-0.8,-0.8)
+        tooth.Anchored=true; tooth.CanCollide=false
+        tooth.Material=Enum.Material.SmoothPlastic; tooth.Color=Color3.fromRGB(240,235,220)
+    end
+
+    -- Black smoke particles
+    local att=Instance.new("Attachment",body)
+    local pe=Instance.new("ParticleEmitter",att)
+    pe.Color=ColorSequence.new(Color3.fromRGB(0,0,0)); pe.LightEmission=0; pe.Rate=40
+    pe.Speed=NumberRange.new(2,8); pe.Lifetime=NumberRange.new(0.5,2)
+    pe.Size=NumberSequence.new({NumberSequenceKeypoint.new(0,2),NumberSequenceKeypoint.new(1,0)})
+    pe.Transparency=NumberSequence.new({NumberSequenceKeypoint.new(0,0.2),NumberSequenceKeypoint.new(1,1)})
+
+    -- Ambient sound
+    local ambSnd=Instance.new("Sound",body)
+    ambSnd.SoundId="rbxassetid://"..SFX.HungerAmbient
+    ambSnd.Volume=1.5; ambSnd.Looped=true; ambSnd.RollOffMaxDistance=60; ambSnd:Play()
+
+    local bb=Instance.new("BillboardGui",body)
+    bb.Size=UDim2.new(0,90,0,24); bb.StudsOffset=Vector3.new(0,6,0); bb.AlwaysOnTop=true
+    local bl=Instance.new("TextLabel",bb); bl.Size=UDim2.new(1,0,1,0)
+    bl.BackgroundTransparency=1; bl.TextColor3=Color3.fromRGB(180,0,0)
+    bl.TextScaled=true; bl.Font=Enum.Font.GothamBold; bl.Text="Hunger"
+
+    model.PrimaryPart=body; table.insert(GS.Entities,model)
+
+    local lineTimer=0
+    local isDashing=false
+    local jaws={upper=upperJaw,lower=lowerJaw}
+
+    local conn=RunService.Heartbeat:Connect(function(dt)
+        if not model.Parent then return end
+        if GS.Phase=="DEAD" or GS.Phase=="LOBBY" then return end
+        local hrp=getHRP(); if not hrp then return end
+
+        local interval=GS.IsShatter and def.ShatterLineInterval or def.LineInterval
+        local lineLen=GS.IsShatter and def.ShatterLineLength or def.LineLength
+
+        if isDashing then return end  -- handled in task.spawn below
+
+        lineTimer+=dt
+        if lineTimer>=interval then
+            lineTimer=0
+            isDashing=true
+            task.spawn(function()
+                if not hrp then isDashing=false; return end
+
+                -- Pick random 3D direction (XYZ axes possible)
+                local axes={
+                    Vector3.new(1,0,0),Vector3.new(-1,0,0),
+                    Vector3.new(0,1,0),Vector3.new(0,-1,0),
+                    Vector3.new(0,0,1),Vector3.new(0,0,-1),
+                    -- Diagonals
+                    Vector3.new(1,0,1).Unit, Vector3.new(-1,0,1).Unit,
+                    Vector3.new(1,0,-1).Unit,Vector3.new(-1,0,-1).Unit,
+                    -- Aim at player
+                    (hrp.Position-body.Position).Magnitude>0 and (hrp.Position-body.Position).Unit or Vector3.new(0,0,1),
+                }
+                local dashDir=axes[math.random(1,#axes)]
+                local startPos=body.Position
+
+                -- Show red aim line
+                playSound(SFX.HungerLine, 1, startPos)
+                local redLine=Instance.new("Part",MAP_FOLDER)
+                redLine.Name="HungerLine";redLine.Size=Vector3.new(1,1,lineLen)
+                redLine.Anchored=true;redLine.CanCollide=false
+                redLine.Material=Enum.Material.Neon;redLine.Color=Color3.fromRGB(255,0,0);redLine.Transparency=0.35
+                local center=startPos+dashDir*(lineLen/2)
+                redLine.CFrame=CFrame.lookAt(center,center+dashDir)
+
+                -- Close jaws during aim
+                upperJaw.Position=body.Position+Vector3.new(0,1.2,0)
+                lowerJaw.Position=body.Position+Vector3.new(0,-1.2,0)
+
+                task.wait(interval)  -- wait = same as interval before dash
+
+                if not model.Parent then isDashing=false; return end
+
+                -- Open jaws for dash
+                playSound(SFX.HungerDash, 1.5, startPos)
+                upperJaw.Position=body.Position+Vector3.new(0,4,0)
+                lowerJaw.Position=body.Position+Vector3.new(0,-4,0)
+
+                if redLine.Parent then redLine:Destroy() end
+
+                -- Dash
+                local dashDist=lineLen
+                local traveled=0
+                local dashConn; dashConn=RunService.Heartbeat:Connect(function(ddt)
+                    if not model.Parent then dashConn:Disconnect(); return end
+                    local step=def.DashSpeed*ddt
+                    traveled+=step
+                    -- Move all parts
+                    for _,p in ipairs(model:GetChildren()) do
+                        if p:IsA("BasePart") then p.Position+=dashDir*step end
+                    end
+                    -- Kill on touch
+                    local hrp2=getHRP()
+                    if hrp2 and (hrp2.Position-body.Position).Magnitude<6 then
+                        local hum=getHum(); if hum and hum.Health>0 then hum.Health=0 end
+                    end
+                    if traveled>=dashDist then
+                        dashConn:Disconnect()
+                        -- Close jaws again
+                        if upperJaw.Parent then upperJaw.Position=body.Position+Vector3.new(0,1.2,0) end
+                        if lowerJaw.Parent then lowerJaw.Position=body.Position+Vector3.new(0,-1.2,0) end
+                        isDashing=false
+                    end
+                end)
+                table.insert(GS.EntityConns,dashConn)
+            end)
+        end
+    end)
+    table.insert(GS.EntityConns,conn)
+    print("[Devoid] Hunger spawned")
+end
+
 -- Spawn dispatcher
 local function spawnEntities(platforms)
     for _,c in ipairs(GS.EntityConns) do c:Disconnect() end;GS.EntityConns={}
@@ -2298,6 +2479,7 @@ local function spawnEntities(platforms)
             elseif def.AI=="Greed"      then spawnGreed(def,platforms)
             elseif def.AI=="Crescendo"  then spawnCrescendo(def,platforms)
             elseif def.AI=="Starlight"  then spawnStarlight(def,platforms)
+            elseif def.AI=="Hunger"     then spawnHunger(def,platforms)
             end
         end
     end
@@ -2421,6 +2603,8 @@ startRound=function()
     lblCosmic.Visible=false;lblPhase.Visible=false
     if lblLobbyBank then lblLobbyBank.Visible=false end
     GS.Phase="PLAYING";GS.IsShatter=false
+    -- Stop lobby music
+    local lm=workspace:FindFirstChild("DevoidLobbyMusic"); if lm then lm:Stop() end
     GS.CollectedReality=0;GS.CollectedCosmic=0
     lblRound.Text="PM "..(GS.Round-1)..":00"
     lblReality.Text="Reality Shards: 0 / ..."
@@ -2465,6 +2649,7 @@ startRound=function()
             elseif def.AI=="Greed"      then spawnGreed(def,platforms)
             elseif def.AI=="Crescendo"  then spawnCrescendo(def,platforms)
             elseif def.AI=="Starlight"  then spawnStarlight(def,platforms)
+            elseif def.AI=="Hunger"     then spawnHunger(def,platforms)
             -- Fatal entities
             elseif def.AI=="Guardian"    then spawnGuardian(def,platforms)
             elseif def.AI=="MementoMori" then spawnMementoMori(def,platforms)
@@ -2528,6 +2713,19 @@ local function startCollectionLoop()
                 if s and s.Parent and (pos-s.Position).Magnitude<5.5 then
                     local isRealimic=(s.Name=="RealimicShard")
                     s:Destroy();table.remove(GS.RealityShards,i)
+                    -- Shard Idol: 5% chance to collect 5 nearest shards too
+                    if GS.Upgrades.ShardIdol and math.random()<0.05 then
+                        local pool={}
+                        for _,ns in ipairs(GS.RealityShards) do if ns and ns.Parent then table.insert(pool,{s=ns,d=(pos-ns.Position).Magnitude}) end end
+                        table.sort(pool,function(a,b) return a.d<b.d end)
+                        for pi=1,math.min(5,#pool) do
+                            if pool[pi].s.Parent then
+                                pool[pi].s:Destroy()
+                                for ri=#GS.RealityShards,1,-1 do if GS.RealityShards[ri]==pool[pi].s then table.remove(GS.RealityShards,ri);break end end
+                                GS.CollectedReality+=1
+                            end
+                        end
+                    end
                     -- RandomMode: 3x reality count (not realimic)
                     local realAdd = (GS.RandomModeMultiplier and not isRealimic) and 3 or 1
                     GS.CollectedReality += realAdd
@@ -2767,6 +2965,10 @@ local UpgradeRegistry = {
         Name="Railway", Tips="Flesh train is locked to the beam rail — turn speed becomes 0.",
         Cost=8, Key="Railway", OneTime=true, Chain="Flesh",
     },
+    {
+        Name="Shard Idol", Tips="5% chance on any shard collect to also collect the 5 nearest shards.",
+        Cost=9, Key="ShardIdol", OneTime=true, Chain=nil,
+    },
 }
 
 -- Upgrade bank label (top-right of HUD)
@@ -2971,6 +3173,14 @@ buildLobby=function()
     base.Name="LobbyBase";base.Size=Vector3.new(140,3,140)
     base.Position=Vector3.new(0,LOBBY_Y,0);base.Anchored=true
     base.Material=Enum.Material.SmoothPlastic;base.Color=Color3.fromRGB(18,12,38)
+    -- Lobby music
+    do
+        local old=workspace:FindFirstChild("DevoidLobbyMusic")
+        if old then old:Destroy() end
+        local snd=Instance.new("Sound",workspace); snd.Name="DevoidLobbyMusic"
+        snd.SoundId="rbxassetid://"..SFX.LobbyMusic
+        snd.Volume=0.7; snd.Looped=true; snd:Play()
+    end
 
     for _,bd in ipairs({
         {Vector3.new(140,0.4,2),Vector3.new(0,LOBBY_Y+1.7,70)},
@@ -3568,7 +3778,7 @@ local function cmdSpawnGreed()
     for _,e in ipairs(EntityRegistry) do if e.AI=="Greed" then def=e; break end end
     if not def then return end
     -- Force one immediate greed event
-    local demand = math.random(5,15)
+    local demand = math.random(def.MinDemand or 3, def.MaxDemand or 6)
     if GS.IsShatter then demand = math.random(def.ShatterMinDemand, def.ShatterMaxDemand) end
     local timerDur = GS.IsShatter and def.ShatterTimerDuration or def.TimerDuration
     local collected = 0
@@ -4333,6 +4543,9 @@ local function parseCmd(msg)
     elseif cmd=="/starlight"     then
         local def=nil; for _,e in ipairs(EntityRegistry) do if e.AI=="Starlight" then def=e;break end end
         if def then task.spawn(function() spawnStarlight(def,GS.MapPlatforms) end) end
+    elseif cmd=="/hunger"        then
+        local def=nil; for _,e in ipairs(EntityRegistry) do if e.AI=="Hunger" then def=e;break end end
+        if def then task.spawn(function() spawnHunger(def,GS.MapPlatforms) end) end
     end
 end
 
