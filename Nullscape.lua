@@ -189,11 +189,11 @@ local EntityRegistry = {
     },
     {
         Name="Hunger",
-        Tips="Don't stand still — it telegraphs its dash with a red line. Move perpendicular.",
+        Tips="Sidestep the red line — it aims directly at you before dashing.",
         AppearRound=25, AI="Hunger",
         LineInterval=2, ShatterLineInterval=1,
-        LineLength=20, ShatterLineLength=25,
-        DashSpeed=20,
+        LineLength=60, ShatterLineLength=80,
+        DashSpeed=40, ShatterDashSpeed=60,
     },
 }
 
@@ -365,6 +365,8 @@ local buildLobby,startRound,refreshBeacons,selectEntity,doReroll,onDeath,activat
 local lblLobbyBank, lblCosmicBank
 -- fatal entity spawner — defined later but called from startRound
 local spawnFatalEntities
+-- late-defined entity spawners used in Random Mode (defined after startRound)
+local spawnGuardian, spawnMementoMori, spawnFlesh
 
 -- ============================================================
 -- CAMERA SHAKE
@@ -2178,13 +2180,12 @@ local function spawnStarlight(def, platforms)
     local lockedDir=Vector3.new(1,0,0)
     local warnBeam=nil;local fireBeam=nil
     local rotAngle=0
+    local isRedGiant=false
 
     -- placeBeam: near edge starts at startPos, beam extends len studs in dir
     local function placeBeam(beam,startPos,dir,len)
         local safeLen = math.min(len, 2040)
         beam.Size = Vector3.new(beam.Size.X, beam.Size.Y, safeLen)
-        -- CFrame.lookAt makes +Z face AWAY from target; Roblox Parts extend along their Z axis
-        -- So: position center at startPos + dir*(safeLen/2)
         local center = startPos + dir * (safeLen/2)
         beam.CFrame = CFrame.lookAt(center, center + dir)
     end
@@ -2193,6 +2194,33 @@ local function spawnStarlight(def, platforms)
         if not model.Parent then return end
         if GS.Phase=="DEAD" or GS.Phase=="LOBBY" then return end
         local hrp=getHRP(); if not hrp then return end
+
+        -- Red Giant: check if another Starlight is close enough to merge
+        if not isRedGiant then
+            for _,other in ipairs(GS.Entities) do
+                if other~=model and other.Name=="Starlight" and other.Parent then
+                    local oRoot=other:FindFirstChild("Root")
+                    if oRoot and (oRoot.Position-body.Position).Magnitude<16 then
+                        isRedGiant=true
+                        -- Visual upgrade
+                        for _,p in ipairs(model:GetChildren()) do
+                            if p:IsA("BasePart") then p.Color=Color3.fromRGB(220,30,0) end
+                        end
+                        body.Size=Vector3.new(20,20,2)
+                        bl.Text="Red Giant"; bl.TextColor3=Color3.fromRGB(255,80,0)
+                        -- Absorb the other Starlight
+                        other:Destroy()
+                        for i,e in ipairs(GS.Entities) do if e==other then table.remove(GS.Entities,i);break end end
+                        break
+                    end
+                end
+            end
+        end
+
+        -- Red Giant speed/beam multipliers
+        local giantMult = isRedGiant and 1.7 or 1.0
+        local beamW     = isRedGiant and 22 or 12
+        local dmgMult   = isRedGiant and 8 or 4
 
         -- Spin star points around body
         rotAngle+=dt*1.8
@@ -2208,6 +2236,7 @@ local function spawnStarlight(def, platforms)
         if pupil.Parent    then pupil.Position=bPos+Vector3.new(0,0,-2.2) end
 
         local speed=GS.IsShatter and def.ShatterSpeed or def.Speed
+        speed = speed * giantMult
         local aimDelay=GS.IsShatter and def.ShatterAimDelay or def.AimDelay
 
         if phase=="chase" then
@@ -2248,8 +2277,9 @@ local function spawnStarlight(def, platforms)
                 if warnBeam and warnBeam.Parent then warnBeam:Destroy();warnBeam=nil end
                 fireBeam=Instance.new("Part",MAP_FOLDER)
                 fireBeam.Name="StarlightBeam";fireBeam.CanCollide=false;fireBeam.Anchored=true
-                fireBeam.Material=Enum.Material.Neon;fireBeam.Color=Color3.fromRGB(255,255,80)
-                fireBeam.Transparency=0;fireBeam.Size=Vector3.new(12,12,def.BeamLength)
+                fireBeam.Material=Enum.Material.Neon
+                fireBeam.Color=isRedGiant and Color3.fromRGB(255,60,0) or Color3.fromRGB(255,255,80)
+                fireBeam.Transparency=0;fireBeam.Size=Vector3.new(beamW,beamW,def.BeamLength)
                 placeBeam(fireBeam,bPos,lockedDir,def.BeamLength)
             end
 
@@ -2274,7 +2304,7 @@ local function spawnStarlight(def, platforms)
                     local closest=bPos+lockedDir*proj
                     if (hrp.Position-closest).Magnitude<8 then
                         local hum=getHum()
-                        if hum and hum.Health>0 then hum.Health=math.max(0,hum.Health-def.Damage*dt*4) end
+                        if hum and hum.Health>0 then hum.Health=math.max(0,hum.Health-def.Damage*dt*dmgMult) end
                     end
                 end
             end
@@ -2373,73 +2403,73 @@ local function spawnHunger(def, platforms)
 
         local interval=GS.IsShatter and def.ShatterLineInterval or def.LineInterval
         local lineLen=GS.IsShatter and def.ShatterLineLength or def.LineLength
+        local dashSpd=GS.IsShatter and def.ShatterDashSpeed or def.DashSpeed
 
-        if isDashing then return end  -- handled in task.spawn below
+        -- Always face player (rotate all parts toward player each frame)
+        local diff=hrp.Position-body.Position
+        if diff.Magnitude>0.5 then
+            local faceCF=CFrame.lookAt(body.Position,hrp.Position+Vector3.new(0,0,0))
+            for _,p in ipairs(model:GetChildren()) do
+                if p:IsA("BasePart") then
+                    local relPos=body.CFrame:ToObjectSpace(p.CFrame).Position
+                    p.CFrame=faceCF*CFrame.new(relPos)
+                end
+            end
+        end
+
+        if isDashing then return end
 
         lineTimer+=dt
         if lineTimer>=interval then
             lineTimer=0
             isDashing=true
             task.spawn(function()
-                if not hrp then isDashing=false; return end
+                local hrpNow=getHRP(); if not hrpNow then isDashing=false; return end
 
-                -- Pick random 3D direction (XYZ axes possible)
-                local axes={
-                    Vector3.new(1,0,0),Vector3.new(-1,0,0),
-                    Vector3.new(0,1,0),Vector3.new(0,-1,0),
-                    Vector3.new(0,0,1),Vector3.new(0,0,-1),
-                    -- Diagonals
-                    Vector3.new(1,0,1).Unit, Vector3.new(-1,0,1).Unit,
-                    Vector3.new(1,0,-1).Unit,Vector3.new(-1,0,-1).Unit,
-                    -- Aim at player
-                    (hrp.Position-body.Position).Magnitude>0 and (hrp.Position-body.Position).Unit or Vector3.new(0,0,1),
-                }
-                local dashDir=axes[math.random(1,#axes)]
+                -- Aim TOWARD player
+                local toPlayer=hrpNow.Position-body.Position
+                local dashDir=toPlayer.Magnitude>0 and toPlayer.Unit or Vector3.new(0,0,1)
                 local startPos=body.Position
 
-                -- Show red aim line
+                -- Show red aim line from body toward player
                 playSound(SFX.HungerLine, 1, startPos)
                 local redLine=Instance.new("Part",MAP_FOLDER)
-                redLine.Name="HungerLine";redLine.Size=Vector3.new(1,1,lineLen)
+                redLine.Name="HungerLine";redLine.Size=Vector3.new(1.5,1.5,lineLen)
                 redLine.Anchored=true;redLine.CanCollide=false
-                redLine.Material=Enum.Material.Neon;redLine.Color=Color3.fromRGB(255,0,0);redLine.Transparency=0.35
+                redLine.Material=Enum.Material.Neon;redLine.Color=Color3.fromRGB(255,0,0);redLine.Transparency=0.3
                 local center=startPos+dashDir*(lineLen/2)
                 redLine.CFrame=CFrame.lookAt(center,center+dashDir)
 
                 -- Close jaws during aim
-                upperJaw.Position=body.Position+Vector3.new(0,1.2,0)
-                lowerJaw.Position=body.Position+Vector3.new(0,-1.2,0)
+                if upperJaw.Parent then upperJaw.Position=body.Position+Vector3.new(0,1.2,0) end
+                if lowerJaw.Parent then lowerJaw.Position=body.Position+Vector3.new(0,-1.2,0) end
 
-                task.wait(interval)  -- wait = same as interval before dash
+                task.wait(interval)
 
                 if not model.Parent then isDashing=false; return end
 
-                -- Open jaws for dash
-                playSound(SFX.HungerDash, 1.5, startPos)
-                upperJaw.Position=body.Position+Vector3.new(0,4,0)
-                lowerJaw.Position=body.Position+Vector3.new(0,-4,0)
+                -- Open jaws wide for dash
+                playSound(SFX.HungerDash, 1.5, body.Position)
+                if upperJaw.Parent then upperJaw.Position=body.Position+Vector3.new(0,4.5,0) end
+                if lowerJaw.Parent then lowerJaw.Position=body.Position+Vector3.new(0,-4.5,0) end
 
                 if redLine.Parent then redLine:Destroy() end
 
-                -- Dash
-                local dashDist=lineLen
+                -- Dash along locked direction
                 local traveled=0
                 local dashConn; dashConn=RunService.Heartbeat:Connect(function(ddt)
                     if not model.Parent then dashConn:Disconnect(); return end
-                    local step=def.DashSpeed*ddt
+                    local step=dashSpd*ddt
                     traveled+=step
-                    -- Move all parts
                     for _,p in ipairs(model:GetChildren()) do
                         if p:IsA("BasePart") then p.Position+=dashDir*step end
                     end
-                    -- Kill on touch
                     local hrp2=getHRP()
                     if hrp2 and (hrp2.Position-body.Position).Magnitude<6 then
                         local hum=getHum(); if hum and hum.Health>0 then hum.Health=0 end
                     end
-                    if traveled>=dashDist then
+                    if traveled>=lineLen then
                         dashConn:Disconnect()
-                        -- Close jaws again
                         if upperJaw.Parent then upperJaw.Position=body.Position+Vector3.new(0,1.2,0) end
                         if lowerJaw.Parent then lowerJaw.Position=body.Position+Vector3.new(0,-1.2,0) end
                         isDashing=false
@@ -3887,7 +3917,7 @@ end
 -- ============================================================
 -- GUARDIAN AI
 -- ============================================================
-local function spawnGuardian(def, platforms)
+spawnGuardian = function(def, platforms)
     local timer = 0
     local nextInterval = math.random(def.MinInterval, def.MaxInterval)
     local conn = RunService.Heartbeat:Connect(function(dt)
@@ -4029,7 +4059,7 @@ local function spawnGuardian(def, platforms)
 end
 
 -- MEMENTO MORI
-local function spawnMementoMori(def, platforms)
+spawnMementoMori = function(def, platforms)
     local timer = 0
     local nextInterval = math.random(def.MinInterval, def.MaxInterval)
     local eventActive = false
@@ -4217,7 +4247,7 @@ local function spawnMementoMori(def, platforms)
 end
 
 -- FLESH
-local function spawnFlesh(def, platforms)
+spawnFlesh = function(def, platforms)
     local active = false
 
     local conn = RunService.Heartbeat:Connect(function(dt)
