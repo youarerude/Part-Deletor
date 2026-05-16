@@ -4583,33 +4583,63 @@ local function parseCmd(msg)
     local parts={}
     for w in msg:gmatch("%S+") do table.insert(parts,w) end
     local cmd=(parts[1] or ""):lower()
-    if     cmd=="/skip"          then skipRound(parts[2])
-    elseif cmd=="/shatter"       then shatterNow()
-    elseif cmd=="/give"          then giveCosmicCommand(parts[2])
-    elseif cmd=="/follower"      then cmdSpawnFollower()
-    elseif cmd=="/seed"          then cmdSpawnSeed()
-    elseif cmd=="/target"        then task.spawn(cmdSpawnTarget)
-    elseif cmd=="/helloworld"    then cmdSpawnHelloworld()
-    elseif cmd=="/camera"        then cmdSpawnCamera()
-    elseif cmd=="/keeper"        then cmdSpawnKeeper()
-    elseif cmd=="/distortion"    then cmdSpawnDistortion()
-    elseif cmd=="/malware"       then cmdSpawnMalware()
-    elseif cmd=="/hookeddoll"    then cmdSpawnHookedDoll()
-    elseif cmd=="/greed"         then task.spawn(cmdSpawnGreed)
-    elseif cmd=="/crescendo"     then task.spawn(cmdSpawnCrescendo)
-    elseif cmd=="/wormhole"      then cmdSpawnWormhole()
-    elseif cmd=="/guardian"      then task.spawn(cmdSpawnGuardian)
-    elseif cmd=="/hunger"        then
-        local def=nil; for _,e in ipairs(EntityRegistry) do if e.AI=="Hunger" then def=e;break end end
-        if def then task.spawn(function() spawnHunger(def,GS.MapPlatforms) end) end
-    elseif cmd=="/mementomori"   then task.spawn(cmdSpawnMementoMori)
-    elseif cmd=="/flesh"         then task.spawn(cmdSpawnFlesh)
-    elseif cmd=="/starlight"     then
-        local def=nil; for _,e in ipairs(EntityRegistry) do if e.AI=="Starlight" then def=e;break end end
-        if def then task.spawn(function() spawnStarlight(def,GS.MapPlatforms) end) end
-    elseif cmd=="/hunger"        then
-        local def=nil; for _,e in ipairs(EntityRegistry) do if e.AI=="Hunger" then def=e;break end end
-        if def then task.spawn(function() spawnHunger(def,GS.MapPlatforms) end) end
+
+    -- Parse count and optional "delay" keyword
+    -- e.g. /hunger 5 delay  OR  /hunger 3  OR  /hunger
+    local count = math.max(1, math.floor(tonumber(parts[2]) or 1))
+    local useDelay = false
+    for i=2,#parts do if parts[i]:lower()=="delay" then useDelay=true end end
+
+    -- Helper: spawn a function `fn` count times, with optional random 0-1s stagger
+    local function spawnMulti(fn)
+        task.spawn(function()
+            for i=1,count do
+                fn()
+                if i<count then
+                    if useDelay then task.wait(math.random()*1) else task.wait(0) end
+                end
+            end
+        end)
+    end
+
+    -- Helper: find def by AI name from both registries
+    local function findDef(aiName)
+        for _,e in ipairs(EntityRegistry) do if e.AI==aiName then return e end end
+        for _,e in ipairs(FatalEntityRegistry) do if e.AI==aiName then return e end end
+        return nil
+    end
+
+    if     cmd=="/skip"        then skipRound(parts[2])
+    elseif cmd=="/shatter"     then shatterNow()
+    elseif cmd=="/give"        then giveCosmicCommand(parts[2])
+
+    elseif cmd=="/follower"    then spawnMulti(function() cmdSpawnFollower() end)
+    elseif cmd=="/seed"        then spawnMulti(function() cmdSpawnSeed() end)
+    elseif cmd=="/target"      then spawnMulti(function() task.spawn(cmdSpawnTarget) end)
+    elseif cmd=="/helloworld"  then spawnMulti(function() cmdSpawnHelloworld() end)
+    elseif cmd=="/camera"      then spawnMulti(function() task.spawn(cmdSpawnCamera) end)
+    elseif cmd=="/keeper"      then spawnMulti(function() cmdSpawnKeeper() end)
+    elseif cmd=="/distortion"  then spawnMulti(function() cmdSpawnDistortion() end)
+    elseif cmd=="/malware"     then spawnMulti(function() cmdSpawnMalware() end)
+    elseif cmd=="/hookeddoll"  then spawnMulti(function() cmdSpawnHookedDoll() end)
+    elseif cmd=="/greed"       then spawnMulti(function() task.spawn(cmdSpawnGreed) end)
+    elseif cmd=="/crescendo"   then spawnMulti(function() task.spawn(cmdSpawnCrescendo) end)
+    elseif cmd=="/wormhole"    then spawnMulti(function() cmdSpawnWormhole() end)
+    elseif cmd=="/guardian"    then spawnMulti(function() task.spawn(cmdSpawnGuardian) end)
+    elseif cmd=="/mementomori" then spawnMulti(function() task.spawn(cmdSpawnMementoMori) end)
+    elseif cmd=="/flesh"       then spawnMulti(function() task.spawn(cmdSpawnFlesh) end)
+
+    elseif cmd=="/starlight" then
+        local def=findDef("Starlight")
+        if def then spawnMulti(function() spawnStarlight(def,GS.MapPlatforms) end) end
+
+    elseif cmd=="/hunger" then
+        local def=findDef("Hunger")
+        if def then spawnMulti(function() spawnHunger(def,GS.MapPlatforms) end) end
+
+    elseif cmd=="/distortion" then
+        local def=findDef("Distortion")
+        if def then spawnMulti(function() spawnDistortion(def,GS.MapPlatforms) end) end
     end
 end
 
