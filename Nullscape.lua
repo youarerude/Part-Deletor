@@ -191,7 +191,7 @@ local EntityRegistry = {
         Name="Hunger",
         Tips="Sidestep the red line — it aims directly at you before dashing.",
         AppearRound=25, AI="Hunger",
-        LineInterval=2, ShatterLineInterval=1,
+        LineInterval=1, ShatterLineInterval=0.3,
         LineLength=60, ShatterLineLength=80,
         DashSpeed=40, ShatterDashSpeed=60,
     },
@@ -2402,7 +2402,7 @@ local function spawnHunger(def, platforms)
         local hrp=getHRP(); if not hrp then return end
 
         local interval=GS.IsShatter and def.ShatterLineInterval or def.LineInterval
-        local lineLen=GS.IsShatter and def.ShatterLineLength or def.LineLength
+        local lineLen=(GS.IsShatter and def.ShatterLineLength or def.LineLength)-(GS.Upgrades.Calm and 20 or 0)
         local dashSpd=GS.IsShatter and def.ShatterDashSpeed or def.DashSpeed
 
         -- Always face player (rotate all parts toward player each frame)
@@ -2448,10 +2448,12 @@ local function spawnHunger(def, platforms)
 
                 if not model.Parent then isDashing=false; return end
 
-                -- Open jaws wide for dash
-                playSound(SFX.HungerDash, 1.5, body.Position)
-                if upperJaw.Parent then upperJaw.Position=body.Position+Vector3.new(0,4.5,0) end
-                if lowerJaw.Parent then lowerJaw.Position=body.Position+Vector3.new(0,-4.5,0) end
+                -- Open jaws wide for dash (suppressed by Calm)
+                if not GS.Upgrades.Calm then
+                    playSound(SFX.HungerDash, 1.5, body.Position)
+                    if upperJaw.Parent then upperJaw.Position=body.Position+Vector3.new(0,4.5,0) end
+                    if lowerJaw.Parent then lowerJaw.Position=body.Position+Vector3.new(0,-4.5,0) end
+                end
 
                 if redLine.Parent then redLine:Destroy() end
 
@@ -2759,6 +2761,17 @@ local function startCollectionLoop()
                     -- RandomMode: 3x reality count (not realimic)
                     local realAdd = (GS.RandomModeMultiplier and not isRealimic) and 3 or 1
                     GS.CollectedReality += realAdd
+                    -- Dopamine: +5 speed for 1.5s, stackable
+                    if GS.Upgrades.Dopamine then
+                        local hum3=getHum()
+                        if hum3 then
+                            hum3.WalkSpeed+=5
+                            task.delay(1.5,function()
+                                local hum4=getHum()
+                                if hum4 then hum4.WalkSpeed=math.max(16+(GS.Upgrades._SpeedyStacks or 0)*5,hum4.WalkSpeed-5) end
+                            end)
+                        end
+                    end
                     if isRealimic then
                         local gain=(GS.Upgrades.MoreIncome and 2 or 1)
                         GS.CosmicBank+=gain; if updateBankLabels then updateBankLabels() end
@@ -2999,6 +3012,18 @@ local UpgradeRegistry = {
         Name="Shard Idol", Tips="5% chance on any shard collect to also collect the 5 nearest shards.",
         Cost=9, Key="ShardIdol", OneTime=true, Chain=nil,
     },
+    {
+        Name="Dopamine", Tips="+5 speed for 1.5s each time you collect a shard. Stackable.",
+        Cost=5, Key="Dopamine", OneTime=false, Chain=nil,
+    },
+    {
+        Name="Calm", Tips="Hunger won't scream or open its jaws during dashes. Red line shrinks by 20 studs.",
+        Cost=7, Key="Calm", OneTime=true, Chain="Hunger",
+    },
+    {
+        Name="Low Gravity", Tips="-3 gravity. Stackable — pick it multiple times.",
+        Cost=6, Key="LowGravity", OneTime=false, Chain=nil,
+    },
 }
 
 -- Upgrade bank label (top-right of HUD)
@@ -3074,6 +3099,11 @@ local function applyUpgradeEffect(upg)
         local hum=getHum()
         GS.Upgrades._JumpyStacks=(GS.Upgrades._JumpyStacks or 0)+1
         if hum then hum.JumpPower=(hum.JumpPower or 50)+10 end
+    elseif upg.Key=="LowGravity" then
+        GS.Upgrades._GravityStacks=(GS.Upgrades._GravityStacks or 0)+1
+        workspace.Gravity=math.max(5, workspace.Gravity-3)
+    elseif upg.Key=="Calm" then
+        -- Applied live in Hunger AI via GS.Upgrades.Calm
     elseif upg.Key=="Radar" then
         -- ESP: attach BillboardGui to all existing entity models
         task.spawn(function()
@@ -3587,6 +3617,7 @@ btnRetry.MouseButton1Click:Connect(function()
     GS.RerollsLeft=MAX_REROLLS;GS.IsShatter=false
     GS.Upgrades={};GS.CosmicBank=0;updateBankLabels()
     GS.RandomMode=false;GS.RandomModeMultiplier=false
+    workspace.Gravity=196.2  -- reset gravity
     GS.FatalPickedEntities={};GS.FatalPickCounts={};GS.FatalBeaconsDone=false
     -- Reset fog
     Lighting.FogColor=Color3.fromRGB(8,4,18);Lighting.FogEnd=1000;Lighting.FogStart=350
@@ -4568,6 +4599,9 @@ local function parseCmd(msg)
     elseif cmd=="/crescendo"     then task.spawn(cmdSpawnCrescendo)
     elseif cmd=="/wormhole"      then cmdSpawnWormhole()
     elseif cmd=="/guardian"      then task.spawn(cmdSpawnGuardian)
+    elseif cmd=="/hunger"        then
+        local def=nil; for _,e in ipairs(EntityRegistry) do if e.AI=="Hunger" then def=e;break end end
+        if def then task.spawn(function() spawnHunger(def,GS.MapPlatforms) end) end
     elseif cmd=="/mementomori"   then task.spawn(cmdSpawnMementoMori)
     elseif cmd=="/flesh"         then task.spawn(cmdSpawnFlesh)
     elseif cmd=="/starlight"     then
@@ -4609,10 +4643,8 @@ buildLobby()
 startCollectionLoop()
 
 print("╔════════════════════════════════════╗")
-print("║  DEVOID v12 — loaded                ║")
+print("║  DEVOID v13 — loaded                ║")
 print("║  Entities : "..#EntityRegistry.."                   ║")
 print("║  Fatal    : "..#FatalEntityRegistry.."                    ║")
-print("║  Upgrades : "..#UpgradeRegistry.."                    ║")
-print("║  /skip /shatter /give /guardian     ║")
-print("║  /mementomori /wormhole /crescendo  ║")
+print("║  Upgrades : "..#UpgradeRegistry.."                   ║")
 print("╚════════════════════════════════════╝")
