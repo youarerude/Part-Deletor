@@ -66,6 +66,11 @@ local SFX = {
     HungerDash         = "138383389938029",
     HungerLine         = "92502103787032",
     LobbyMusic         = "112296438347538",
+    TimekeeperTick1    = "117739196628147",
+    TimekeeperTick2    = "91583289827384",
+    TimekeeperTick3    = "119981388738561",
+    TimekeeperTick4    = "114275742345908",
+    TimekeeperEnraged  = "108874309640157",
 }
 
 -- ============================================================
@@ -229,6 +234,14 @@ local FatalEntityRegistry = {
         -- Shatter: beam every 1s, train appears after 1s, unholy speed, better turn
         ShatterBeamInterval=1, ShatterWarnTime=1,
         ShatterTrainSpeed=420, ShatterTurnSpeed=1.8,
+    },
+    {
+        Name="Timekeeper",
+        Tips="Collect the instruments before it finishes ticking — or outrun it when enraged.",
+        AppearRound=40, AI="Timekeeper",
+        EnrageSpeed=100,
+        InstrumentCount=3, ShatterInstrumentCount=5,
+        ResetDelay=30,
     },
 }
 local MAX_FATAL_PICKS = 3
@@ -2686,6 +2699,7 @@ startRound=function()
             elseif def.AI=="Guardian"    then spawnGuardian(def,platforms)
             elseif def.AI=="MementoMori" then spawnMementoMori(def,platforms)
             elseif def.AI=="Flesh"       then spawnFlesh(def,platforms)
+            elseif def.AI=="Timekeeper"  then spawnTimekeeper(def,platforms)
             end
         end
         spawnRandomEntity()
@@ -3536,6 +3550,24 @@ buildLobby=function()
                 pickBeaconChoices(); updateBeaconBillboards()
             end)
         end
+    end
+
+    -- Round 40 gate message
+    if GS.Round==40 then
+        task.delay(1,function()
+            local lbl=Instance.new("TextLabel",GUI)
+            lbl.Size=UDim2.new(0.9,0,0,68);lbl.Position=UDim2.new(0.05,0,0.38,0)
+            lbl.BackgroundColor3=Color3.fromRGB(4,0,18);lbl.BackgroundTransparency=0.3
+            lbl.TextColor3=Color3.fromRGB(100,100,255)
+            lbl.TextScaled=true;lbl.Font=Enum.Font.GothamBold;lbl.TextWrapped=true
+            lbl.Text="The 4th gates of void opens, beings that lived outside of multiverse start invading."
+            lbl.ZIndex=18;lbl.TextTransparency=1;corner(lbl,10)
+            TweenService:Create(lbl,TweenInfo.new(1.2),{TextTransparency=0,BackgroundTransparency=0.28}):Play()
+            task.delay(6,function()
+                TweenService:Create(lbl,TweenInfo.new(2),{TextTransparency=1,BackgroundTransparency=1}):Play()
+                Debris:AddItem(lbl,2.2)
+            end)
+        end)
     end
 
     -- Random Mode offer: every multiple of 10 (10,20,30...)
@@ -4535,12 +4567,292 @@ spawnFlesh = function(def, platforms)
     print("[Devoid] Flesh spawned")
 end
 
+-- TIMEKEEPER
+local function spawnTimekeeper(def, platforms)
+    if #platforms==0 then return end
+
+    local TICK_SOUNDS={SFX.TimekeeperTick1,SFX.TimekeeperTick2,SFX.TimekeeperTick3,SFX.TimekeeperTick4}
+    local TICK_DURATIONS={3.8,3.8,3.8,3.8} -- approximate seconds each tick sound lasts
+    local instrTypes={"Piano","Harp","Violin","Cymbals","Trumpet"}
+    local instrColors={
+        Color3.fromRGB(120,80,40),  -- Piano (wood)
+        Color3.fromRGB(200,180,80), -- Harp (gold)
+        Color3.fromRGB(180,50,50),  -- Violin (red)
+        Color3.fromRGB(210,180,30), -- Cymbals (brass)
+        Color3.fromRGB(180,140,40), -- Trumpet (brass)
+    }
+
+    -- ---- BUILD CLOCK BODY ----
+    local model=Instance.new("Model",ENTITY_FOLDER); model.Name="Timekeeper"
+
+    -- Clock face (flat disc)
+    local clockFace=Instance.new("Part",model)
+    clockFace.Name="Root";clockFace.Size=Vector3.new(26,26,2)
+    clockFace.Position=Vector3.new(0,MAP_Y+60,0) -- high in the sky
+    clockFace.Anchored=true;clockFace.CanCollide=false
+    clockFace.Material=Enum.Material.SmoothPlastic;clockFace.Color=Color3.fromRGB(50,45,40)
+
+    -- Outer ring
+    local outerRing=Instance.new("Part",model)
+    outerRing.Shape=Enum.PartType.Cylinder;outerRing.Size=Vector3.new(2.5,28,28)
+    outerRing.CFrame=CFrame.new(clockFace.Position)*CFrame.Angles(0,0,math.pi/2)
+    outerRing.Anchored=true;outerRing.CanCollide=false
+    outerRing.Material=Enum.Material.SmoothPlastic;outerRing.Color=Color3.fromRGB(30,28,25)
+
+    -- Clock center hub
+    local hub=Instance.new("Part",model)
+    hub.Shape=Enum.PartType.Ball;hub.Size=Vector3.new(3,3,2.5)
+    hub.Position=clockFace.Position+Vector3.new(0,0,-1.5)
+    hub.Anchored=true;hub.CanCollide=false
+    hub.Material=Enum.Material.SmoothPlastic;hub.Color=Color3.fromRGB(200,190,160)
+
+    -- Hour marks (12 tick marks around the clock)
+    for i=1,12 do
+        local ang=(i/12)*math.pi*2
+        local mark=Instance.new("Part",model)
+        mark.Size=Vector3.new(1,3,0.8)
+        mark.Position=clockFace.Position+Vector3.new(math.cos(ang)*11,math.sin(ang)*11,-1.5)
+        mark.Anchored=true;mark.CanCollide=false
+        mark.Material=Enum.Material.SmoothPlastic;mark.Color=Color3.fromRGB(200,190,160)
+    end
+
+    -- Flower decorations around rim (4 flowers)
+    for i=1,4 do
+        local fAng=(i/4)*math.pi*2
+        local flower=Instance.new("Part",model)
+        flower.Shape=Enum.PartType.Ball;flower.Size=Vector3.new(2.5,2.5,1.5)
+        flower.Position=clockFace.Position+Vector3.new(math.cos(fAng)*14,math.sin(fAng)*14,-1.2)
+        flower.Anchored=true;flower.CanCollide=false
+        flower.Material=Enum.Material.Neon;flower.Color=Color3.fromRGB(180,100,180)
+    end
+
+    -- Hour hand
+    local hourHand=Instance.new("Part",model)
+    hourHand.Size=Vector3.new(1,8,0.8)
+    hourHand.Position=clockFace.Position+Vector3.new(0,3,-1.6)
+    hourHand.Anchored=true;hourHand.CanCollide=false
+    hourHand.Material=Enum.Material.SmoothPlastic;hourHand.Color=Color3.fromRGB(20,18,15)
+
+    -- Minute hand
+    local minuteHand=Instance.new("Part",model)
+    minuteHand.Size=Vector3.new(0.7,11,0.8)
+    minuteHand.Position=clockFace.Position+Vector3.new(0,4.5,-1.8)
+    minuteHand.Anchored=true;minuteHand.CanCollide=false
+    minuteHand.Material=Enum.Material.SmoothPlastic;minuteHand.Color=Color3.fromRGB(20,18,15)
+
+    -- Eye (hidden initially)
+    local eye=Instance.new("Part",model)
+    eye.Shape=Enum.PartType.Ball;eye.Size=Vector3.new(5,5,2)
+    eye.Position=clockFace.Position+Vector3.new(0,0,-1.6)
+    eye.Anchored=true;eye.CanCollide=false
+    eye.Material=Enum.Material.Neon;eye.Color=Color3.fromRGB(255,0,0)
+    eye.Transparency=1  -- hidden until enraged
+
+    local bb=Instance.new("BillboardGui",clockFace)
+    bb.Size=UDim2.new(0,130,0,28);bb.StudsOffset=Vector3.new(0,16,0);bb.AlwaysOnTop=true
+    local bl=Instance.new("TextLabel",bb);bl.Size=UDim2.new(1,0,1,0)
+    bl.BackgroundTransparency=1;bl.TextColor3=Color3.fromRGB(200,190,160)
+    bl.TextScaled=true;bl.Font=Enum.Font.GothamBold;bl.Text="Timekeeper"
+
+    model.PrimaryPart=clockFace;table.insert(GS.Entities,model)
+
+    -- ---- STATE ----
+    local state="passive"   -- passive | ticking | enraged
+    local tickIndex=0
+    local instruments={}
+    local enragedSnd=nil
+    local resetTimer=0
+    local handAngle=0
+
+    local instrCount=GS.IsShatter and def.ShatterInstrumentCount or def.InstrumentCount
+    local speedMult=GS.IsShatter and 1.5 or 1.0
+
+    -- ---- HELPERS ----
+    local function spawnInstruments()
+        -- Clear old
+        for _,iv in ipairs(instruments) do if iv.part and iv.part.Parent then iv.part:Destroy() end end
+        instruments={}
+        local pool={}
+        for _,p in ipairs(GS.MapPlatforms) do if p and p.Parent then table.insert(pool,p) end end
+        for i=#pool,2,-1 do local j=math.random(1,i);pool[i],pool[j]=pool[j],pool[i] end
+        for i=1,math.min(instrCount,#pool) do
+            local plat=pool[i]
+            local iType=math.random(1,#instrTypes)
+            local ip=Instance.new("Part",MAP_FOLDER)
+            ip.Name="TimekeeperInstrument"
+            ip.Shape=Enum.PartType.Ball;ip.Size=Vector3.new(2.5,2.5,2.5)
+            ip.Position=plat.Position+Vector3.new(0,4,0)
+            ip.Anchored=true;ip.CanCollide=false
+            ip.Material=Enum.Material.Neon;ip.Color=instrColors[iType]
+            -- Spin
+            local sc; sc=RunService.Heartbeat:Connect(function(dt)
+                if ip.Parent then ip.CFrame=ip.CFrame*CFrame.Angles(0,dt*2,0) else sc:Disconnect() end
+            end)
+            -- Billboard label
+            local ibb=Instance.new("BillboardGui",ip)
+            ibb.Size=UDim2.new(0,100,0,24);ibb.StudsOffset=Vector3.new(0,2.5,0);ibb.AlwaysOnTop=true
+            local ilbl=Instance.new("TextLabel",ibb);ilbl.Size=UDim2.new(1,0,1,0)
+            ilbl.BackgroundTransparency=1;ilbl.TextColor3=ip.Color
+            ilbl.TextScaled=true;ilbl.Font=Enum.Font.GothamBold;ilbl.Text=instrTypes[iType]
+            table.insert(instruments,{part=ip,collected=false})
+        end
+    end
+
+    local function allInstrumentsCollected()
+        local total=#instruments
+        if total==0 then return false end
+        local done=0
+        for _,iv in ipairs(instruments) do if iv.collected then done+=1 end end
+        return done>=total
+    end
+
+    local function setEnraged(on)
+        if on then
+            state="enraged"
+            -- Clock turns black
+            for _,p in ipairs(model:GetChildren()) do
+                if p:IsA("BasePart") then p.Color=Color3.fromRGB(0,0,0) end
+            end
+            eye.Transparency=0; eye.Color=Color3.fromRGB(255,0,0)
+            bl.Text="ENRAGED"; bl.TextColor3=Color3.fromRGB(255,0,0)
+            if not enragedSnd or not enragedSnd.Parent then
+                enragedSnd=Instance.new("Sound",clockFace)
+                enragedSnd.SoundId="rbxassetid://"..SFX.TimekeeperEnraged
+                enragedSnd.Volume=3;enragedSnd.Looped=true;enragedSnd:Play()
+            end
+        else
+            state="passive"
+            -- Restore colors
+            clockFace.Color=Color3.fromRGB(50,45,40)
+            outerRing.Color=Color3.fromRGB(30,28,25)
+            hub.Color=Color3.fromRGB(200,190,160)
+            eye.Transparency=1
+            bl.Text="Timekeeper";bl.TextColor3=Color3.fromRGB(200,190,160)
+            if enragedSnd then enragedSnd:Stop();enragedSnd:Destroy();enragedSnd=nil end
+        end
+    end
+
+    -- ---- TICK SEQUENCE ----
+    local function startTicking()
+        state="ticking"; tickIndex=0
+        task.spawn(function()
+            for t=1,4 do
+                if state~="ticking" or not model.Parent then break end
+                tickIndex=t
+                -- Advance clock hand
+                handAngle=handAngle+(math.pi/2)
+                -- Play tick sound
+                local snd=Instance.new("Sound",clockFace)
+                snd.SoundId="rbxassetid://"..TICK_SOUNDS[t]
+                snd.Volume=1.5;snd.PlaybackSpeed=speedMult;snd:Play()
+                local dur=TICK_DURATIONS[t]/speedMult
+                Debris:AddItem(snd,dur+0.5)
+                task.wait(dur)
+                -- Check if instruments collected mid-tick
+                if allInstrumentsCollected() then
+                    state="passive"; return
+                end
+            end
+            if state=="ticking" and model.Parent then
+                -- All 4 ticks done, no instruments → ENRAGED
+                setEnraged(true)
+                spawnInstruments()
+            end
+        end)
+    end
+
+    -- Initial instrument spawn after 2s
+    task.delay(2, function()
+        if model.Parent then
+            spawnInstruments()
+            task.wait(def.ResetDelay)
+            if model.Parent and state=="passive" then startTicking() end
+        end
+    end)
+
+    -- ---- MAIN LOOP ----
+    local conn=RunService.Heartbeat:Connect(function(dt)
+        if not model.Parent then return end
+        if GS.Phase=="DEAD" or GS.Phase=="LOBBY" then return end
+        local hrp=getHRP(); if not hrp then return end
+
+        -- Rotate clock hands visually
+        local hPos=clockFace.Position
+        hourHand.CFrame=CFrame.new(hPos+Vector3.new(0,0,-1.6))
+            *CFrame.Angles(0,0,handAngle)
+            *CFrame.new(0,4,0)
+        minuteHand.CFrame=CFrame.new(hPos+Vector3.new(0,0,-1.8))
+            *CFrame.Angles(0,0,handAngle*(4/3))
+            *CFrame.new(0,5.5,0)
+
+        -- Eye tracks player when enraged
+        if state=="enraged" then
+            -- Move toward player at EnrageSpeed
+            local diff=hrp.Position-clockFace.Position
+            local dist=diff.Magnitude
+            if dist>1 then
+                local mv=diff.Unit*def.EnrageSpeed*dt
+                for _,p in ipairs(model:GetChildren()) do
+                    if p:IsA("BasePart") then p.Position+=mv end
+                end
+            end
+            -- Kill on contact
+            if dist<14 then
+                local hum=getHum(); if hum and hum.Health>0 then hum.Health=0 end
+            end
+        end
+
+        -- Instrument collection check
+        if #instruments>0 then
+            for _,iv in ipairs(instruments) do
+                if not iv.collected and iv.part and iv.part.Parent then
+                    if (hrp.Position-iv.part.Position).Magnitude<5 then
+                        iv.collected=true
+                        TweenService:Create(iv.part,TweenInfo.new(0.3),{Transparency=1}):Play()
+                        Debris:AddItem(iv.part,0.4)
+                        -- Check if all done
+                        if allInstrumentsCollected() then
+                            if state=="enraged" then
+                                -- Reset to passive
+                                setEnraged(false)
+                                instruments={}
+                                resetTimer=0
+                                -- Schedule next tick after ResetDelay
+                                task.delay(def.ResetDelay,function()
+                                    if model.Parent and state=="passive" then
+                                        spawnInstruments()
+                                        task.wait(1)
+                                        startTicking()
+                                    end
+                                end)
+                            elseif state=="ticking" then
+                                -- Reset to tick 1
+                                state="passive"
+                                task.delay(0.5,function()
+                                    if model.Parent then
+                                        spawnInstruments()
+                                        task.wait(def.ResetDelay)
+                                        if model.Parent and state=="passive" then startTicking() end
+                                    end
+                                end)
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end)
+    table.insert(GS.EntityConns,conn)
+    print("[Devoid] Timekeeper spawned")
+end
+
 -- Dispatch fatal entities (assigns to forward-declared upvalue)
 spawnFatalEntities = function(platforms)
     for _,def in ipairs(GS.FatalPickedEntities) do
         if     def.AI=="Guardian"    then spawnGuardian(def, platforms)
         elseif def.AI=="MementoMori" then spawnMementoMori(def, platforms)
         elseif def.AI=="Flesh"       then spawnFlesh(def, platforms)
+        elseif def.AI=="Timekeeper"  then spawnTimekeeper(def, platforms)
         end
     end
 end
@@ -4628,6 +4940,9 @@ local function parseCmd(msg)
     elseif cmd=="/guardian"    then spawnMulti(function() task.spawn(cmdSpawnGuardian) end)
     elseif cmd=="/mementomori" then spawnMulti(function() task.spawn(cmdSpawnMementoMori) end)
     elseif cmd=="/flesh"       then spawnMulti(function() task.spawn(cmdSpawnFlesh) end)
+    elseif cmd=="/timekeeper" then
+        local def=nil; for _,e in ipairs(FatalEntityRegistry) do if e.AI=="Timekeeper" then def=e;break end end
+        if def then spawnMulti(function() task.spawn(function() spawnTimekeeper(def,GS.MapPlatforms) end) end) end
 
     elseif cmd=="/starlight" then
         local def=findDef("Starlight")
