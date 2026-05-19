@@ -3451,8 +3451,13 @@ buildLobby=function()
             end
         end
         GS.FatalBeaconChoices = {}
+        -- Randomize: pick up to BEACON_COUNT, no duplicates
+        local usedIdx={}
         for i=1,math.min(BEACON_COUNT,#fatalPool) do
-            table.insert(GS.FatalBeaconChoices, fatalPool[i])
+            local idx;local t=0
+            repeat idx=math.random(1,#fatalPool);t+=1 until not usedIdx[idx] or t>30
+            usedIdx[idx]=true
+            table.insert(GS.FatalBeaconChoices, fatalPool[idx])
         end
 
         -- Fatal sign
@@ -3550,6 +3555,64 @@ buildLobby=function()
                 pickBeaconChoices(); updateBeaconBillboards()
             end)
         end
+
+        -- Fatal reroll station
+        local frrBase=Instance.new("Part",LOBBY_FOLDER)
+        frrBase.Name="FatalRerollBase";frrBase.Size=Vector3.new(10,1,10)
+        frrBase.Position=Vector3.new(48,LOBBY_Y+1.5,-5);frrBase.Anchored=true
+        frrBase.Material=Enum.Material.Neon;frrBase.Color=Color3.fromRGB(100,0,0)
+        local frrSign=Instance.new("Part",LOBBY_FOLDER)
+        frrSign.Size=Vector3.new(14,5,1);frrSign.Position=Vector3.new(48,LOBBY_Y+7,-8)
+        frrSign.Anchored=true;frrSign.Material=Enum.Material.SmoothPlastic;frrSign.Color=Color3.fromRGB(30,0,0)
+        local frrG=Instance.new("SurfaceGui",frrSign)
+        frrG.Face=Enum.NormalId.Front;frrG.SizingMode=Enum.SurfaceGuiSizingMode.PixelsPerStud;frrG.PixelsPerStud=40
+        local frrT=Instance.new("TextLabel",frrG)
+        frrT.Size=UDim2.new(1,0,1,0);frrT.BackgroundTransparency=1
+        frrT.TextColor3=Color3.fromRGB(255,80,80);frrT.TextScaled=true
+        frrT.Font=Enum.Font.GothamBold;frrT.Text="REROLL FATAL"
+        local frrPP=Instance.new("ProximityPrompt",frrBase)
+        frrPP.ActionText="Reroll";frrPP.ObjectText="Fatal Reroll"
+        frrPP.MaxActivationDistance=60;frrPP.RequiresLineOfSight=false
+        frrPP.Triggered:Connect(function(p)
+            if p~=player or not GS.ShowingFatalBeacons then return end
+            local fp={}
+            for _,e in ipairs(FatalEntityRegistry) do
+                if e.AppearRound<=GS.Round then
+                    local cnt=GS.FatalPickCounts[e.Name] or 0
+                    if cnt<MAX_FATAL_PICKS then table.insert(fp,e) end
+                end
+            end
+            if #fp==0 then return end
+            local ui={}; GS.FatalBeaconChoices={}
+            for i=1,math.min(BEACON_COUNT,#fp) do
+                local idx;local t=0
+                repeat idx=math.random(1,#fp);t+=1 until not ui[idx] or t>30
+                ui[idx]=true;table.insert(GS.FatalBeaconChoices,fp[idx])
+            end
+            -- Refresh fatal orb billboards
+            local fi=0
+            for _,obj in ipairs(LOBBY_FOLDER:GetChildren()) do
+                if obj.Name:sub(1,14)=="FatalBeaconOrb" then
+                    fi+=1;local e=GS.FatalBeaconChoices[fi];if not e then continue end
+                    local fbb=obj:FindFirstChildOfClass("BillboardGui");if not fbb then continue end
+                    local fbg=fbb:FindFirstChildOfClass("Frame");if not fbg then continue end
+                    for _,l in ipairs(fbg:GetChildren()) do
+                        if l:IsA("TextLabel") then
+                            if l.Name=="FatalName" then l.Text=e.Name end
+                            if l.TextColor3==Color3.fromRGB(220,160,160) then l.Text="💡 "..e.Tips end
+                        end
+                    end
+                end
+            end
+            local fj=0
+            for _,obj in ipairs(LOBBY_FOLDER:GetChildren()) do
+                if obj.Name:sub(1,15)=="FatalBeaconBase" then
+                    fj+=1
+                    local pp=obj:FindFirstChildOfClass("ProximityPrompt")
+                    if pp and GS.FatalBeaconChoices[fj] then pp.ObjectText=GS.FatalBeaconChoices[fj].Name end
+                end
+            end
+        end)
     end
 
     -- Round 40 gate message
@@ -4665,12 +4728,25 @@ local function spawnTimekeeper(def, platforms)
     local handAngle=0
 
     local instrCount=GS.IsShatter and def.ShatterInstrumentCount or def.InstrumentCount
-    local speedMult=GS.IsShatter and 1.5 or 1.0
+    local speedMult=GS.IsShatter and 1.3 or 1.0
+    local TICK_LOOPS=2  -- each tick plays twice
+
+    -- Dark smoke particle on clockFace
+    local smokeAtt=Instance.new("Attachment",clockFace)
+    local smokePE=Instance.new("ParticleEmitter",smokeAtt)
+    smokePE.Color=ColorSequence.new(Color3.fromRGB(0,0,0))
+    smokePE.LightEmission=0;smokePE.Rate=25;smokePE.Speed=NumberRange.new(3,10)
+    smokePE.Lifetime=NumberRange.new(1,3)
+    smokePE.Size=NumberSequence.new({NumberSequenceKeypoint.new(0,3),NumberSequenceKeypoint.new(1,0)})
+    smokePE.Transparency=NumberSequence.new({NumberSequenceKeypoint.new(0,0.3),NumberSequenceKeypoint.new(1,1)})
 
     -- ---- HELPERS ----
     local function spawnInstruments()
         -- Clear old
-        for _,iv in ipairs(instruments) do if iv.part and iv.part.Parent then iv.part:Destroy() end end
+        for _,iv in ipairs(instruments) do
+            if iv.part and iv.part.Parent then iv.part:Destroy() end
+            if iv.line and iv.line.Parent then iv.line:Destroy() end
+        end
         instruments={}
         local pool={}
         for _,p in ipairs(GS.MapPlatforms) do if p and p.Parent then table.insert(pool,p) end end
@@ -4685,16 +4761,33 @@ local function spawnTimekeeper(def, platforms)
             ip.Anchored=true;ip.CanCollide=false
             ip.Material=Enum.Material.Neon;ip.Color=instrColors[iType]
             -- Spin
-            local sc; sc=RunService.Heartbeat:Connect(function(dt)
+            local sc;sc=RunService.Heartbeat:Connect(function(dt)
                 if ip.Parent then ip.CFrame=ip.CFrame*CFrame.Angles(0,dt*2,0) else sc:Disconnect() end
             end)
-            -- Billboard label
             local ibb=Instance.new("BillboardGui",ip)
             ibb.Size=UDim2.new(0,100,0,24);ibb.StudsOffset=Vector3.new(0,2.5,0);ibb.AlwaysOnTop=true
             local ilbl=Instance.new("TextLabel",ibb);ilbl.Size=UDim2.new(1,0,1,0)
             ilbl.BackgroundTransparency=1;ilbl.TextColor3=ip.Color
             ilbl.TextScaled=true;ilbl.Font=Enum.Font.GothamBold;ilbl.Text=instrTypes[iType]
-            table.insert(instruments,{part=ip,collected=false})
+
+            -- Line connecting instrument to Timekeeper
+            local linePart=Instance.new("Part",MAP_FOLDER)
+            linePart.Name="TimekeeperLine";linePart.Anchored=true;linePart.CanCollide=false
+            linePart.Material=Enum.Material.Neon;linePart.Color=Color3.fromRGB(180,160,100)
+            linePart.Transparency=0.4
+
+            -- Update line each frame to stretch from instrument to clock
+            local lineConn;lineConn=RunService.Heartbeat:Connect(function()
+                if not ip.Parent or not clockFace.Parent then lineConn:Disconnect();if linePart.Parent then linePart:Destroy() end;return end
+                local a=ip.Position; local b=clockFace.Position
+                local diff=b-a; local len=diff.Magnitude
+                if len>0 then
+                    linePart.Size=Vector3.new(0.4,0.4,len)
+                    linePart.CFrame=CFrame.new(a+diff*0.5,b)
+                end
+            end)
+
+            table.insert(instruments,{part=ip,line=linePart,collected=false})
         end
     end
 
@@ -4709,26 +4802,43 @@ local function spawnTimekeeper(def, platforms)
     local function setEnraged(on)
         if on then
             state="enraged"
-            -- Clock turns black
             for _,p in ipairs(model:GetChildren()) do
                 if p:IsA("BasePart") then p.Color=Color3.fromRGB(0,0,0) end
             end
-            eye.Transparency=0; eye.Color=Color3.fromRGB(255,0,0)
-            bl.Text="ENRAGED"; bl.TextColor3=Color3.fromRGB(255,0,0)
+            eye.Transparency=0;eye.Color=Color3.fromRGB(255,0,0)
+            bl.Text="ENRAGED";bl.TextColor3=Color3.fromRGB(255,0,0)
+            -- Very loud enraged sound
             if not enragedSnd or not enragedSnd.Parent then
                 enragedSnd=Instance.new("Sound",clockFace)
                 enragedSnd.SoundId="rbxassetid://"..SFX.TimekeeperEnraged
-                enragedSnd.Volume=3;enragedSnd.Looped=true;enragedSnd:Play()
+                enragedSnd.Volume=8;enragedSnd.Looped=true;enragedSnd:Play()
             end
+            -- Red fog
+            Lighting.FogColor=Color3.fromRGB(80,0,0)
+            Lighting.FogEnd=200;Lighting.FogStart=30
+            -- Heavy smoke
+            smokePE.Rate=120;smokePE.Speed=NumberRange.new(10,30)
+            smokePE.Size=NumberSequence.new({NumberSequenceKeypoint.new(0,8),NumberSequenceKeypoint.new(1,0)})
+            shakeCamera(3,1)
         else
             state="passive"
-            -- Restore colors
             clockFace.Color=Color3.fromRGB(50,45,40)
             outerRing.Color=Color3.fromRGB(30,28,25)
             hub.Color=Color3.fromRGB(200,190,160)
             eye.Transparency=1
             bl.Text="Timekeeper";bl.TextColor3=Color3.fromRGB(200,190,160)
             if enragedSnd then enragedSnd:Stop();enragedSnd:Destroy();enragedSnd=nil end
+            -- Restore fog
+            if GS.Round>=10 then
+                Lighting.FogColor=Color3.fromRGB(80,0,140)
+                Lighting.FogEnd=600;Lighting.FogStart=80
+            else
+                Lighting.FogColor=Color3.fromRGB(8,4,18)
+                Lighting.FogEnd=1000;Lighting.FogStart=350
+            end
+            -- Light smoke
+            smokePE.Rate=25;smokePE.Speed=NumberRange.new(3,10)
+            smokePE.Size=NumberSequence.new({NumberSequenceKeypoint.new(0,3),NumberSequenceKeypoint.new(1,0)})
         end
     end
 
@@ -4739,22 +4849,22 @@ local function spawnTimekeeper(def, platforms)
             for t=1,4 do
                 if state~="ticking" or not model.Parent then break end
                 tickIndex=t
-                -- Advance clock hand
                 handAngle=handAngle+(math.pi/2)
-                -- Play tick sound
-                local snd=Instance.new("Sound",clockFace)
-                snd.SoundId="rbxassetid://"..TICK_SOUNDS[t]
-                snd.Volume=1.5;snd.PlaybackSpeed=speedMult;snd:Play()
-                local dur=TICK_DURATIONS[t]/speedMult
-                Debris:AddItem(snd,dur+0.5)
-                task.wait(dur)
-                -- Check if instruments collected mid-tick
-                if allInstrumentsCollected() then
-                    state="passive"; return
+                -- Each tick plays TWICE
+                for loop=1,TICK_LOOPS do
+                    if state~="ticking" or not model.Parent then break end
+                    local snd=Instance.new("Sound",clockFace)
+                    snd.SoundId="rbxassetid://"..TICK_SOUNDS[t]
+                    snd.Volume=4;snd.PlaybackSpeed=speedMult;snd:Play()
+                    shakeCamera(1.2,0.5)
+                    local dur=TICK_DURATIONS[t]/speedMult
+                    Debris:AddItem(snd,dur+0.5)
+                    task.wait(dur)
+                    if allInstrumentsCollected() then state="passive"; return end
                 end
+                if state~="ticking" then return end
             end
             if state=="ticking" and model.Parent then
-                -- All 4 ticks done, no instruments → ENRAGED
                 setEnraged(true)
                 spawnInstruments()
             end
@@ -4810,6 +4920,10 @@ local function spawnTimekeeper(def, platforms)
                         iv.collected=true
                         TweenService:Create(iv.part,TweenInfo.new(0.3),{Transparency=1}):Play()
                         Debris:AddItem(iv.part,0.4)
+                        if iv.line and iv.line.Parent then
+                            TweenService:Create(iv.line,TweenInfo.new(0.3),{Transparency=1}):Play()
+                            Debris:AddItem(iv.line,0.4)
+                        end
                         -- Check if all done
                         if allInstrumentsCollected() then
                             if state=="enraged" then
