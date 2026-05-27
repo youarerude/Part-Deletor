@@ -33,7 +33,7 @@ local CONFIG = {
     ARENA_SIZE         = 200,
 
     -- Acceleration Glove Config
-    ACCEL_SPEED_GAIN_RATE       = 0.5,   -- seconds between speed ticks
+    ACCEL_SPEED_GAIN_RATE       = 0.2,   -- seconds between speed ticks
     ACCEL_SPEED_PER_TICK        = 1,     -- speed added per tick
     ACCEL_MAX_SPEED             = 300,   -- hard cap
     ACCEL_BASE_SPEED            = 16,    -- roblox default walkspeed
@@ -174,13 +174,28 @@ local GLOVE_DATA = {
     -- NEW: ACCELERATION GLOVE
     -- --------------------------------------------------------
     ["Acceleration Glove"] = {
-        PushPower      = 6,       -- base; actual push scales with current speed
+        PushPower      = 6,
         SlapCooldown   = 1.5,
         AbilityType    = "Passive",
         Ability        = "Accelerate",
         AbilityCooldown = 0,
         Color          = Color3.fromRGB(255, 80, 0),
         Description    = "Gain speed the longer you move. Crash into enemies to fling them. Max speed: 300.",
+    },
+
+    -- --------------------------------------------------------
+    -- NEW: PYROMANIA GLOVE
+    -- --------------------------------------------------------
+    ["Pyromania Glove"] = {
+        PushPower       = 6,
+        SlapCooldown    = 1.8,
+        AbilityType     = "Ability",
+        Ability         = "Gasoline",       -- 1st ability
+        AbilityCooldown  = 20,              -- 1st ability cooldown
+        Ability2         = "Ignite",        -- 2nd ability
+        AbilityCooldown2 = 15,             -- 2nd ability cooldown
+        Color           = Color3.fromRGB(255, 120, 0),
+        Description     = "Leave a trail of gasoline, then ignite it. Enemies caught in flames take 5 dmg/s for 5s.",
     },
     -- --------------------------------------------------------
 }
@@ -357,8 +372,8 @@ slapButton.Parent           = screenGui
 -- ============================================================
 local accelHudFrame = Instance.new("Frame")
 accelHudFrame.Name             = "AccelHud"
-accelHudFrame.Size             = UDim2.new(0, 280, 0, 70)
-accelHudFrame.Position         = UDim2.new(0.5, -140, 1, -190)
+accelHudFrame.Size             = UDim2.new(0, 320, 0, 72)
+accelHudFrame.Position         = UDim2.new(0.5, -160, 1, -80)
 accelHudFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
 accelHudFrame.BorderSizePixel  = 2
 accelHudFrame.BorderColor3     = Color3.fromRGB(255, 80, 0)
@@ -2896,6 +2911,18 @@ abilityButton.MouseButton1Click:Connect(function()
     local currentTime = tick()
     local gloveData   = GLOVE_DATA[currentGlove]
 
+    -- Pyromania 1st ability is handled here (Gasoline trail)
+    if currentGlove == "Pyromania Glove" then
+        if currentTime - lastAbilityTime < gloveData.AbilityCooldown then return end
+        lastAbilityTime = currentTime
+        activatePyroGasoline(nil, true)
+        local cd = gloveData.AbilityCooldown
+        abilityButton.Text = "GAS " .. cd
+        for i = cd - 1, 0, -1 do wait(1); abilityButton.Text = tostring(i) end
+        abilityButton.Text = "GASOLINE"
+        return
+    end
+
     if gloveData.AbilityType == "None" then return end
     if currentTime - lastAbilityTime < gloveData.AbilityCooldown then return end
     lastAbilityTime = currentTime
@@ -2920,19 +2947,28 @@ end)
 
 ability2Button.MouseButton1Click:Connect(function()
     local currentTime = tick()
-    if currentGlove ~= "Engineer Glove" then return end
-    local gloveData = GLOVE_DATA["Engineer Glove"]
-    if currentTime - lastAbility2Time < gloveData.AbilityCooldown2 then return end
-    lastAbility2Time = currentTime
-    activateEngineerRoombas(nil, true)
 
-    local cd = gloveData.AbilityCooldown2
-    ability2Button.Text = tostring(cd)
-    for i = cd - 1, 0, -1 do
-        wait(1)
-        ability2Button.Text = tostring(i)
+    if currentGlove == "Engineer Glove" then
+        local gloveData = GLOVE_DATA["Engineer Glove"]
+        if currentTime - lastAbility2Time < gloveData.AbilityCooldown2 then return end
+        lastAbility2Time = currentTime
+        activateEngineerRoombas(nil, true)
+        local cd = gloveData.AbilityCooldown2
+        ability2Button.Text = tostring(cd)
+        for i = cd - 1, 0, -1 do wait(1); ability2Button.Text = tostring(i) end
+        ability2Button.Text = "ABILITY 2"
+
+    elseif currentGlove == "Pyromania Glove" then
+        local gloveData = GLOVE_DATA["Pyromania Glove"]
+        if currentTime - lastAbility2Time < gloveData.AbilityCooldown2 then return end
+        lastAbility2Time = currentTime
+        activatePyroIgnite(nil, true)   -- defined later
+        local cd = gloveData.AbilityCooldown2
+        ability2Button.Text = tostring(cd)
+        ability2Button.Text = "🔥 IGNITE"
+        for i = cd - 1, 0, -1 do wait(1); ability2Button.Text = tostring(i) end
+        ability2Button.Text = "IGNITE"
     end
-    ability2Button.Text = "ABILITY 2"
 end)
 
 -- ============================================================
@@ -2991,7 +3027,7 @@ local function createGloveTool()
             adminPanelButton.Visible = false
         end
 
-        ability2Button.Visible = (currentGlove == "Engineer Glove")
+        ability2Button.Visible = (currentGlove == "Engineer Glove" or currentGlove == "Pyromania Glove")
 
         if currentGlove ~= "Song Glove" then
             slapButton.Visible = true
@@ -3034,6 +3070,25 @@ local function createGloveTool()
         if currentGlove == "Acceleration Glove" then
             stopAccelerationForPlayer()
         end
+
+        -- Pyromania: stop active trail if still running
+        if currentGlove == "Pyromania Glove" then
+            pyroGasolineActive = false
+            if pyroTrailConnection then
+                pyroTrailConnection:Disconnect()
+                pyroTrailConnection = nil
+            end
+            -- Fade out any un-ignited player gasoline puddles
+            for _, pd in ipairs(activePyroGasoline) do
+                if pd.part.Parent and not pd.ignited then
+                    TweenService:Create(pd.part, TweenInfo.new(0.5), {
+                        Transparency = 1
+                    }):Play()
+                    Debris:AddItem(pd.part, 0.6)
+                end
+            end
+            activePyroGasoline = {}
+        end
     end)
 
     tool.Activated:Connect(function()
@@ -3053,9 +3108,11 @@ local function createFakePlayer(name, glove)
         currentGlove        = glove,
         lastSlapTime        = 0,
         lastAbilityTime     = 0,
+        lastAbility2Time    = 0,
         lastAdminCommandTime = 0,
         adminCommandsUsed   = {},
         isAggro             = false,
+        isDead              = false,
         isCounterActive     = false,
         slapsTaken          = 0,
         slapsGiven          = 0,
@@ -3068,11 +3125,17 @@ local function createFakePlayer(name, glove)
         aggroTurret         = nil,
         aggroRoomba         = nil,
         wanderTarget        = nil,
-        -- Acceleration-specific state (initialized if glove matches)
+        -- Acceleration Glove state
         accelSpeed          = CONFIG.ACCEL_BASE_SPEED,
         accelTickTimer      = 0,
         accelCrashStunned   = false,
         accelStunEndTime    = 0,
+        -- Pyromania Glove state
+        pyroDummyGasoline   = {},
+        pyroGasolineActive  = false,
+        pyroGasolineEndTime = 0,
+        pyroGasolineTimer   = 0,
+        pyroIgnitedOwn      = false,
     }
 
     local model     = Instance.new("Model")
@@ -3167,8 +3230,10 @@ local function createFakePlayer(name, glove)
     weld(torso, leftLeg,  CFrame.new(-0.5, -2, 0))
     weld(torso, rightLeg, CFrame.new(0.5, -2, 0))
 
-    local hum    = Instance.new("Humanoid")
-    hum.Parent   = model
+    local hum          = Instance.new("Humanoid")
+    hum.MaxHealth      = 100
+    hum.Health         = 100
+    hum.Parent         = model
 
     local gloveVis           = Instance.new("Part")
     gloveVis.Name            = "GloveVisual"
@@ -3241,6 +3306,7 @@ end
 -- FAKE PLAYER AI — MAIN UPDATE
 -- ============================================================
 local function updateFakePlayerAI(fp, dt)
+    if fp.isDead then return end
     if not fp.character or not fp.rootPart or not fp.humanoid then return end
     if isTimeStopActive then return end
     if not character or not character:FindFirstChild("HumanoidRootPart") then return end
@@ -3519,32 +3585,73 @@ end
 -- ============================================================
 -- FAKE PLAYER HEALTH MONITORING + RESPAWN
 -- ============================================================
+-- Tracks which indices are already queued for respawn so we don't double-spawn
+local respawningIndices = {}
+
+local function respawnFakePlayer(i, fp)
+    if respawningIndices[i] then return end
+    respawningIndices[i] = true
+
+    -- Remove from aggro list immediately
+    for j, aggro in ipairs(aggroedFakePlayers) do
+        if aggro == fp then
+            table.remove(aggroedFakePlayers, j)
+            break
+        end
+    end
+
+    -- Destroy character model if it still exists
+    if fp.character and fp.character.Parent then
+        fp.character:Destroy()
+    end
+
+    -- Mark fp as dead so AI loop skips it
+    fp.isDead = true
+
+    spawn(function()
+        wait(CONFIG.RESPAWN_TIME)
+
+        local gloveNames = {}
+        for name, _ in pairs(GLOVE_DATA) do
+            table.insert(gloveNames, name)
+        end
+        -- Pick a DIFFERENT glove from the one the old dummy had
+        local newGlove
+        repeat
+            newGlove = gloveNames[math.random(1, #gloveNames)]
+        until newGlove ~= fp.currentGlove or #gloveNames == 1
+
+        local newFp = createFakePlayer(fp.name, newGlove)
+        newFp.wanderTarget = newFp.rootPart.Position
+        fakePlayersList[i] = newFp
+        respawningIndices[i] = nil
+        createNameTag(newFp)
+
+        -- Chat notification about respawn with new glove
+        spawn(function()
+            sendFakePlayerChat(newFp.name, "Respawned with " .. newGlove .. "!")
+        end)
+    end)
+end
+
 local function checkFakePlayerHealth()
     RunService.Heartbeat:Connect(function()
         for i, fp in ipairs(fakePlayersList) do
-            if fp.humanoid and fp.humanoid.Health <= 0 then
-                if fp.character then fp.character:Destroy() end
+            if fp.isDead then continue end
 
-                for j, aggro in ipairs(aggroedFakePlayers) do
-                    if aggro == fp then
-                        table.remove(aggroedFakePlayers, j)
-                        break
-                    end
-                end
+            -- Condition 1: humanoid died normally
+            local healthDead = fp.humanoid and fp.humanoid.Health <= 0
 
-                spawn(function()
-                    wait(CONFIG.RESPAWN_TIME)
+            -- Condition 2: model was destroyed (void kill, workspace cleanup, etc.)
+            local modelGone = fp.character == nil
+                or fp.character.Parent == nil
 
-                    local gloveNames = {}
-                    for name, _ in pairs(GLOVE_DATA) do
-                        table.insert(gloveNames, name)
-                    end
-                    local rg   = gloveNames[math.random(1, #gloveNames)]
-                    local newFp = createFakePlayer(fp.name, rg)
-                    newFp.wanderTarget = newFp.rootPart.Position
-                    fakePlayersList[i] = newFp
-                    createNameTag(newFp)
-                end)
+            -- Condition 3: rootPart gone
+            local rootGone = fp.rootPart == nil
+                or fp.rootPart.Parent == nil
+
+            if healthDead or modelGone or rootGone then
+                respawnFakePlayer(i, fp)
             end
         end
     end)
@@ -4094,4 +4201,488 @@ end)
 
 -- ============================================================
 print("=== EXTRA SYSTEMS LOADED: SessionStats | TierNotify | ColorTint ===")
+-- ============================================================
+
+-- ============================================================
+-- ============================================================
+--    PYROMANIA GLOVE — FULL SYSTEM
+--    Ability 1 : Gasoline Trail (20s CD)
+--    Ability 2 : Ignite          (15s CD)
+--    Passive   : Burn on contact with flame (5 dmg/s, 5s)
+-- ============================================================
+-- ============================================================
+
+-- ============================================================
+-- PYROMANIA STATE — PLAYER
+-- ============================================================
+local pyroGasolineActive       = false   -- is the trail currently being laid?
+local pyroGasolineEndTime      = 0       -- when the trail stops (5s after activation)
+local activePyroGasoline       = {}      -- list of gasoline puddle parts (player-owned)
+local pyroTrailConnection      = nil     -- Heartbeat connection for trail laying
+
+-- ============================================================
+-- PYROMANIA STATE — SHARED
+-- ============================================================
+local activeFlames             = {}      -- list of { flame, owner, gasolinePuddles }
+local burningCharacters        = {}      -- { character, endTime, connection }
+
+-- ============================================================
+-- PYROMANIA: UTILITY — IS PART GASOLINE?
+-- ============================================================
+local function isPyroGasolinePart(part)
+    return part and part.Name == "PyroGasoline"
+end
+
+-- ============================================================
+-- PYROMANIA: BURN EFFECT
+-- Applies 5 damage/s for 5s to a humanoid character.
+-- Stacks are prevented — if already burning, refresh timer.
+-- ============================================================
+local function applyBurnEffect(targetCharacter)
+    if not targetCharacter then return end
+    local targetHumanoid = targetCharacter:FindFirstChild("Humanoid")
+    if not targetHumanoid then return end
+
+    -- Check if already burning; if so, refresh end time only
+    for _, entry in ipairs(burningCharacters) do
+        if entry.character == targetCharacter then
+            entry.endTime = tick() + 5
+            return
+        end
+    end
+
+    -- Not yet burning — create entry
+    local entry = {
+        character = targetCharacter,
+        endTime   = tick() + 5,
+        conn      = nil,
+    }
+
+    -- Fire visual on target
+    local fireEffect      = Instance.new("Fire")
+    fireEffect.Name       = "BurnFire"
+    fireEffect.Size       = 3
+    fireEffect.Heat       = 8
+    fireEffect.Color      = Color3.fromRGB(255, 80, 0)
+    fireEffect.SecondaryColor = Color3.fromRGB(200, 160, 0)
+
+    local targetRoot = targetCharacter:FindFirstChild("HumanoidRootPart")
+        or targetCharacter:FindFirstChild("Torso")
+    if targetRoot then
+        fireEffect.Parent = targetRoot
+    end
+
+    -- Damage tick every 1 second
+    entry.conn = RunService.Heartbeat:Connect(function()
+        if not targetCharacter.Parent then
+            -- target was destroyed
+            if fireEffect.Parent then fireEffect:Destroy() end
+            entry.conn:Disconnect()
+            for i, e in ipairs(burningCharacters) do
+                if e == entry then table.remove(burningCharacters, i) break end
+            end
+            return
+        end
+
+        if tick() >= entry.endTime then
+            -- Burn expired
+            if fireEffect.Parent then fireEffect:Destroy() end
+            entry.conn:Disconnect()
+            for i, e in ipairs(burningCharacters) do
+                if e == entry then table.remove(burningCharacters, i) break end
+            end
+            return
+        end
+
+        -- Deal 5 damage every ~1s via a small per-tick check
+        -- We use a lastDamageTime inside the entry
+        if not entry.lastDamageTime then entry.lastDamageTime = tick() end
+        if tick() - entry.lastDamageTime >= 1 then
+            entry.lastDamageTime = tick()
+            if targetHumanoid and targetHumanoid.Health > 0 then
+                targetHumanoid.Health = math.max(0, targetHumanoid.Health - 5)
+            end
+        end
+    end)
+
+    table.insert(burningCharacters, entry)
+end
+
+-- ============================================================
+-- PYROMANIA: CREATE A SINGLE GASOLINE PUDDLE
+-- Returns the part so it can be tracked.
+-- ============================================================
+local function createGasolinePuddle(position, owner)
+    local puddle           = Instance.new("Part")
+    puddle.Name            = "PyroGasoline"
+    puddle.Size            = Vector3.new(3.5, 0.1, 3.5)
+    puddle.Position        = Vector3.new(position.X, position.Y - 2.8, position.Z)
+    puddle.Anchored        = true
+    puddle.CanCollide      = false
+    puddle.Material        = Enum.Material.Neon
+    puddle.Color           = Color3.fromRGB(80, 255, 80)      -- greenish slick
+    puddle.Transparency    = 0.35
+    puddle.CastShadow      = false
+    puddle.Parent          = workspace
+
+    -- Slight shimmer tween
+    local shimmerTween = TweenService:Create(puddle, TweenInfo.new(0.8, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), {
+        Transparency = 0.55,
+    })
+    shimmerTween:Play()
+
+    local puddleData = {
+        part      = puddle,
+        owner     = owner,    -- "player" or a fp reference
+        ignited   = false,
+        shimmer   = shimmerTween,
+    }
+
+    return puddleData
+end
+
+-- ============================================================
+-- PYROMANIA: FLOOD-FILL — find all connected gasoline puddles
+-- Two puddles are "connected" if they are within 5 studs of each other.
+-- ============================================================
+local function getConnectedGasoline(startPuddle, puddleList)
+    local connected = {}
+    local visited   = {}
+    local queue     = { startPuddle }
+    visited[startPuddle] = true
+
+    while #queue > 0 do
+        local current = table.remove(queue, 1)
+        table.insert(connected, current)
+
+        for _, other in ipairs(puddleList) do
+            if not visited[other] and not other.ignited then
+                local dist = (other.part.Position - current.part.Position).Magnitude
+                if dist <= 5 then
+                    visited[other]   = true
+                    table.insert(queue, other)
+                end
+            end
+        end
+    end
+
+    return connected
+end
+
+-- ============================================================
+-- PYROMANIA: IGNITE A SET OF PUDDLES
+-- Turns them into flames, checks for burn contact with dummies.
+-- ============================================================
+local function ignitePuddles(puddleSet, isPlayer)
+    for _, puddleData in ipairs(puddleSet) do
+        if puddleData.ignited or not puddleData.part.Parent then continue end
+        puddleData.ignited = true
+        if puddleData.shimmer then puddleData.shimmer:Cancel() end
+
+        local puddle = puddleData.part
+
+        -- Visual: turn orange/red for flames
+        puddle.Color        = Color3.fromRGB(255, 100, 0)
+        puddle.Transparency = 0.2
+
+        -- Add fire particle
+        local fire           = Instance.new("Fire")
+        fire.Name            = "PyroFire"
+        fire.Size            = 4
+        fire.Heat            = 9
+        fire.Color           = Color3.fromRGB(255, 80, 0)
+        fire.SecondaryColor  = Color3.fromRGB(200, 40, 0)
+        fire.Parent          = puddle
+
+        local flameEntry = {
+            puddle    = puddleData,
+            fire      = fire,
+            isPlayer  = isPlayer,
+            startTime = tick(),
+        }
+        table.insert(activeFlames, flameEntry)
+
+        -- Burn checker for this flame puddle
+        local burnConn
+        burnConn = RunService.Heartbeat:Connect(function()
+            if not puddle.Parent then
+                burnConn:Disconnect()
+                return
+            end
+
+            -- After 20s, extinguish this puddle
+            if tick() - flameEntry.startTime >= 20 then
+                burnConn:Disconnect()
+                if fire.Parent then fire:Destroy() end
+                puddle.Transparency = 1
+                Debris:AddItem(puddle, 0.5)
+                for i, fe in ipairs(activeFlames) do
+                    if fe == flameEntry then table.remove(activeFlames, i) break end
+                end
+                return
+            end
+
+            if isPlayer then
+                -- Check if any fake player dummy is standing on flame
+                for _, fp in ipairs(fakePlayersList) do
+                    if fp.character and fp.character:FindFirstChild("HumanoidRootPart") then
+                        local fRoot = fp.character.HumanoidRootPart
+                        local dist  = (fRoot.Position - puddle.Position).Magnitude
+                        if dist <= 3 then
+                            applyBurnEffect(fp.character)
+                        end
+                    end
+                end
+            else
+                -- Dummy-owned flame: check if real player steps on it
+                if character and character:FindFirstChild("HumanoidRootPart") then
+                    local pRoot = character.HumanoidRootPart
+                    local dist  = (pRoot.Position - puddle.Position).Magnitude
+                    if dist <= 3 then
+                        applyBurnEffect(character)
+                    end
+                end
+            end
+        end)
+    end
+end
+
+-- ============================================================
+-- PYROMANIA ABILITY 1: GASOLINE TRAIL (player)
+-- Lays gasoline puddles at player's feet every 0.25s for 5s.
+-- ============================================================
+local function activatePyroGasoline(_, isPlayer)
+    if isPlayer then
+        if not character or not character:FindFirstChild("HumanoidRootPart") then return end
+        if pyroGasolineActive then return end
+
+        pyroGasolineActive  = true
+        pyroGasolineEndTime = tick() + 5
+
+        -- Notification
+        spawn(function()
+            createAbilityNotification("GASOLINE TRAIL", Color3.fromRGB(80, 255, 80))
+        end)
+
+        -- Disconnect any old connection
+        if pyroTrailConnection then
+            pyroTrailConnection:Disconnect()
+            pyroTrailConnection = nil
+        end
+
+        -- Trail ticker
+        local lastPuddlePos   = Vector3.new(math.huge, 0, 0)
+        local MIN_PUDDLE_DIST = 2.5   -- only place new puddle if moved this far
+
+        pyroTrailConnection = RunService.Heartbeat:Connect(function()
+            if tick() >= pyroGasolineEndTime then
+                pyroGasolineActive = false
+                pyroTrailConnection:Disconnect()
+                pyroTrailConnection = nil
+                return
+            end
+
+            if not character or not character:FindFirstChild("HumanoidRootPart") then return end
+
+            local pos  = character.HumanoidRootPart.Position
+            local dist = (pos - lastPuddlePos).Magnitude
+
+            if dist >= MIN_PUDDLE_DIST then
+                lastPuddlePos = pos
+                local pd = createGasolinePuddle(pos, "player")
+                table.insert(activePyroGasoline, pd)
+
+                -- Auto-remove puddle after 10s (if not ignited)
+                spawn(function()
+                    wait(10)
+                    if pd.part.Parent and not pd.ignited then
+                        pd.part.Transparency = 1
+                        Debris:AddItem(pd.part, 0.2)
+                        for i, p in ipairs(activePyroGasoline) do
+                            if p == pd then table.remove(activePyroGasoline, i) break end
+                        end
+                    end
+                end)
+            end
+        end)
+    end
+end
+
+-- ============================================================
+-- PYROMANIA ABILITY 2: IGNITE (player)
+-- If standing on gasoline → flood-fill ignite connected puddles.
+-- If NOT on gasoline → summon fire at player's feet.
+-- ============================================================
+function activatePyroIgnite(_, isPlayer)
+    if not isPlayer then return end  -- only called for player here; dummy has own logic
+    if not character or not character:FindFirstChild("HumanoidRootPart") then return end
+
+    local cRoot      = character.HumanoidRootPart
+    local playerPos  = cRoot.Position
+
+    -- Find any gasoline puddle under/near the player
+    local standingOn = nil
+    for _, pd in ipairs(activePyroGasoline) do
+        if not pd.ignited and pd.part.Parent then
+            local dist = (pd.part.Position - playerPos).Magnitude
+            if dist <= 4 then
+                standingOn = pd
+                break
+            end
+        end
+    end
+
+    if standingOn then
+        -- Standing on gasoline — flood-fill ignite all connected
+        local connected = getConnectedGasoline(standingOn, activePyroGasoline)
+        ignitePuddles(connected, true)
+
+        spawn(function()
+            createAbilityNotification(
+                "IGNITE! " .. #connected .. " puddles!",
+                Color3.fromRGB(255, 80, 0)
+            )
+        end)
+    else
+        -- NOT on gasoline — summon standalone fire at feet
+        local fakeGas = createGasolinePuddle(playerPos, "player")
+        fakeGas.ignited = true   -- skip flood-fill logic
+        fakeGas.part.Parent = workspace
+        ignitePuddles({ fakeGas }, true)
+
+        spawn(function()
+            createAbilityNotification("IGNITE! (standalone fire)", Color3.fromRGB(255, 140, 0))
+        end)
+    end
+end
+
+-- ============================================================
+-- PYROMANIA: DUMMY (FAKE PLAYER) FUNCTIONS
+-- ============================================================
+
+-- State init for a Pyromania dummy
+local function initPyroDummyState(fp)
+    fp.pyroDummyGasoline   = {}    -- list of gasoline puddle data this dummy placed
+    fp.pyroGasolineActive  = false
+    fp.pyroGasolineEndTime = 0
+    fp.pyroGasolineTimer   = 0     -- time since last puddle drop
+    fp.pyroIgnitedOwn      = false -- has it ignited its gasoline this "round"?
+end
+
+-- Gasoline trail for dummy: drops puddles as it walks
+local function updatePyroDummyTrail(fp, dt)
+    if not fp.character or not fp.rootPart then return end
+    if not fp.pyroGasolineActive then return end
+    if tick() >= fp.pyroGasolineEndTime then
+        fp.pyroGasolineActive = false
+        return
+    end
+
+    fp.pyroGasolineTimer = fp.pyroGasolineTimer + dt
+    if fp.pyroGasolineTimer >= 0.3 then
+        fp.pyroGasolineTimer = 0
+        local pos = fp.rootPart.Position
+        local pd  = createGasolinePuddle(pos, fp)
+        table.insert(fp.pyroDummyGasoline, pd)
+
+        spawn(function()
+            wait(10)
+            if pd.part.Parent and not pd.ignited then
+                pd.part.Transparency = 1
+                Debris:AddItem(pd.part, 0.2)
+                for i, p in ipairs(fp.pyroDummyGasoline) do
+                    if p == pd then table.remove(fp.pyroDummyGasoline, i) break end
+                end
+            end
+        end)
+    end
+end
+
+-- Full per-frame Pyromania dummy AI update
+local function updatePyroDummy(fp, dt)
+    if not fp.character or not fp.rootPart or not fp.humanoid then return end
+
+    local fRoot      = fp.rootPart
+    local ct         = tick()
+
+    -- Drop gasoline trail while active
+    updatePyroDummyTrail(fp, dt)
+
+    if not character or not character:FindFirstChild("HumanoidRootPart") then return end
+    local playerRoot = character.HumanoidRootPart
+    local dist       = (playerRoot.Position - fRoot.Position).Magnitude
+
+    -- 1ST ABILITY: activate gasoline trail when within 20 studs
+    if not fp.pyroGasolineActive and ct - fp.lastAbilityTime >= 20 then
+        if dist <= 20 then
+            fp.lastAbilityTime    = ct
+            fp.pyroGasolineActive = true
+            fp.pyroGasolineEndTime = ct + 5
+            fp.pyroGasolineTimer  = 0
+            fp.pyroIgnitedOwn     = false  -- allow igniting again next time
+        end
+    end
+
+    -- 2ND ABILITY: ignite own gasoline if dummy has walked over it
+    if not fp.pyroIgnitedOwn and ct - fp.lastAbility2Time >= 15 then
+        -- Check if dummy is standing on any of its own (un-ignited) gasoline
+        for _, pd in ipairs(fp.pyroDummyGasoline) do
+            if not pd.ignited and pd.part.Parent then
+                local puddleDist = (fRoot.Position - pd.part.Position).Magnitude
+                if puddleDist <= 4 then
+                    fp.pyroIgnitedOwn    = true
+                    fp.lastAbility2Time  = ct
+
+                    -- Flood-fill ignite all connected dummy gasoline
+                    local connected = getConnectedGasoline(pd, fp.pyroDummyGasoline)
+                    ignitePuddles(connected, false)
+
+                    sendFakePlayerChat(fp.name, "IGNITE!")
+                    break
+                end
+            end
+        end
+    end
+end
+
+-- ============================================================
+-- PYROMANIA DUMMY: HOOK INTO MAIN updateFakePlayerAI
+-- We patch updateFakePlayerAI to call updatePyroDummy when needed
+-- by appending a check in the main loop via a wrapper connection.
+-- ============================================================
+RunService.Heartbeat:Connect(function(dt)
+    for _, fp in ipairs(fakePlayersList) do
+        if fp.isDead then continue end
+        if fp.currentGlove ~= "Pyromania Glove" then continue end
+        updatePyroDummy(fp, dt)
+    end
+end)
+
+-- ============================================================
+-- PYROMANIA: BUTTON LABEL RESET ON GLOVE EQUIP / UNEQUIP
+-- Keeps the button labels readable for mobile players.
+-- ============================================================
+RunService.Heartbeat:Connect(function()
+    if currentGlove == "Pyromania Glove" and equippedGlove then
+        -- Only reset to label text when not mid-cooldown
+        -- (cooldown loop handles the numbers itself)
+        if abilityButton.Visible  and abilityButton.Text  == "ABILITY" then
+            abilityButton.Text  = "GASOLINE"
+        end
+        if ability2Button.Visible and ability2Button.Text == "ABILITY 2" then
+            ability2Button.Text = "IGNITE"
+        end
+    elseif currentGlove ~= "Pyromania Glove" then
+        -- Restore generic labels when switching away
+        if abilityButton.Text  == "GASOLINE" then abilityButton.Text  = "ABILITY"   end
+        if ability2Button.Text == "IGNITE"   then ability2Button.Text = "ABILITY 2" end
+    end
+end)
+
+-- ============================================================
+print("=== PYROMANIA GLOVE LOADED ===")
+print("Ability 1 (GASOLINE button): Leave trail for 5s | 20s CD")
+print("Ability 2 (IGNITE button):   Ignite gasoline / standalone fire | 15s CD")
+print("Burn damage: 5 dmg/s for 5s on contact with flames")
+print("Dummy health: 100")
 -- ============================================================
