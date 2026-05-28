@@ -221,6 +221,14 @@ local activeRoombas       = {}
 local airBombTargetingActive = false
 local activeHighlights    = {}
 
+-- Pyromania Glove state (global so all handlers can reach them)
+local pyroGasolineActive   = false
+local pyroGasolineEndTime  = 0
+local activePyroGasoline   = {}
+local pyroTrailConnection  = nil
+local activeFlames         = {}
+local burningCharacters    = {}
+
 -- ============================================================
 -- ACCELERATION GLOVE STATE VARIABLES (PLAYER)
 -- ============================================================
@@ -4212,19 +4220,15 @@ print("=== EXTRA SYSTEMS LOADED: SessionStats | TierNotify | ColorTint ===")
 -- ============================================================
 -- ============================================================
 
--- ============================================================
 -- PYROMANIA STATE — PLAYER
--- ============================================================
-local pyroGasolineActive       = false   -- is the trail currently being laid?
-local pyroGasolineEndTime      = 0       -- when the trail stops (5s after activation)
-local activePyroGasoline       = {}      -- list of gasoline puddle parts (player-owned)
-local pyroTrailConnection      = nil     -- Heartbeat connection for trail laying
+pyroGasolineActive       = false
+pyroGasolineEndTime      = 0
+activePyroGasoline       = {}
+pyroTrailConnection      = nil
 
--- ============================================================
 -- PYROMANIA STATE — SHARED
--- ============================================================
-local activeFlames             = {}      -- list of { flame, owner, gasolinePuddles }
-local burningCharacters        = {}      -- { character, endTime, connection }
+activeFlames             = {}
+burningCharacters        = {}
 
 -- ============================================================
 -- PYROMANIA: UTILITY — IS PART GASOLINE?
@@ -4451,7 +4455,7 @@ end
 -- PYROMANIA ABILITY 1: GASOLINE TRAIL (player)
 -- Lays gasoline puddles at player's feet every 0.25s for 5s.
 -- ============================================================
-local function activatePyroGasoline(_, isPlayer)
+function activatePyroGasoline(_, isPlayer)
     if isPlayer then
         if not character or not character:FindFirstChild("HumanoidRootPart") then return end
         if pyroGasolineActive then return end
